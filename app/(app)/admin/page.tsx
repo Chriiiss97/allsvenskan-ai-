@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { resolveUnansweredQuestion, toggleFeatureFlag } from "./actions";
 import { timeAgo, estimateCostUsd, formatUsd, startOfUtcDay } from "@/lib/admin/format";
+import { TOPICS, classifyTopics } from "@/lib/admin/topics";
 
 interface UnansweredQuestion {
   id: number;
@@ -159,6 +160,27 @@ export default async function AdminPage() {
     log_unanswered_question: "Okänd fråga",
   };
 
+  // Ämnen — kategoriserar den RÅA frågetexten (inte vilket verktyg som
+  // råkade anropas), se lib/admin/topics.ts. Det här är den siffra som
+  // faktiskt svarar på "vad vill användarna veta", till skillnad från
+  // verktygsanvändningen ovan som är en teknisk/utvecklarsiffra.
+  const { data: userMessagesData } = await supabase
+    .from("message")
+    .select("content")
+    .eq("role", "user")
+    .returns<{ content: string }[]>();
+  const userMessages = userMessagesData ?? [];
+  const topicCounts = new Map<string, number>();
+  for (const msg of userMessages) {
+    for (const key of classifyTopics(msg.content)) {
+      topicCounts.set(key, (topicCounts.get(key) ?? 0) + 1);
+    }
+  }
+  const topTopics = TOPICS.map((t) => ({ ...t, count: topicCounts.get(t.key) ?? 0 }))
+    .filter((t) => t.count > 0)
+    .sort((a, b) => b.count - a.count);
+  const maxTopicCount = Math.max(1, ...topTopics.map((t) => t.count));
+
   // AI-status: token- och kostnadsförbrukning, från riktiga loggade anrop.
   const { data: usageData } = await supabase
     .from("message_usage")
@@ -271,38 +293,40 @@ export default async function AdminPage() {
         </div>
       </div>
 
-      {/* Vad frågar användarna om */}
+      {/* Vad frågar användarna om — ämne (frågetext), inte verktygsval.
+          "Mest efterfrågade lag" är fortfarande verktygsbaserat, men det
+          är korrekt där (team-parametern är exakt det verktyget fick in). */}
       <div className="mt-8">
         <SectionLabel>Vad frågar användarna om</SectionLabel>
-        {toolCalls.length === 0 ? (
-          <p className="rounded-xl border border-white/10 bg-[#141418] p-4 text-sm text-[#898781]">
-            Ingen loggad verktygsanvändning än — fylls i allt eftersom folk chattar (kräver att
-            migration 0013 är körd).
-          </p>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-white/10 bg-[#141418] p-4">
-              <p className="mb-3 text-xs font-medium text-white">Populära frågetyper</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-white/10 bg-[#141418] p-4">
+            <p className="mb-1 text-xs font-medium text-white">Ämnen</p>
+            <p className="mb-3 text-[10px] text-[#7d7c76]">
+              Nyckelordsmatchning på frågetexten, inte AI-klassificering.
+            </p>
+            {topTopics.length === 0 ? (
+              <p className="text-xs text-[#898781]">Inga kategoriserbara frågor loggade än.</p>
+            ) : (
               <div className="flex flex-col gap-2.5">
-                {topTools.map(([tool, count]) => (
-                  <RankBar key={tool} label={TOOL_LABELS[tool] ?? tool} count={count} max={maxToolCount} />
+                {topTopics.map((t) => (
+                  <RankBar key={t.key} label={`${t.icon} ${t.label}`} count={t.count} max={maxTopicCount} />
                 ))}
               </div>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-[#141418] p-4">
-              <p className="mb-3 text-xs font-medium text-white">Mest efterfrågade lag</p>
-              {topTeams.length === 0 ? (
-                <p className="text-xs text-[#898781]">Inga lag-specifika frågor loggade än.</p>
-              ) : (
-                <div className="flex flex-col gap-2.5">
-                  {topTeams.map(([team, count]) => (
-                    <RankBar key={team} label={team} count={count} max={maxTeamCount} />
-                  ))}
-                </div>
-              )}
-            </div>
+            )}
           </div>
-        )}
+          <div className="rounded-xl border border-white/10 bg-[#141418] p-4">
+            <p className="mb-3 text-xs font-medium text-white">Mest efterfrågade lag</p>
+            {topTeams.length === 0 ? (
+              <p className="text-xs text-[#898781]">Inga lag-specifika frågor loggade än.</p>
+            ) : (
+              <div className="flex flex-col gap-2.5">
+                {topTeams.map(([team, count]) => (
+                  <RankBar key={team} label={team} count={count} max={maxTeamCount} />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* AI-status */}
@@ -318,6 +342,20 @@ export default async function AdminPage() {
           Kostnad är uppskattad från riktiga loggade tokens ({usage.length} loggade svar) till listpris
           för claude-haiku-4-5 — inte ett fabricerat exempel.
         </p>
+        {toolCalls.length > 0 && (
+          <div className="mt-3 rounded-xl border border-white/10 bg-[#141418] p-4">
+            <p className="mb-1 text-xs font-medium text-white">Verktygsanvändning</p>
+            <p className="mb-3 text-[10px] text-[#7d7c76]">
+              Teknisk siffra — vilken funktion Claude anropade, inte vad frågan handlade om (se Ämnen
+              ovan).
+            </p>
+            <div className="flex flex-col gap-2.5">
+              {topTools.map(([tool, count]) => (
+                <RankBar key={tool} label={TOOL_LABELS[tool] ?? tool} count={count} max={maxToolCount} />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Datastatus */}
