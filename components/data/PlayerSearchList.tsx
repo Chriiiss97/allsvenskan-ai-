@@ -2,22 +2,24 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { PlayerAvatar } from "./PlayerAvatar";
-import { translatePosition } from "@/lib/i18n/sv";
+import { usePathname, useSearchParams } from "next/navigation";
+import { PlayerCard, type PlayerCardData, type PlayerSortKey } from "./PlayerCard";
 
-export interface PlayerListItem {
-  id: number;
-  full_name: string;
-  position: string | null;
-  photoUrl: string | null;
-  teamName: string | null;
-  teamIndex: 0 | 1;
-  stat: { goals: number; appearances: number; year: number } | null;
-}
+export type PlayerListItem = PlayerCardData;
 
-export function PlayerSearchList({ players }: { players: PlayerListItem[] }) {
+const SORT_OPTIONS: { key: PlayerSortKey; label: string }[] = [
+  { key: "name", label: "Namn" },
+  { key: "goals", label: "Mål" },
+  { key: "assists", label: "Assist" },
+  { key: "appearances", label: "Matcher" },
+  { key: "minutes", label: "Minuter" },
+];
+
+export function PlayerSearchList({ players, sort }: { players: PlayerListItem[]; sort: PlayerSortKey }) {
   const [query, setQuery] = useState("");
   const [teamFilter, setTeamFilter] = useState<string | "all">("all");
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const teams = useMemo(() => {
     const set = new Set<string>();
@@ -31,9 +33,17 @@ export function PlayerSearchList({ players }: { players: PlayerListItem[] }) {
     return matchesQuery && matchesTeam;
   });
 
+  function sortHref(key: PlayerSortKey) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (key === "name") params.delete("sort");
+    else params.set("sort", key);
+    const qs = params.toString();
+    return qs ? `${pathname}?${qs}` : pathname;
+  }
+
   return (
     <div>
-      <div className="mt-6 flex flex-wrap gap-2">
+      <div className="mt-6 flex flex-wrap items-center gap-2">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -63,29 +73,26 @@ export function PlayerSearchList({ players }: { players: PlayerListItem[] }) {
         </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-3 flex items-center gap-2 text-xs">
+        <span className="text-[#7d7c76]">Sortera:</span>
+        <div className="flex flex-wrap gap-1">
+          {SORT_OPTIONS.map((opt) => (
+            <Link
+              key={opt.key}
+              href={sortHref(opt.key)}
+              className={`rounded-full px-2.5 py-1 font-medium transition-colors ${
+                sort === opt.key ? "bg-[#3987e5]/15 text-white" : "text-[#898781] hover:text-white"
+              }`}
+            >
+              {opt.label}
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {filtered.map((p) => (
-          <Link
-            key={p.id}
-            href={`/data/players/${p.id}`}
-            className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#1a1a19] p-3 transition-colors hover:border-white/25 hover:bg-white/[.03]"
-          >
-            <PlayerAvatar name={p.full_name} teamIndex={p.teamIndex} photoUrl={p.photoUrl} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{p.full_name}</p>
-              <p className="truncate text-xs text-[#898781]">
-                {p.teamName ?? "—"} {p.position && `· ${translatePosition(p.position)}`}
-              </p>
-            </div>
-            {p.stat && (
-              <div className="shrink-0 rounded-lg bg-white/5 px-2 py-1 text-right">
-                <p className="text-sm font-semibold leading-none">{p.stat.goals}</p>
-                <p className="mt-0.5 text-[9px] leading-none text-[#898781]">
-                  mål {p.stat.year} · {p.stat.appearances}M
-                </p>
-              </div>
-            )}
-          </Link>
+          <PlayerCard key={p.id} player={p} sort={sort} />
         ))}
       </div>
 

@@ -171,6 +171,18 @@ export async function getCards(supabase: Supabase, params: CardsParams) {
 // ---------------------------------------------------------------------------
 // get_team_facts
 // ---------------------------------------------------------------------------
+export interface TeamFactsRow {
+  name: string;
+  nicknames: string[];
+  founded_year: number | null;
+  short_history: string | null;
+  website_url: string | null;
+  venue_name: string | null;
+  team_trophy: { competition: string; year: number }[];
+  team_legend: { name: string; period: string | null; role: string | null; description: string | null }[];
+  team_rivalry: { rival_name: string | null; description: string | null }[];
+}
+
 export async function getTeamFacts(supabase: Supabase, teamIdentifier: string) {
   const team = await resolveTeamOrThrow(supabase, teamIdentifier);
 
@@ -183,7 +195,7 @@ export async function getTeamFacts(supabase: Supabase, teamIdentifier: string) {
         "team_rivalry!team_rivalry_team_id_fkey(rival_name, description)"
     )
     .eq("id", team.id)
-    .single();
+    .single<TeamFactsRow>();
 
   if (error) throw new FootballDataError(error.message);
   return data;
@@ -672,6 +684,94 @@ export async function getTeamComparison(supabase: Supabase, params: TeamComparis
         awayScore: f.away_score,
       })),
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// getTeamProfile — Data-sektionen "Ett lag". Bara UI-lagret (app/(app)/data/
+// teams), inget Claude-verktyg — så inget tool-definitions-tillägg behövs.
+// Återanvänder computeFormRecord (samma som getTeamComparison), getFixtures
+// och getTeamFacts rakt av istället för att duplicera deras frågor.
+// ---------------------------------------------------------------------------
+export interface TeamProfileParams {
+  team: string;
+  season?: number;
+}
+
+export async function getTeamProfile(supabase: Supabase, params: TeamProfileParams) {
+  const team = await resolveTeamOrThrow(supabase, params.team);
+
+  if (!team.external_id || !COMPARABLE_TEAM_EXTERNAL_IDS.includes(team.external_id)) {
+    throw new FootballDataError(
+      `"${team.name}" har inte fullständig data importerad — lagprofiler stödjer bara IFK Göteborg och AIK just nu.`
+    );
+  }
+
+  let seasonYear = params.season ?? null;
+  let seasonId: number | null = null;
+  if (seasonYear) {
+    const { data: seasonRow } = await supabase
+      .from("season")
+      .select("id")
+      .eq("year", seasonYear)
+      .maybeSingle();
+    if (!seasonRow) throw new FootballDataError(`Ingen data för säsong ${seasonYear}`);
+    seasonId = seasonRow.id;
+  }
+
+  let fixturesQuery = supabase
+    .from("fixture")
+    .select(
+      "id, external_id, kickoff_at, status, home_score, away_score, home_team_id, away_team_id, season:season_id(year)"
+    )
+    .or(`home_team_id.eq.${team.id},away_team_id.eq.${team.id}`)
+    .order("kickoff_at", { ascending: false });
+  if (seasonId) fixturesQuery = fixturesQuery.eq("season_id", seasonId);
+  const { data: fixturesData, error: fixturesError } = await fixturesQuery.returns<ComparisonFixtureRow[]>();
+  if (fixturesError) throw new FootballDataError(fixturesError.message);
+  const allFixtures = fixturesData ?? [];
+
+  // Ingen säsong angiven -> samma "senaste importerade säsong"-logik som
+  // getTeamComparison, av samma skäl (annars blandas flera säsonger ihop).
+  let scopedFixtures = allFixtures;
+  if (!seasonYear) {
+    seasonYear = allFixtures[0]?.season?.year ?? null;
+    if (seasonYear) scopedFixtures = allFixtures.filter((f) => f.season?.year === seasonYear);
+  }
+
+  const record = computeFormRecord(scopedFixtures, team.id);
+
+  const [{ data: squadData }, scorersResult, facts, { data: logoRow }, recentFixtures] = await Promise.all([
+    supabase
+      .from("player")
+      .select("id, full_name, position, photo_url")
+      .eq("current_team_id", team.id)
+      .order("full_name")
+      .returns<{ id: number; full_name: string; position: string | null; photo_url: string | null }[]>(),
+    getTopScorers(supabase, { team: team.name, season: seasonYear ?? undefined, limit: 50 }),
+    getTeamFacts(supabase, team.name),
+    supabase.from("team").select("logo_url").eq("id", team.id).single<{ logo_url: string | null }>(),
+    getFixtures(supabase, { team: team.name, season: seasonYear ?? undefined, limit: 5 }),
+  ]);
+
+  const scorers = scorersResult.scorers;
+  const topScorer = scorers.length > 0 ? scorers[0] : null;
+  const topAssist = scorers.length > 0 ? [...scorers].sort((a, b) => b.assists - a.assists)[0] : null;
+
+  return {
+    team: { name: team.name, logoUrl: logoRow?.logo_url ?? null },
+    season: seasonYear,
+    record,
+    squad: (squadData ?? []).map((p) => ({
+      id: p.id,
+      name: p.full_name,
+      position: p.position,
+      photoUrl: p.photo_url,
+    })),
+    topScorer: topScorer ? { name: topScorer.name, goals: topScorer.goals } : null,
+    topAssist: topAssist && topAssist.assists > 0 ? { name: topAssist.name, assists: topAssist.assists } : null,
+    recentMatches: recentFixtures.fixtures,
+    facts,
   };
 }
 

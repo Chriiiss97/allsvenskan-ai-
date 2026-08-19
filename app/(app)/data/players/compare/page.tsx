@@ -4,7 +4,7 @@ import { comparePlayers, FootballDataError } from "@/lib/football/tools";
 import { PlayerCompareControls } from "@/components/data/PlayerCompareControls";
 import { PlayerCompareTable } from "@/components/data/PlayerCompareTable";
 import { PlayerCompareRadar } from "@/components/data/PlayerCompareRadar";
-import { BackButton } from "@/components/nav/BackButton";
+import { SectionTabs } from "@/components/data/SectionTabs";
 
 interface PlayerOption {
   id: number;
@@ -50,8 +50,13 @@ export default async function ComparePlayersPage({
 
   return (
     <div>
-      <BackButton href="/data/players" label="Alla spelare" />
-      <h1 className="mt-2 text-2xl font-semibold tracking-tight">Jämför spelare</h1>
+      <SectionTabs
+        tabs={[
+          { label: "Spelare", href: "/data/players" },
+          { label: "Jämför spelare", href: "/data/players/compare" },
+        ]}
+      />
+      <h1 className="text-3xl font-bold tracking-tight">Jämför spelare</h1>
 
       <div className="mt-4">
         <PlayerCompareControls players={players} idA={idA} idB={idB} />
