@@ -23,31 +23,35 @@ function iconProps(props: SVGProps<SVGSVGElement>): SVGProps<SVGSVGElement> {
 
 const ChatIcon = (props: SVGProps<SVGSVGElement>) => (
   <svg {...iconProps(props)}>
-    <path d="M4 5.5h16v10H9l-4 3.5v-3.5H4z" />
+    <path d="M4 7a3 3 0 013-3h10a3 3 0 013 3v6a3 3 0 01-3 3h-6l-4 3v-3H7a3 3 0 01-3-3V7z" />
+    <circle cx="9" cy="10" r="0.6" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="10" r="0.6" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="10" r="0.6" fill="currentColor" stroke="none" />
   </svg>
 );
 const PlayerIcon = (props: SVGProps<SVGSVGElement>) => (
   <svg {...iconProps(props)}>
-    <circle cx="12" cy="8" r="3.2" />
-    <path d="M5 20c0-4 3-6.2 7-6.2s7 2.2 7 6.2" />
+    <circle cx="12" cy="8" r="3.3" />
+    <path d="M5 20c0-4.2 3.1-6.5 7-6.5s7 2.3 7 6.5" />
   </svg>
 );
 const TeamIcon = (props: SVGProps<SVGSVGElement>) => (
   <svg {...iconProps(props)}>
-    <path d="M12 3.2l6.5 2.6v5.6c0 4.6-3.1 7.4-6.5 8.4-3.4-1-6.5-3.8-6.5-8.4V5.8L12 3.2z" />
+    <path d="M12 3l7 3v5.5c0 4.8-3.2 7.7-7 8.8-3.8-1.1-7-4-7-8.8V6l7-3z" />
   </svg>
 );
 const MatchIcon = (props: SVGProps<SVGSVGElement>) => (
   <svg {...iconProps(props)}>
-    <rect x="4" y="5.5" width="16" height="14" rx="2" />
-    <path d="M4 9.5h16M8 3.5v3.5M16 3.5v3.5" />
+    <circle cx="12" cy="12" r="8.3" />
+    <path d="M12 7.8l3 2.1-1.1 3.5h-3.8L9 9.9l3-2.1z" />
+    <path d="M12 7.8V4.3M9.1 13.4l-3.7 1.8M14.9 13.4l3.7 1.8M10 10.3L6.4 8.3M14 10.3l3.6-2" />
   </svg>
 );
 const StandingsIcon = (props: SVGProps<SVGSVGElement>) => (
   <svg {...iconProps(props)}>
-    <path d="M8 3.5h8v4.2a4 4 0 01-8 0V3.5z" />
-    <path d="M6 4.7H4.3v2A3.7 3.7 0 008 10.4M18 4.7h1.7v2A3.7 3.7 0 0116 10.4" />
-    <path d="M10 13.7v2.8M14 13.7v2.8M8.3 20.5h7.4M9.5 17.2h5" />
+    <path d="M7.5 4h9v3.8a4.5 4.5 0 01-9 0V4z" />
+    <path d="M7.5 5.2H4.8v1.6a3.6 3.6 0 003.4 3.6M16.5 5.2h2.7v1.6a3.6 3.6 0 01-3.4 3.6" />
+    <path d="M12 13v3M9 20h6M9.6 17h4.8" />
   </svg>
 );
 const SettingsIcon = (props: SVGProps<SVGSVGElement>) => (
