@@ -29,6 +29,13 @@ const ChatIcon = (props: SVGProps<SVGSVGElement>) => (
     <circle cx="15" cy="10" r="0.6" fill="currentColor" stroke="none" />
   </svg>
 );
+const ExploreIcon = (props: SVGProps<SVGSVGElement>) => (
+  <svg {...iconProps(props)}>
+    <rect x="4.2" y="13.5" width="3.4" height="6.5" rx="1" />
+    <rect x="10.3" y="9" width="3.4" height="11" rx="1" />
+    <rect x="16.4" y="4.5" width="3.4" height="15.5" rx="1" />
+  </svg>
+);
 const PlayerIcon = (props: SVGProps<SVGSVGElement>) => (
   <svg {...iconProps(props)}>
     <circle cx="12" cy="8" r="3.3" />
@@ -61,86 +68,113 @@ const SettingsIcon = (props: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
-const NAV_ITEMS = [
-  { href: "/chat", label: "Chatta", icon: ChatIcon },
-  { href: "/data/players", label: "Spelare", icon: PlayerIcon },
-  { href: "/data/teams", label: "Lag", icon: TeamIcon },
-  { href: "/data/matches", label: "Matcher", icon: MatchIcon },
-] as const;
+interface NavItem {
+  href?: string;
+  label: string;
+  icon: (props: SVGProps<SVGSVGElement>) => React.JSX.Element;
+  disabled?: boolean;
+  // "Utforska" pekar (medvetet, se komponentkommentaren nedan) på samma
+  // route som "Spelare" — den ska därför aldrig visas som aktiv själv,
+  // annars lyser två länkar blått samtidigt på /data/players.
+  trackActive?: boolean;
+}
 
-const DISABLED_ITEMS = [{ label: "Tabeller", icon: StandingsIcon }] as const;
+// Ordning matchar användarens referens: "vad vill jag göra" (Chatta →
+// Utforska → Matcher → Tabeller) följt av "vad vill jag undersöka"
+// (Lag → Spelare), med Inställningar sist i samma kompakta grupp —
+// inte utspridd över hela sidohöjden.
+const NAV_ITEMS: NavItem[] = [
+  { href: "/chat", label: "Chatta", icon: ChatIcon },
+  // Ingen egen "utforska-hub"-sida finns ännu (skulle vara en ny route,
+  // vilket vi medvetet inte lägger till här) — pekar därför på samma
+  // ingång som startsidans "Utforska data"-kort.
+  { href: "/data/players", label: "Utforska", icon: ExploreIcon, trackActive: false },
+  { href: "/data/matches", label: "Matcher", icon: MatchIcon },
+  { label: "Tabeller", icon: StandingsIcon, disabled: true },
+  { href: "/data/teams", label: "Lag", icon: TeamIcon },
+  { href: "/data/players", label: "Spelare", icon: PlayerIcon },
+  { href: "/settings", label: "Inställningar", icon: SettingsIcon },
+];
+
+function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+  const Icon = item.icon;
+  const classes = `relative flex flex-col items-center gap-1 rounded-xl px-2 py-2.5 text-[11px] font-medium leading-tight transition-colors before:absolute before:left-0 before:top-1/2 before:h-6 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:content-[''] ${
+    active
+      ? "bg-[#3987e5]/15 text-white before:bg-[#3987e5] before:shadow-[0_0_8px_1px_rgba(57,135,229,0.6)]"
+      : "text-[#c3c2b7] before:bg-transparent hover:bg-white/5 hover:text-white"
+  }`;
+
+  if (item.disabled || !item.href) {
+    return (
+      <span title="Kommer snart" className={`${classes} text-[#898781]/50 hover:bg-transparent hover:text-[#898781]/50`}>
+        <Icon className="h-6 w-6" />
+        {item.label}
+      </span>
+    );
+  }
+
+  return (
+    <Link href={item.href} className={classes}>
+      <Icon className="h-6 w-6" />
+      {item.label}
+    </Link>
+  );
+}
 
 /**
- * Fast vänsternav på desktop, en enkel horisontell topplist som fallback på
- * mobil. Ersätter både startsidans gamla enkla länkar och den tidigare
- * Data-sektionens egen header (app/data/layout.tsx, borttagen).
+ * Fast, smal vänsterkolumn på desktop (app-sidebar, inte en bred
+ * hemsidemeny) — en enkel horisontell topplist som fallback på mobil.
  */
 export function Sidebar() {
   const pathname = usePathname();
 
   return (
     <>
-      {/* Desktop: fast vänsterkolumn. Varje länk är ett eget "block" med
-          ikonen ovanför texten (inte sida-vid-sida) — ger navigationen mer
-          visuell vikt och en riktig app-känsla istället för en tät textlista. */}
-      <aside className="hidden w-56 shrink-0 flex-col border-r border-white/10 bg-[#1a1a19] px-3 py-6 sm:flex">
-        <Link href="/" className="mb-8 flex flex-col items-center gap-2">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 border-[#3987e5] text-lg font-bold text-[#3987e5] shadow-[0_0_14px_-2px_rgba(57,135,229,0.65)]">
+      {/* Desktop: smal, kompakt vänsterkolumn. Menygruppen ligger som ett
+          tätt kluster direkt under loggan — den sträcks INTE ut över hela
+          sidohöjden, tomrummet hamnar under sista länken istället. */}
+      <aside className="hidden w-[112px] shrink-0 flex-col border-r border-white/10 bg-[#1a1a19] px-2 py-5 sm:flex">
+        <Link href="/" className="mb-5 flex flex-col items-center gap-1.5">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-[#3987e5] text-xs font-bold text-[#3987e5] shadow-[0_0_10px_-2px_rgba(57,135,229,0.65)]">
             A
           </span>
-          <span className="text-xs font-bold tracking-wide text-white">ALLSVENSKAN</span>
+          <span className="text-center text-[9px] font-bold leading-none tracking-wide text-white">
+            ALLSVENSKAN
+          </span>
         </Link>
-        <nav className="flex flex-1 flex-col gap-2">
+        <nav className="flex flex-col gap-1">
           {NAV_ITEMS.map((item) => {
-            const active = pathname === item.href || pathname?.startsWith(item.href + "/");
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`relative flex flex-col items-center gap-1.5 rounded-xl px-3 py-3.5 text-xs font-medium transition-colors before:absolute before:left-0 before:top-1/2 before:h-8 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:content-[''] ${
-                  active
-                    ? "bg-[#3987e5]/15 text-white before:bg-[#3987e5] before:shadow-[0_0_8px_1px_rgba(57,135,229,0.6)]"
-                    : "text-[#c3c2b7] before:bg-transparent hover:bg-white/5 hover:text-white"
-                }`}
-              >
-                <Icon className="h-6 w-6" /> {item.label}
-              </Link>
-            );
-          })}
-          {DISABLED_ITEMS.map((item) => {
-            const Icon = item.icon;
-            return (
-              <span
-                key={item.label}
-                title="Kommer snart"
-                className="flex flex-col items-center gap-1.5 rounded-xl px-3 py-3.5 text-xs font-medium text-[#898781]/50"
-              >
-                <Icon className="h-6 w-6" /> {item.label}
-              </span>
-            );
+            const active =
+              item.trackActive !== false &&
+              !!item.href &&
+              (pathname === item.href || pathname?.startsWith(item.href + "/"));
+            return <NavLink key={item.label} item={item} active={active} />;
           })}
         </nav>
-        <Link
-          href="/settings"
-          className={`relative flex flex-col items-center gap-1.5 rounded-xl px-3 py-3.5 text-xs font-medium transition-colors before:absolute before:left-0 before:top-1/2 before:h-8 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:content-[''] ${
-            pathname === "/settings"
-              ? "bg-[#3987e5]/15 text-white before:bg-[#3987e5] before:shadow-[0_0_8px_1px_rgba(57,135,229,0.6)]"
-              : "text-[#c3c2b7] before:bg-transparent hover:bg-white/5 hover:text-white"
-          }`}
-        >
-          <SettingsIcon className="h-6 w-6" /> Inställningar
-        </Link>
       </aside>
 
       {/* Mobil: horisontell topplist */}
       <nav className="flex items-center gap-1 overflow-x-auto border-b border-white/10 bg-[#1a1a19] px-2 py-2 sm:hidden">
-        {[...NAV_ITEMS, { href: "/settings", label: "Inställningar", icon: SettingsIcon }].map((item) => {
-          const active = pathname === item.href || pathname?.startsWith(item.href + "/");
+        {NAV_ITEMS.map((item) => {
+          const active =
+            item.trackActive !== false &&
+            !!item.href &&
+            (pathname === item.href || pathname?.startsWith(item.href + "/"));
           const Icon = item.icon;
+          if (item.disabled || !item.href) {
+            return (
+              <span
+                key={item.label}
+                title="Kommer snart"
+                className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-[#898781]/50"
+              >
+                <Icon className="h-3.5 w-3.5 shrink-0" /> {item.label}
+              </span>
+            );
+          }
           return (
             <Link
-              key={item.href}
+              key={item.label}
               href={item.href}
               className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
                 active ? "bg-white/10 text-white" : "text-[#c3c2b7]"
