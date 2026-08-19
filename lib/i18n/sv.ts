@@ -27,6 +27,16 @@ export const strings = {
       "Live-matchchatt är på väg — under tiden kan du fråga om historisk statistik.",
     buildingNotice:
       "Sidan är under uppbyggnad. Just nu testar vi inloggning och databasgrund.",
+    yourTeam: "Din klubb",
+    changeTeam: "Byt klubb",
+    latestResult: "Senaste resultat",
+    topScorer: "Flest mål",
+  },
+  onboarding: {
+    title: "Vilket lag följer du?",
+    subtitle:
+      "Vi visar din klubbs senaste resultat och statistik direkt när du loggar in. Du kan byta senare.",
+    skip: "Hoppa över, visa inget särskilt",
   },
   errors: {
     generic: "Tekniskt fel just nu, testa igen om en stund.",

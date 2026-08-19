@@ -20,6 +20,8 @@ export interface Database {
           role: UserRole;
           daily_message_count: number;
           quota_date: string;
+          favorite_team_id: number | null;
+          onboarding_completed_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -246,6 +248,11 @@ export interface Database {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      set_favorite_team: {
+        Args: { p_team_id: number | null };
+        Returns: undefined;
+      };
+    };
   };
 }
