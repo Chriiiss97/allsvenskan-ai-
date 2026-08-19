@@ -76,15 +76,17 @@ export function Sidebar() {
 
   return (
     <>
-      {/* Desktop: fast vänsterkolumn */}
-      <aside className="hidden w-56 shrink-0 flex-col border-r border-white/10 bg-[#1a1a19] px-3 py-5 sm:flex">
-        <Link href="/" className="mb-8 flex items-center gap-2.5 px-2">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-[#3987e5] text-sm font-bold text-[#3987e5]">
+      {/* Desktop: fast vänsterkolumn. Varje länk är ett eget "block" med
+          ikonen ovanför texten (inte sida-vid-sida) — ger navigationen mer
+          visuell vikt och en riktig app-känsla istället för en tät textlista. */}
+      <aside className="hidden w-56 shrink-0 flex-col border-r border-white/10 bg-[#1a1a19] px-3 py-6 sm:flex">
+        <Link href="/" className="mb-8 flex flex-col items-center gap-2">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 border-[#3987e5] text-lg font-bold text-[#3987e5] shadow-[0_0_14px_-2px_rgba(57,135,229,0.65)]">
             A
           </span>
-          <span className="text-sm font-bold tracking-wide text-white">ALLSVENSKAN</span>
+          <span className="text-xs font-bold tracking-wide text-white">ALLSVENSKAN</span>
         </Link>
-        <nav className="flex flex-1 flex-col gap-1">
+        <nav className="flex flex-1 flex-col gap-2">
           {NAV_ITEMS.map((item) => {
             const active = pathname === item.href || pathname?.startsWith(item.href + "/");
             const Icon = item.icon;
@@ -92,11 +94,13 @@ export function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  active ? "bg-white/10 text-white" : "text-[#c3c2b7] hover:bg-white/5 hover:text-white"
+                className={`relative flex flex-col items-center gap-1.5 rounded-xl px-3 py-3.5 text-xs font-medium transition-colors before:absolute before:left-0 before:top-1/2 before:h-8 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:content-[''] ${
+                  active
+                    ? "bg-[#3987e5]/15 text-white before:bg-[#3987e5] before:shadow-[0_0_8px_1px_rgba(57,135,229,0.6)]"
+                    : "text-[#c3c2b7] before:bg-transparent hover:bg-white/5 hover:text-white"
                 }`}
               >
-                <Icon className="h-[18px] w-[18px] shrink-0" /> {item.label}
+                <Icon className="h-6 w-6" /> {item.label}
               </Link>
             );
           })}
@@ -106,22 +110,22 @@ export function Sidebar() {
               <span
                 key={item.label}
                 title="Kommer snart"
-                className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-[#898781]/50"
+                className="flex flex-col items-center gap-1.5 rounded-xl px-3 py-3.5 text-xs font-medium text-[#898781]/50"
               >
-                <Icon className="h-[18px] w-[18px] shrink-0" /> {item.label}
+                <Icon className="h-6 w-6" /> {item.label}
               </span>
             );
           })}
         </nav>
         <Link
           href="/settings"
-          className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+          className={`relative flex flex-col items-center gap-1.5 rounded-xl px-3 py-3.5 text-xs font-medium transition-colors before:absolute before:left-0 before:top-1/2 before:h-8 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:content-[''] ${
             pathname === "/settings"
-              ? "bg-white/10 text-white"
-              : "text-[#c3c2b7] hover:bg-white/5 hover:text-white"
+              ? "bg-[#3987e5]/15 text-white before:bg-[#3987e5] before:shadow-[0_0_8px_1px_rgba(57,135,229,0.6)]"
+              : "text-[#c3c2b7] before:bg-transparent hover:bg-white/5 hover:text-white"
           }`}
         >
-          <SettingsIcon className="h-[18px] w-[18px] shrink-0" /> Inställningar
+          <SettingsIcon className="h-6 w-6" /> Inställningar
         </Link>
       </aside>
 

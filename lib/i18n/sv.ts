@@ -22,9 +22,11 @@ export const strings = {
   home: {
     welcomeTitle: "Välkommen till Allsvenskan-chattbot",
     welcomeBody:
-      "Fråga om mål, assist, kort och matcher för dina lag — snart direkt i chatten.",
+      "Fråga om mål, assist, kort, matcher och klubbhistoria — allt om IFK Göteborg och AIK.",
     liveComingSoon:
       "Live-matchchatt är på väg — under tiden kan du fråga om historisk statistik.",
+    liveBadge: "Live",
+    liveComingSoonShort: "Kommer snart",
     buildingNotice:
       "Sidan är under uppbyggnad. Just nu testar vi inloggning och databasgrund.",
     yourTeam: "Din klubb",
@@ -32,9 +34,9 @@ export const strings = {
     latestResult: "Senaste resultat",
     topScorer: "Flest mål",
     openChat: "Chatta",
-    openChatDesc: "Fråga fritt om mål, kort, matcher och klubbhistoria.",
+    openChatDesc: "Fråga AI:n om mål, kort, matcher och klubbhistoria.",
     openData: "Utforska data",
-    openDataDesc: "Spelarprofiler, jämförelser och matcher — siffrorna visuellt.",
+    openDataDesc: "Spelarprofiler, jämförelser och statistik — visuellt.",
     accountActive: "Konto aktivt",
     popularQuestions: "Populära frågor",
   },
