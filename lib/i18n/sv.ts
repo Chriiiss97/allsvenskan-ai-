@@ -31,12 +31,30 @@ export const strings = {
     changeTeam: "Byt klubb",
     latestResult: "Senaste resultat",
     topScorer: "Flest mål",
+    openChat: "Öppna chatten",
   },
   onboarding: {
     title: "Vilket lag följer du?",
     subtitle:
       "Vi visar din klubbs senaste resultat och statistik direkt när du loggar in. Du kan byta senare.",
     skip: "Hoppa över, visa inget särskilt",
+  },
+  chat: {
+    title: "Chatta om Allsvenskan",
+    backToHome: "Till startsidan",
+    liveHint: "🔴 Live-matchchatt är på väg — fråga mig gärna om historisk statistik än så länge.",
+    placeholder: "Fråga om mål, kort, matcher, klubbhistoria...",
+    send: "Skicka",
+    sending: "Skickar...",
+    emptyStateTitle: "Vad vill du veta?",
+    suggestedQuestions: [
+      "Vem har gjort flest mål i AIK?",
+      "Berätta om IFK Göteborgs historia",
+      "Hur gick senaste derbyt mellan IFK och AIK?",
+      "Vem har flest gula kort i AIK?",
+    ],
+    quotaLabel: (used: number, limit: number) => `${used}/${limit} meddelanden idag`,
+    quotaUnlimited: "Obegränsat (admin)",
   },
   errors: {
     generic: "Tekniskt fel just nu, testa igen om en stund.",

@@ -35,6 +35,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: strings.auth.loginRequired }, { status: 401 });
   }
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  const isAdmin = profile?.role === "admin";
+
   let body: { conversationId?: number; message?: string };
   try {
     body = await request.json();
@@ -58,6 +65,7 @@ export async function POST(request: Request) {
   if (!quota?.[0]?.allowed) {
     return NextResponse.json({ error: strings.errors.quotaExceeded }, { status: 429 });
   }
+  const messagesUsedToday = quota[0].message_count;
 
   // 2. Konversation: återanvänd om den finns och är användarens egen, annars ny.
   let conversationId: number | null =
@@ -157,5 +165,11 @@ export async function POST(request: Request) {
     .from("message")
     .insert({ conversation_id: conversationId, role: "assistant", content: finalText });
 
-  return NextResponse.json({ conversationId, reply: finalText });
+  return NextResponse.json({
+    conversationId,
+    reply: finalText,
+    messagesUsedToday,
+    dailyMessageLimit: DAILY_MESSAGE_LIMIT,
+    unlimited: isAdmin,
+  });
 }

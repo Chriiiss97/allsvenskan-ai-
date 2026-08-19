@@ -145,11 +145,16 @@ export default async function Home() {
         )}
       </div>
 
+      <Link
+        href="/chat"
+        className="inline-flex items-center gap-2 rounded-full bg-foreground px-6 py-3 text-sm font-medium text-background transition-opacity hover:opacity-90"
+      >
+        💬 {strings.home.openChat}
+      </Link>
+
       <p className="max-w-md text-xs text-black/50 dark:text-white/50">
         {strings.home.liveComingSoon}
       </p>
-
-      <p className="text-xs text-black/40 dark:text-white/40">{strings.home.buildingNotice}</p>
 
       <LogoutButton />
     </div>
