@@ -305,6 +305,52 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["message"]["Row"]>;
         Relationships: [];
       };
+      message_tool_call: {
+        Row: {
+          id: number;
+          message_id: number;
+          tool_name: string;
+          team: string | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["message_tool_call"]["Row"]> & {
+          message_id: number;
+          tool_name: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["message_tool_call"]["Row"]>;
+        Relationships: [];
+      };
+      message_usage: {
+        Row: {
+          id: number;
+          message_id: number;
+          model: string;
+          input_tokens: number;
+          output_tokens: number;
+          latency_ms: number | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["message_usage"]["Row"]> & {
+          message_id: number;
+          model: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["message_usage"]["Row"]>;
+        Relationships: [];
+      };
+      feature_flag: {
+        Row: {
+          key: string;
+          label: string;
+          enabled: boolean;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["feature_flag"]["Row"]> & {
+          key: string;
+          label: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["feature_flag"]["Row"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {

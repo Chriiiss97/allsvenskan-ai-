@@ -42,6 +42,22 @@ export async function POST(request: Request) {
     .single();
   const isAdmin = profile?.role === "admin";
 
+  // Feature-flag-koll (migration 0013): fail-open om flaggan saknas eller
+  // tabellen inte finns än (t.ex. innan migrationen körts) — chatten ska
+  // aldrig gå sönder på grund av admin-tillägget, bara respektera det när
+  // det faktiskt finns.
+  const { data: chatFlag } = await supabase
+    .from("feature_flag")
+    .select("enabled")
+    .eq("key", "chat_enabled")
+    .maybeSingle();
+  if (chatFlag?.enabled === false) {
+    return NextResponse.json(
+      { error: "Chatten är tillfälligt avstängd av en admin. Försök igen lite senare." },
+      { status: 503 }
+    );
+  }
+
   let body: { conversationId?: number; message?: string };
   try {
     body = await request.json();
@@ -113,8 +129,15 @@ export async function POST(request: Request) {
     { role: "user", content: userMessage },
   ];
 
-  // 4. Tool-calling-loopen.
+  // 4. Tool-calling-loopen. Loggar samtidigt (för adminpanelens analys,
+  // migration 0013) vilka verktyg som anropades — och med vilket lag-värde
+  // om verktyget tog ett — plus total token-/svarstidsförbrukning över hela
+  // loopen (kan bli flera Claude-anrop per användarmeddelande).
   let finalText = "";
+  const toolCallLog: { toolName: string; team: string | null }[] = [];
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  const loopStartedAt = Date.now();
   try {
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
       const response = await anthropic.messages.create({
@@ -128,6 +151,9 @@ export async function POST(request: Request) {
         tools: FOOTBALL_TOOLS,
         messages,
       });
+
+      totalInputTokens += response.usage.input_tokens;
+      totalOutputTokens += response.usage.output_tokens;
 
       const toolUses = response.content.filter(
         (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
@@ -146,6 +172,11 @@ export async function POST(request: Request) {
 
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const toolUse of toolUses) {
+        const toolInput = (toolUse.input ?? {}) as Record<string, unknown>;
+        toolCallLog.push({
+          toolName: toolUse.name,
+          team: typeof toolInput.team === "string" ? toolInput.team : null,
+        });
         const { content, isError } = await dispatchTool(toolUse, { supabase, userId: user.id });
         toolResults.push({
           type: "tool_result",
@@ -165,9 +196,30 @@ export async function POST(request: Request) {
     finalText = strings.errors.generic;
   }
 
-  await supabase
+  const { data: savedMessage } = await supabase
     .from("message")
-    .insert({ conversation_id: conversationId, role: "assistant", content: finalText });
+    .insert({ conversation_id: conversationId, role: "assistant", content: finalText })
+    .select("id")
+    .single();
+
+  // Analyticsloggning (migration 0013) — "best effort": om migrationen inte
+  // körts än finns tabellerna inte och insert:erna svarar bara med ett fel
+  // som vi ignorerar, precis som feature-flag-kollen ovan. Chattsvaret ska
+  // aldrig påverkas av detta.
+  if (savedMessage) {
+    if (toolCallLog.length > 0) {
+      await supabase.from("message_tool_call").insert(
+        toolCallLog.map((t) => ({ message_id: savedMessage.id, tool_name: t.toolName, team: t.team }))
+      );
+    }
+    await supabase.from("message_usage").insert({
+      message_id: savedMessage.id,
+      model: CHAT_MODEL,
+      input_tokens: totalInputTokens,
+      output_tokens: totalOutputTokens,
+      latency_ms: Date.now() - loopStartedAt,
+    });
+  }
 
   return NextResponse.json({
     conversationId,
