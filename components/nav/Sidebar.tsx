@@ -67,6 +67,12 @@ const SettingsIcon = (props: SVGProps<SVGSVGElement>) => (
     <path d="M19.4 12a7.3 7.3 0 01-.1 1.2l1.9 1.5-1.5 2.6-2.2-.8a7.4 7.4 0 01-2 1.2L15 20h-3l-.5-2.3a7.4 7.4 0 01-2-1.2l-2.2.8-1.5-2.6 1.9-1.5a7.3 7.3 0 010-2.4L5.8 9.3l1.5-2.6 2.2.8a7.4 7.4 0 012-1.2L12 4h3l.5 2.3a7.4 7.4 0 012 1.2l2.2-.8 1.5 2.6-1.9 1.5c.07.4.1.8.1 1.2z" />
   </svg>
 );
+const EyeIcon = (props: SVGProps<SVGSVGElement>) => (
+  <svg {...iconProps(props)}>
+    <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" />
+    <circle cx="12" cy="12" r="2.6" />
+  </svg>
+);
 
 interface NavItem {
   href?: string;
@@ -77,7 +83,12 @@ interface NavItem {
   // route som "Spelare" — den ska därför aldrig visas som aktiv själv,
   // annars lyser två länkar blått samtidigt på /data/players.
   trackActive?: boolean;
+  // Admin-länken får en avvikande (gul) accentfärg istället för appens
+  // vanliga blå, så den läses som en separat, priviligierad funktion.
+  accent?: "blue" | "amber";
 }
+
+const ADMIN_ITEM: NavItem = { href: "/admin", label: "Admin", icon: EyeIcon, accent: "amber" };
 
 // Ordning matchar användarens referens: "vad vill jag göra" (Chatta →
 // Utforska → Matcher → Tabeller) följt av "vad vill jag undersöka"
@@ -98,10 +109,12 @@ const NAV_ITEMS: NavItem[] = [
 
 function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   const Icon = item.icon;
+  const activeClasses =
+    item.accent === "amber"
+      ? "bg-amber-400/15 text-white before:bg-amber-400 before:shadow-[0_0_8px_1px_rgba(251,191,36,0.6)]"
+      : "bg-[#3987e5]/15 text-white before:bg-[#3987e5] before:shadow-[0_0_8px_1px_rgba(57,135,229,0.6)]";
   const classes = `relative flex flex-col items-center gap-1 rounded-xl px-2 py-2.5 text-[11px] font-medium leading-tight transition-colors before:absolute before:left-0 before:top-1/2 before:h-6 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:content-[''] ${
-    active
-      ? "bg-[#3987e5]/15 text-white before:bg-[#3987e5] before:shadow-[0_0_8px_1px_rgba(57,135,229,0.6)]"
-      : "text-[#c3c2b7] before:bg-transparent hover:bg-white/5 hover:text-white"
+    active ? activeClasses : "text-[#c3c2b7] before:bg-transparent hover:bg-white/5 hover:text-white"
   }`;
 
   if (item.disabled || !item.href) {
@@ -125,8 +138,9 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
  * Fast, smal vänsterkolumn på desktop (app-sidebar, inte en bred
  * hemsidemeny) — en enkel horisontell topplist som fallback på mobil.
  */
-export function Sidebar() {
+export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
+  const items = isAdmin ? [...NAV_ITEMS, ADMIN_ITEM] : NAV_ITEMS;
 
   return (
     <>
@@ -143,7 +157,7 @@ export function Sidebar() {
           </span>
         </Link>
         <nav className="flex flex-col gap-1">
-          {NAV_ITEMS.map((item) => {
+          {items.map((item) => {
             const active =
               item.trackActive !== false &&
               !!item.href &&
@@ -155,7 +169,7 @@ export function Sidebar() {
 
       {/* Mobil: horisontell topplist */}
       <nav className="flex items-center gap-1 overflow-x-auto border-b border-white/10 bg-[#1a1a19] px-2 py-2 sm:hidden">
-        {NAV_ITEMS.map((item) => {
+        {items.map((item) => {
           const active =
             item.trackActive !== false &&
             !!item.href &&
@@ -172,12 +186,13 @@ export function Sidebar() {
               </span>
             );
           }
+          const activeClasses = item.accent === "amber" ? "bg-amber-400/15 text-white" : "bg-white/10 text-white";
           return (
             <Link
               key={item.label}
               href={item.href}
               className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                active ? "bg-white/10 text-white" : "text-[#c3c2b7]"
+                active ? activeClasses : "text-[#c3c2b7]"
               }`}
             >
               <Icon className="h-3.5 w-3.5 shrink-0" /> {item.label}

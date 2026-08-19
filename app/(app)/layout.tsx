@@ -19,9 +19,12 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  const isAdmin = profile?.role === "admin";
+
   return (
     <div className="flex min-h-screen flex-col bg-[#0d0d0d] text-white sm:flex-row">
-      <Sidebar />
+      <Sidebar isAdmin={isAdmin} />
       <main className="min-w-0 flex-1">{children}</main>
     </div>
   );

@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getMatchReport, FootballDataError } from "@/lib/football/tools";
 import { MatchTimeline } from "@/components/data/MatchTimeline";
+import { BackButton } from "@/components/nav/BackButton";
 
 export default async function MatchReportPage({
   params,
@@ -22,9 +22,7 @@ export default async function MatchReportPage({
 
   return (
     <div>
-      <Link href="/data/matches" className="text-xs text-[#898781] hover:text-white">
-        ← Alla matcher
-      </Link>
+      <BackButton href="/data/matches" label="Alla matcher" />
 
       <div className="mt-4 rounded-xl border border-white/10 bg-[#1a1a19] p-6 text-center">
         <p className="text-xs text-[#898781]">

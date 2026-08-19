@@ -5,6 +5,7 @@ import { getPlayerProfile, FootballDataError } from "@/lib/football/tools";
 import { StatBar } from "@/components/data/StatBar";
 import { PlayerRadarChart } from "@/components/data/PlayerRadarChart";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
+import { BackButton } from "@/components/nav/BackButton";
 import { translatePosition } from "@/lib/i18n/sv";
 
 function calculateAge(birthDate: string | null): number | null {
@@ -67,9 +68,7 @@ export default async function PlayerProfilePage({
 
   return (
     <div>
-      <Link href="/data/players" className="text-xs text-[#898781] hover:text-white">
-        ← Alla spelare
-      </Link>
+      <BackButton href="/data/players" label="Alla spelare" />
 
       {/* Bio-kort */}
       <div className="mt-4 flex flex-wrap items-center gap-4 rounded-xl border border-white/10 bg-[#1a1a19] p-5">
