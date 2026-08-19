@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 import { strings } from "@/lib/i18n/sv";
+import { getTopScorers } from "@/lib/football/tools";
 
 interface FavoriteTeam {
   id: number;
@@ -17,12 +18,6 @@ interface LatestFixture {
   away_score: number | null;
   home: { id: number; name: string } | null;
   away: { id: number; name: string } | null;
-}
-
-interface TopScorerRow {
-  goals: number;
-  player: { full_name: string } | null;
-  season: { year: number } | null;
 }
 
 // Ikon + accentfärg per snabbfråga, positionellt kopplat till
@@ -96,7 +91,7 @@ export default async function Home() {
   const favoriteTeam = profile.favorite_team;
 
   let latestFixture: LatestFixture | null = null;
-  let topScorer: TopScorerRow | null = null;
+  let topScorer: { name: string; goals: number; season: number | null } | null = null;
 
   if (favoriteTeam) {
     const { data: fixtureData } = await supabase
@@ -109,19 +104,20 @@ export default async function Home() {
       .returns<LatestFixture[]>();
     latestFixture = fixtureData?.[0] ?? null;
 
-    // Ingen säsong är markerad is_current i vår data (gratisplanen saknar
-    // innevarande säsong, se scripts/import/config.ts) — närmaste proxy för
-    // "aktuellt" är därför senaste importerade säsongen. Sortera på
-    // säsongsår fallande, sen mål fallande, och ta första raden.
-    const { data: scorerData } = await supabase
-      .from("statistics")
-      .select("goals, player:player_id(full_name), season:season_id(year)")
-      .eq("team_id", favoriteTeam.id)
-      .order("year", { referencedTable: "season", ascending: false })
-      .order("goals", { ascending: false })
-      .limit(1)
-      .returns<TopScorerRow[]>();
-    topScorer = scorerData?.[0] ?? null;
+    // Återanvänder getTopScorers (samma funktion som chatten och lagprofilen
+    // använder) istället för en egen fråga här — en tidigare version
+    // försökte sortera på en embeddad relationskolumn (season.year), vilket
+    // Postgrest inte pålitligt hedrar, och visade därför fel spelare (den
+    // med flest mål EN enskild säsong någonsin, inte lagets faktiska
+    // toppmålskytt i senaste säsongen). getTopScorers gör samma "senaste
+    // säsong"-filtrering korrekt i JS, se lib/football/tools.ts.
+    try {
+      const result = await getTopScorers(supabase, { team: favoriteTeam.name, limit: 1 });
+      const top = result.scorers[0];
+      topScorer = top ? { name: top.name, goals: top.goals, season: result.season ?? null } : null;
+    } catch {
+      topScorer = null;
+    }
   }
 
   return (
@@ -188,13 +184,13 @@ export default async function Home() {
                   </span>
                 </p>
               )}
-              {topScorer?.player && (
+              {topScorer && (
                 <p className="flex flex-wrap items-baseline gap-x-2 text-sm sm:text-base">
                   <span className="text-xs font-medium uppercase tracking-wide text-[#7d7c76]">
-                    {strings.home.topScorer} {topScorer.season?.year}
+                    {strings.home.topScorer} {topScorer.season}
                   </span>
                   <span className="font-semibold text-white">
-                    {topScorer.player.full_name} <span className="text-[#3987e5]">({topScorer.goals} mål)</span>
+                    {topScorer.name} <span className="text-[#3987e5]">({topScorer.goals} mål)</span>
                   </span>
                 </p>
               )}

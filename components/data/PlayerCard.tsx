@@ -8,7 +8,9 @@ export interface PlayerCardStat {
   assists: number;
   appearances: number;
   minutesPlayed: number;
-  year: number;
+  // "all" = summerat över alla importerade säsonger (2022–2024), annars ett
+  // specifikt säsongsår — se Spelare-sidans säsongsväljare.
+  year: number | "all";
 }
 
 export interface PlayerCardData {
@@ -36,17 +38,18 @@ const POSITION_COLORS: Record<string, string> = {
 };
 
 function primaryStatFor(stat: PlayerCardStat, sort: PlayerSortKey): { value: number; label: string } | null {
+  const yearLabel = stat.year === "all" ? "totalt" : String(stat.year);
   switch (sort) {
     case "goals":
-      return { value: stat.goals, label: `mål ${stat.year}` };
+      return { value: stat.goals, label: `mål ${yearLabel}` };
     case "assists":
-      return { value: stat.assists, label: `assist ${stat.year}` };
+      return { value: stat.assists, label: `assist ${yearLabel}` };
     case "appearances":
-      return { value: stat.appearances, label: `matcher ${stat.year}` };
+      return { value: stat.appearances, label: `matcher ${yearLabel}` };
     case "minutes":
-      return { value: stat.minutesPlayed, label: `min ${stat.year}` };
+      return { value: stat.minutesPlayed, label: `min ${yearLabel}` };
     default:
-      return { value: stat.goals, label: `mål ${stat.year}` };
+      return { value: stat.goals, label: `mål ${yearLabel}` };
   }
 }
 
