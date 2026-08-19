@@ -15,8 +15,8 @@ import { createClient } from "@/lib/supabase/server";
 
 const NAV_ITEMS = [
   { href: "/data/players", label: "Spelare", icon: "👤", available: true },
-  { href: "#", label: "Lag", icon: "🛡️", available: false },
-  { href: "#", label: "Matcher", icon: "⚽", available: false },
+  { href: "/data/teams", label: "Lag", icon: "🛡️", available: true },
+  { href: "/data/matches", label: "Matcher", icon: "⚽", available: true },
   { href: "#", label: "Historik", icon: "🏆", available: false },
 ];
 
