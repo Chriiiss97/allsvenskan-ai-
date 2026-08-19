@@ -217,27 +217,6 @@ export default async function Home() {
         </Link>
       )}
 
-      {/* Kontostatus — låg vikt, ren metadata */}
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-2.5 text-xs sm:text-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/10 text-[11px]">
-            👤
-          </span>
-          <span className="text-[#c3c2b7]">
-            {strings.auth.loggedInAs}: <strong className="font-semibold text-white">{profile.email ?? user.email}</strong>
-          </span>
-          {profile.role === "admin" && (
-            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#898781]">
-              admin
-            </span>
-          )}
-        </div>
-        <span className="flex items-center gap-1.5 rounded-full bg-[#0ca30c]/10 px-2.5 py-1 text-[11px] font-medium text-[#4ade80]">
-          <span className="h-1.5 w-1.5 rounded-full bg-[#4ade80]" aria-hidden />
-          {strings.home.accountActive}
-        </span>
-      </div>
-
       {/* 3. CHATTA / UTFORSKA DATA — de två primära åtgärderna */}
       <div className="mt-10 grid gap-4 sm:mt-14 sm:grid-cols-2 sm:gap-5">
         <Link
@@ -314,6 +293,27 @@ export default async function Home() {
         </div>
         <span className="shrink-0 rounded-full border border-white/10 px-3 py-1 text-[11px] font-medium text-[#898781]">
           {strings.home.liveComingSoonShort}
+        </span>
+      </div>
+
+      {/* Kontostatus — låg vikt, ren metadata, längst ner */}
+      <div className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-2.5 text-xs sm:text-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/10 text-[11px]">
+            👤
+          </span>
+          <span className="text-[#c3c2b7]">
+            {strings.auth.loggedInAs}: <strong className="font-semibold text-white">{profile.email ?? user.email}</strong>
+          </span>
+          {profile.role === "admin" && (
+            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#898781]">
+              admin
+            </span>
+          )}
+        </div>
+        <span className="flex items-center gap-1.5 rounded-full bg-[#0ca30c]/10 px-2.5 py-1 text-[11px] font-medium text-[#4ade80]">
+          <span className="h-1.5 w-1.5 rounded-full bg-[#4ade80]" aria-hidden />
+          {strings.home.accountActive}
         </span>
       </div>
     </div>
