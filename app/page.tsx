@@ -145,12 +145,24 @@ export default async function Home() {
         )}
       </div>
 
-      <Link
-        href="/chat"
-        className="inline-flex items-center gap-2 rounded-full bg-foreground px-6 py-3 text-sm font-medium text-background transition-opacity hover:opacity-90"
-      >
-        💬 {strings.home.openChat}
-      </Link>
+      <div className="grid w-full max-w-lg gap-3 sm:grid-cols-2">
+        <Link
+          href="/chat"
+          className="flex flex-col items-center gap-1 rounded-2xl bg-foreground px-6 py-5 text-background transition-opacity hover:opacity-90"
+        >
+          <span className="text-2xl">💬</span>
+          <span className="font-semibold">{strings.home.openChat}</span>
+          <span className="text-xs opacity-70">{strings.home.openChatDesc}</span>
+        </Link>
+        <Link
+          href="/data/players"
+          className="flex flex-col items-center gap-1 rounded-2xl border border-black/10 px-6 py-5 transition-colors hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10"
+        >
+          <span className="text-2xl">🤓</span>
+          <span className="font-semibold">{strings.home.openData}</span>
+          <span className="text-xs text-black/50 dark:text-white/50">{strings.home.openDataDesc}</span>
+        </Link>
+      </div>
 
       <p className="max-w-md text-xs text-black/50 dark:text-white/50">
         {strings.home.liveComingSoon}

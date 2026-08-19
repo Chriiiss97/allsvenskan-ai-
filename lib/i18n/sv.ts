@@ -31,7 +31,10 @@ export const strings = {
     changeTeam: "Byt klubb",
     latestResult: "Senaste resultat",
     topScorer: "Flest mål",
-    openChat: "Öppna chatten",
+    openChat: "Chatta",
+    openChatDesc: "Fråga fritt om mål, kort, matcher och klubbhistoria.",
+    openData: "Utforska data",
+    openDataDesc: "Spelarprofiler, jämförelser och matcher — siffrorna visuellt.",
   },
   onboarding: {
     title: "Vilket lag följer du?",
