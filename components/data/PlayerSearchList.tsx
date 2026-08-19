@@ -2,30 +2,30 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { PlayerAvatar } from "./PlayerAvatar";
 
-interface PlayerListRow {
+export interface PlayerListItem {
   id: number;
   full_name: string;
   position: string | null;
-  photo_url: string | null;
-  current_team: { id: number; name: string; logo_url: string | null } | null;
+  teamName: string | null;
+  teamIndex: 0 | 1;
+  stat: { goals: number; appearances: number; year: number } | null;
 }
 
-export function PlayerSearchList({ players }: { players: PlayerListRow[] }) {
+export function PlayerSearchList({ players }: { players: PlayerListItem[] }) {
   const [query, setQuery] = useState("");
-  const [teamFilter, setTeamFilter] = useState<number | "all">("all");
+  const [teamFilter, setTeamFilter] = useState<string | "all">("all");
 
   const teams = useMemo(() => {
-    const map = new Map<number, { id: number; name: string }>();
-    for (const p of players) {
-      if (p.current_team) map.set(p.current_team.id, p.current_team);
-    }
-    return [...map.values()];
+    const set = new Set<string>();
+    for (const p of players) if (p.teamName) set.add(p.teamName);
+    return [...set];
   }, [players]);
 
   const filtered = players.filter((p) => {
     const matchesQuery = p.full_name.toLowerCase().includes(query.trim().toLowerCase());
-    const matchesTeam = teamFilter === "all" || p.current_team?.id === teamFilter;
+    const matchesTeam = teamFilter === "all" || p.teamName === teamFilter;
     return matchesQuery && matchesTeam;
   });
 
@@ -49,39 +49,40 @@ export function PlayerSearchList({ players }: { players: PlayerListRow[] }) {
           </button>
           {teams.map((t) => (
             <button
-              key={t.id}
-              onClick={() => setTeamFilter(t.id)}
+              key={t}
+              onClick={() => setTeamFilter(t)}
               className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                teamFilter === t.id ? "bg-white/10 text-white" : "text-[#898781] hover:text-white"
+                teamFilter === t ? "bg-white/10 text-white" : "text-[#898781] hover:text-white"
               }`}
             >
-              {t.name}
+              {t}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+      <div className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {filtered.map((p) => (
           <Link
             key={p.id}
             href={`/data/players/${p.id}`}
-            className="rounded-xl border border-white/10 bg-[#1a1a19] p-3 transition-colors hover:border-white/25 hover:bg-white/[.03]"
+            className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#1a1a19] p-3 transition-colors hover:border-white/25 hover:bg-white/[.03]"
           >
-            <div className="flex items-center gap-2">
-              {p.photo_url ? (
-                // eslint-disable-next-line @next/next/no-img-element -- extern spelarbild, ingen lokal optimering krävs
-                <img src={p.photo_url} alt="" className="h-10 w-10 rounded-full bg-white/5 object-cover" />
-              ) : (
-                <div className="h-10 w-10 rounded-full bg-white/5" />
-              )}
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{p.full_name}</p>
-                <p className="truncate text-xs text-[#898781]">
-                  {p.current_team?.name ?? "—"} {p.position && `· ${p.position}`}
+            <PlayerAvatar name={p.full_name} teamIndex={p.teamIndex} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{p.full_name}</p>
+              <p className="truncate text-xs text-[#898781]">
+                {p.teamName ?? "—"} {p.position && `· ${p.position}`}
+              </p>
+            </div>
+            {p.stat && (
+              <div className="shrink-0 rounded-lg bg-white/5 px-2 py-1 text-right">
+                <p className="text-sm font-semibold leading-none">{p.stat.goals}</p>
+                <p className="mt-0.5 text-[9px] leading-none text-[#898781]">
+                  mål {p.stat.year} · {p.stat.appearances}M
                 </p>
               </div>
-            </div>
+            )}
           </Link>
         ))}
       </div>

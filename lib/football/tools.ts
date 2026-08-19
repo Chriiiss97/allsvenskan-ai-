@@ -273,7 +273,7 @@ interface PlayerBioRow {
   birth_date: string | null;
   nationality: string | null;
   photo_url: string | null;
-  current_team: { id: number; name: string; logo_url: string | null } | null;
+  current_team: { id: number; name: string; logo_url: string | null; external_id: number | null } | null;
 }
 
 interface PlayerStatsRow {
@@ -337,7 +337,7 @@ export async function getPlayerProfile(supabase: Supabase, params: PlayerProfile
     .from("player")
     .select(
       "id, full_name, position, birth_date, nationality, photo_url, " +
-        "current_team:current_team_id(id, name, logo_url)"
+        "current_team:current_team_id(id, name, logo_url, external_id)"
     )
     .eq("id", resolved.id)
     .single<PlayerBioRow>();
