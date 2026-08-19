@@ -21,13 +21,13 @@ const components: Components = {
 export function MessageContent({ content }: { content: string }) {
   return (
     <div
-      className="prose prose-sm sm:prose-base dark:prose-invert max-w-none
+      className="prose prose-sm sm:prose-base prose-invert max-w-none
         prose-p:leading-relaxed prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0
         prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2 first:prose-headings:mt-0
         prose-strong:font-semibold prose-strong:text-current
         prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5
         prose-table:text-sm prose-th:text-left prose-th:font-medium
-        prose-hr:my-4 prose-hr:border-black/10 dark:prose-hr:border-white/15"
+        prose-hr:my-4 prose-hr:border-white/15"
     >
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {content}

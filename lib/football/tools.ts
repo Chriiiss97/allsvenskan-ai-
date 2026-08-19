@@ -221,12 +221,22 @@ export async function getFixtures(supabase: Supabase, params: FixturesParams) {
     opponentId = opponent.id;
   }
 
+  // Motståndarfiltret måste vara en del av SQL-villkoret (inte ett filter i
+  // JS efter .limit()) — annars kapar .limit() bort matcherna mot just den
+  // motståndaren innan vi ens hunnit titta på dem (t.ex. "senaste derbyt"
+  // med limit=1 gav träff på lagets absolut senaste match oavsett
+  // motståndare, som sen filtrerades bort och gav ett tomt resultat även
+  // fast äldre inbördes möten fanns i databasen).
+  const matchupFilter = opponentId
+    ? `and(home_team_id.eq.${team.id},away_team_id.eq.${opponentId}),and(home_team_id.eq.${opponentId},away_team_id.eq.${team.id})`
+    : `home_team_id.eq.${team.id},away_team_id.eq.${team.id}`;
+
   let query = supabase
     .from("fixture")
     .select(
       "kickoff_at, status, round, home_score, away_score, home:home_team_id(id, name), away:away_team_id(id, name), season:season_id(year)"
     )
-    .or(`home_team_id.eq.${team.id},away_team_id.eq.${team.id}`)
+    .or(matchupFilter)
     .order("kickoff_at", { ascending: false })
     .limit(limit);
 
@@ -243,10 +253,7 @@ export async function getFixtures(supabase: Supabase, params: FixturesParams) {
   const { data, error } = await query.returns<FixtureRow[]>();
   if (error) throw new FootballDataError(error.message);
 
-  let fixtures = data ?? [];
-  if (opponentId) {
-    fixtures = fixtures.filter((f) => f.home?.id === opponentId || f.away?.id === opponentId);
-  }
+  const fixtures = data ?? [];
 
   return {
     team: team.name,

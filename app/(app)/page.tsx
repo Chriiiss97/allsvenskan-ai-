@@ -82,28 +82,28 @@ export default async function Home() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 px-6 text-center">
+    <div className="mx-auto flex max-w-3xl flex-col items-center gap-6 px-6 py-12 text-center">
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold">{strings.home.welcomeTitle}</h1>
-        <p className="text-sm text-black/60 dark:text-white/60">{strings.home.welcomeBody}</p>
+        <p className="text-sm text-[#c3c2b7]">{strings.home.welcomeBody}</p>
       </div>
 
       {favoriteTeam ? (
-        <div className="w-full max-w-sm rounded-lg border border-black/10 p-4 text-left dark:border-white/15">
+        <div className="w-full max-w-sm rounded-xl border border-white/10 bg-[#1a1a19] p-4 text-left">
           <div className="flex items-center gap-3">
             {favoriteTeam.logo_url && (
               // eslint-disable-next-line @next/next/no-img-element -- extern logga, ingen lokal optimering krävs
               <img src={favoriteTeam.logo_url} alt="" className="h-8 w-8" />
             )}
             <div>
-              <p className="text-xs text-black/50 dark:text-white/50">{strings.home.yourTeam}</p>
+              <p className="text-xs text-[#898781]">{strings.home.yourTeam}</p>
               <p className="font-medium">{favoriteTeam.name}</p>
             </div>
           </div>
 
           {latestFixture && (
             <p className="mt-3 text-sm">
-              <span className="text-black/50 dark:text-white/50">{strings.home.latestResult}: </span>
+              <span className="text-[#898781]">{strings.home.latestResult}: </span>
               {latestFixture.home?.name} {latestFixture.home_score}–{latestFixture.away_score}{" "}
               {latestFixture.away?.name}
             </p>
@@ -111,7 +111,7 @@ export default async function Home() {
 
           {topScorer?.player && (
             <p className="mt-1 text-sm">
-              <span className="text-black/50 dark:text-white/50">
+              <span className="text-[#898781]">
                 {strings.home.topScorer} {topScorer.season?.year}:{" "}
               </span>
               {topScorer.player.full_name} ({topScorer.goals} mål)
@@ -120,53 +120,64 @@ export default async function Home() {
 
           <Link
             href="/onboarding?change=1"
-            className="mt-3 inline-block text-xs text-black/50 underline underline-offset-2 dark:text-white/50"
+            className="mt-3 inline-block text-xs text-[#898781] underline underline-offset-2 hover:text-white"
           >
             {strings.home.changeTeam}
           </Link>
         </div>
       ) : (
-        <Link
-          href="/onboarding?change=1"
-          className="text-sm underline underline-offset-2 text-black/60 dark:text-white/60"
-        >
+        <Link href="/onboarding?change=1" className="text-sm text-[#c3c2b7] underline underline-offset-2">
           {strings.onboarding.title}
         </Link>
       )}
 
-      <div className="rounded-lg border border-black/10 bg-black/[.03] px-4 py-3 text-sm dark:border-white/15 dark:bg-white/[.06]">
+      <div className="rounded-lg border border-white/10 bg-[#1a1a19] px-4 py-3 text-sm">
         <p>
           {strings.auth.loggedInAs}: <strong>{profile.email ?? user.email}</strong>
         </p>
         {profile.role === "admin" && (
-          <p className="mt-1 text-xs uppercase tracking-wide text-black/50 dark:text-white/50">
-            admin
-          </p>
+          <p className="mt-1 text-xs uppercase tracking-wide text-[#898781]">admin</p>
         )}
       </div>
 
       <div className="grid w-full max-w-lg gap-3 sm:grid-cols-2">
         <Link
           href="/chat"
-          className="flex flex-col items-center gap-1 rounded-2xl bg-foreground px-6 py-5 text-background transition-opacity hover:opacity-90"
+          className="flex flex-col items-center gap-1 rounded-2xl bg-[#3987e5] px-6 py-5 text-white transition-opacity hover:opacity-90"
         >
           <span className="text-2xl">💬</span>
           <span className="font-semibold">{strings.home.openChat}</span>
-          <span className="text-xs opacity-70">{strings.home.openChatDesc}</span>
+          <span className="text-xs opacity-80">{strings.home.openChatDesc}</span>
         </Link>
         <Link
           href="/data/players"
-          className="flex flex-col items-center gap-1 rounded-2xl border border-black/10 px-6 py-5 transition-colors hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10"
+          className="flex flex-col items-center gap-1 rounded-2xl border border-white/10 px-6 py-5 transition-colors hover:bg-white/5"
         >
           <span className="text-2xl">🤓</span>
           <span className="font-semibold">{strings.home.openData}</span>
-          <span className="text-xs text-black/50 dark:text-white/50">{strings.home.openDataDesc}</span>
+          <span className="text-xs text-[#898781]">{strings.home.openDataDesc}</span>
         </Link>
       </div>
 
-      <p className="max-w-md text-xs text-black/50 dark:text-white/50">
-        {strings.home.liveComingSoon}
-      </p>
+      {/* Populära frågor — samma frågor som chattens tomt-läge, bara en
+          genväg in. Ingen förifylld fråga (skulle kräva att ändra
+          ChatInterface.tsx:s inre logik, vilket vi medvetet inte gör här). */}
+      <div className="w-full">
+        <p className="mb-2 text-xs uppercase tracking-wide text-[#898781]">Populära frågor</p>
+        <div className="flex flex-wrap justify-center gap-2">
+          {strings.chat.suggestedQuestions.map((q) => (
+            <Link
+              key={q}
+              href="/chat"
+              className="rounded-full border border-white/10 bg-[#1a1a19] px-3 py-1.5 text-xs text-[#c3c2b7] transition-colors hover:bg-white/5 hover:text-white"
+            >
+              {q}
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      <p className="max-w-md text-xs text-[#898781]">{strings.home.liveComingSoon}</p>
 
       <LogoutButton />
     </div>

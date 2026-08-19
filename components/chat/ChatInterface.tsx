@@ -21,6 +21,10 @@ interface ChatErrorResponse {
   error: string;
 }
 
+// Fasta mörka tokens (samma som Data-sektionen) istället för adaptiva
+// dark:-klasser — hela appen är nu permanent mörk (se app/(app)/layout.tsx),
+// så text/kant-färger måste vara fasta, annars blir de osynliga om
+// användarens system råkar stå i ljust läge.
 export function ChatInterface() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -87,23 +91,21 @@ export function ChatInterface() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-black/10 bg-amber-500/10 px-4 py-2 text-center text-xs text-amber-700 dark:border-white/10 dark:text-amber-400">
+      <div className="border-b border-white/10 bg-amber-500/10 px-4 py-2 text-center text-xs text-amber-400">
         {strings.chat.liveHint}
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
         {messages.length === 0 ? (
           <div className="mx-auto max-w-md text-center">
-            <p className="text-sm font-medium text-black/70 dark:text-white/70">
-              {strings.chat.emptyStateTitle}
-            </p>
+            <p className="text-sm font-medium text-[#c3c2b7]">{strings.chat.emptyStateTitle}</p>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               {strings.chat.suggestedQuestions.map((q) => (
                 <button
                   key={q}
                   onClick={() => void sendMessage(q)}
                   disabled={loading || quotaExhausted}
-                  className="rounded-full border border-black/10 px-3 py-1.5 text-xs transition-colors hover:bg-black/5 disabled:opacity-50 dark:border-white/15 dark:hover:bg-white/10"
+                  className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-[#c3c2b7] transition-colors hover:bg-white/5 hover:text-white disabled:opacity-50"
                 >
                   {q}
                 </button>
@@ -116,13 +118,13 @@ export function ChatInterface() {
               m.role === "user" ? (
                 <div
                   key={i}
-                  className="max-w-[80%] self-end rounded-2xl bg-foreground px-4 py-2 text-sm whitespace-pre-wrap text-background"
+                  className="max-w-[80%] self-end rounded-2xl bg-[#3987e5] px-4 py-2 text-sm whitespace-pre-wrap text-white"
                 >
                   {m.content}
                 </div>
               ) : (
                 <div key={i} className="w-full">
-                  <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-black/40 dark:text-white/40">
+                  <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-[#898781]">
                     <span aria-hidden>⚽</span> Allsvenskan-AI
                   </p>
                   <MessageContent content={m.content} />
@@ -131,13 +133,13 @@ export function ChatInterface() {
             )}
             {loading && (
               <div className="w-full">
-                <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-black/40 dark:text-white/40">
+                <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-[#898781]">
                   <span aria-hidden>⚽</span> Allsvenskan-AI
                 </p>
                 <div className="flex gap-1 py-1">
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-black/30 [animation-delay:-0.3s] dark:bg-white/30" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-black/30 [animation-delay:-0.15s] dark:bg-white/30" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-black/30 dark:bg-white/30" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/30 [animation-delay:-0.3s]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/30 [animation-delay:-0.15s]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/30" />
                 </div>
               </div>
             )}
@@ -146,35 +148,28 @@ export function ChatInterface() {
         )}
       </div>
 
-      {error && (
-        <p className="px-4 pb-2 text-center text-xs text-red-600 dark:text-red-400">{error}</p>
-      )}
+      {error && <p className="px-4 pb-2 text-center text-xs text-[#e66767]">{error}</p>}
 
-      <form
-        onSubmit={handleSubmit}
-        className="flex items-center gap-2 border-t border-black/10 p-3 dark:border-white/10"
-      >
+      <form onSubmit={handleSubmit} className="flex items-center gap-2 border-t border-white/10 p-3">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={strings.chat.placeholder}
           disabled={loading || quotaExhausted}
-          className="flex-1 rounded-full border border-black/10 bg-transparent px-4 py-2 text-sm outline-none disabled:opacity-50 dark:border-white/15"
+          className="flex-1 rounded-full border border-white/10 bg-transparent px-4 py-2 text-sm text-white outline-none placeholder:text-[#898781] disabled:opacity-50"
         />
         <button
           type="submit"
           disabled={loading || quotaExhausted || !input.trim()}
-          className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
+          className="rounded-full bg-[#3987e5] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
           {strings.chat.send}
         </button>
       </form>
 
       {quota && (
-        <p className="pb-3 text-center text-xs text-black/40 dark:text-white/40">
-          {quota.unlimited
-            ? strings.chat.quotaUnlimited
-            : strings.chat.quotaLabel(quota.used, quota.limit)}
+        <p className="pb-3 text-center text-xs text-[#898781]">
+          {quota.unlimited ? strings.chat.quotaUnlimited : strings.chat.quotaLabel(quota.used, quota.limit)}
         </p>
       )}
     </div>
