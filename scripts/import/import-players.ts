@@ -96,6 +96,18 @@ export async function importPlayersAndStatistics() {
             shots_total: stat.shots.total,
             shots_on_target: stat.shots.on,
             rating: stat.games.rating ? Number(stat.games.rating) : null,
+            passes_total: stat.passes.total,
+            passes_key: stat.passes.key,
+            passes_accuracy: stat.passes.accuracy,
+            tackles_total: stat.tackles.total,
+            tackles_blocks: stat.tackles.blocks,
+            tackles_interceptions: stat.tackles.interceptions,
+            duels_total: stat.duels.total,
+            duels_won: stat.duels.won,
+            dribbles_attempts: stat.dribbles.attempts,
+            dribbles_success: stat.dribbles.success,
+            fouls_drawn: stat.fouls.drawn,
+            fouls_committed: stat.fouls.committed,
           },
           { onConflict: "player_id,team_id,league_id,season_id" }
         );

@@ -237,6 +237,18 @@ export interface Database {
           shots_total: number | null;
           shots_on_target: number | null;
           rating: number | null;
+          passes_total: number | null;
+          passes_key: number | null;
+          passes_accuracy: number | null;
+          tackles_total: number | null;
+          tackles_blocks: number | null;
+          tackles_interceptions: number | null;
+          duels_total: number | null;
+          duels_won: number | null;
+          dribbles_attempts: number | null;
+          dribbles_success: number | null;
+          fouls_drawn: number | null;
+          fouls_committed: number | null;
           created_at: string;
           updated_at: string;
         };
