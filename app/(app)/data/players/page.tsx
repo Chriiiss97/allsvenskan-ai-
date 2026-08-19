@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { PlayerSearchList, type PlayerListItem } from "@/components/data/PlayerSearchList";
 import type { PlayerSortKey } from "@/components/data/PlayerCard";
 import { SectionTabs } from "@/components/data/SectionTabs";
+import { hasPlayedSeason } from "@/lib/football/active-player";
 
 interface PlayerListRow {
   id: number;
@@ -14,11 +15,18 @@ interface PlayerListRow {
 
 interface StatRow {
   player_id: number;
+  team_id: number;
   goals: number;
   assists: number;
   appearances: number;
   minutes_played: number;
   season: { year: number } | null;
+}
+
+interface TeamRow {
+  id: number;
+  name: string;
+  external_id: number | null;
 }
 
 const VALID_SORTS: PlayerSortKey[] = ["name", "goals", "assists", "appearances", "minutes"];
@@ -46,29 +54,34 @@ export default async function PlayersIndexPage({
 
   const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .from("player")
-    .select("id, full_name, position, photo_url, current_team:current_team_id(id, name, external_id)")
-    .order("full_name")
-    .returns<PlayerListRow[]>();
+  const [{ data, error }, { data: teamRowsData }] = await Promise.all([
+    supabase
+      .from("player")
+      .select("id, full_name, position, photo_url, current_team:current_team_id(id, name, external_id)")
+      .order("full_name")
+      .returns<PlayerListRow[]>(),
+    supabase.from("team").select("id, name, external_id").in("name", TEAM_OPTIONS).returns<TeamRow[]>(),
+  ]);
 
   const allPlayers = data ?? [];
-  const players = teamFilter === "all" ? allPlayers : allPlayers.filter((p) => p.current_team?.name === teamFilter);
+  const teamById = new Map((teamRowsData ?? []).map((t) => [t.id, t]));
 
   // Hämtas alltid i bulk (253 rader) och reduceras i JS — samma mönster
   // som lagprofilen/get_top_scorers, billigare än en fråga per spelare.
   const { data: statsData } = await supabase
     .from("statistics")
-    .select("player_id, goals, assists, appearances, minutes_played, season:season_id(year)")
+    .select("player_id, team_id, goals, assists, appearances, minutes_played, season:season_id(year)")
     .returns<StatRow[]>();
   const stats = statsData ?? [];
 
   let items: PlayerListItem[];
 
   if (seasonFilter === "all") {
-    // "Alla säsonger" = summerat över 2022–2024 per spelare. Spelare utan
-    // en enda match under hela perioden (bara registrerade, aldrig spelat)
-    // filtreras bort — se kommentar nedan om varför.
+    // "Alla säsonger" = summerat över 2022–2024 per spelare (se
+    // lib/football/active-player.ts — bara summerade appearances > 0
+    // räknas). Lagmärkningen använder spelarens NUVARANDE klubb här — för
+    // en flersäsongssummering är "vilket lag" i sig tvetydigt om spelaren
+    // bytt klubb, och nuvarande klubb är den rimligaste enskilda etiketten.
     const totals = new Map<
       number,
       { goals: number; assists: number; appearances: number; minutesPlayed: number }
@@ -81,8 +94,10 @@ export default async function PlayersIndexPage({
       existing.minutesPlayed += row.minutes_played;
       totals.set(row.player_id, existing);
     }
+    const players =
+      teamFilter === "all" ? allPlayers : allPlayers.filter((p) => p.current_team?.name === teamFilter);
     items = players
-      .filter((p) => (totals.get(p.id)?.appearances ?? 0) > 0)
+      .filter((p) => hasPlayedSeason(totals.get(p.id)?.appearances ?? 0))
       .map((p) => ({
         id: p.id,
         full_name: p.full_name,
@@ -94,37 +109,54 @@ export default async function PlayersIndexPage({
         stat: { ...totals.get(p.id)!, year: "all" as const },
       }));
   } else {
-    // En specifik säsong: bara spelare som faktiskt SPELADE den säsongen
-    // (appearances > 0) visas. API-Football:s statistikrader inkluderar
-    // annars alla som var registrerade för klubben det året — inklusive
-    // spelare som aldrig kom till en enda match (provspel, reserver,
-    // spelare som lämnade innan säsongsstart etc.) — vilket annars
-    // uppblåser antalet långt över en verklig truppstorlek (~25–35).
+    // En specifik säsong: laget en spelare räknas mot är laget på DEN
+    // säsongens egen statistikrad (team_id), inte spelarens nuvarande
+    // klubb — annars felmärks vem som helst som bytt klubb mellan IFK och
+    // AIK under perioden. En spelare kan ha flera rader samma säsong
+    // (t.ex. olika league_id för cup/liga) — de summeras ihop.
     const statByPlayer = new Map<
       number,
-      { goals: number; assists: number; appearances: number; minutesPlayed: number }
+      { goals: number; assists: number; appearances: number; minutesPlayed: number; teamId: number }
     >();
     for (const row of stats) {
-      if (row.season?.year !== seasonFilter || row.appearances <= 0) continue;
-      statByPlayer.set(row.player_id, {
-        goals: row.goals,
-        assists: row.assists,
-        appearances: row.appearances,
-        minutesPlayed: row.minutes_played,
-      });
+      if (row.season?.year !== seasonFilter || !hasPlayedSeason(row.appearances)) continue;
+      const existing = statByPlayer.get(row.player_id);
+      if (existing) {
+        existing.goals += row.goals;
+        existing.assists += row.assists;
+        existing.appearances += row.appearances;
+        existing.minutesPlayed += row.minutes_played;
+      } else {
+        statByPlayer.set(row.player_id, {
+          goals: row.goals,
+          assists: row.assists,
+          appearances: row.appearances,
+          minutesPlayed: row.minutes_played,
+          teamId: row.team_id,
+        });
+      }
     }
-    items = players
+    items = allPlayers
       .filter((p) => statByPlayer.has(p.id))
-      .map((p) => ({
-        id: p.id,
-        full_name: p.full_name,
-        position: p.position,
-        photoUrl: p.photo_url,
-        teamName: p.current_team?.name ?? null,
-        teamIndex: p.current_team?.external_id === 377 ? 1 : 0,
-        teamExternalId: p.current_team?.external_id ?? null,
-        stat: { ...statByPlayer.get(p.id)!, year: seasonFilter },
-      }));
+      .filter((p) => {
+        if (teamFilter === "all") return true;
+        const team = teamById.get(statByPlayer.get(p.id)!.teamId);
+        return team?.name === teamFilter;
+      })
+      .map((p) => {
+        const s = statByPlayer.get(p.id)!;
+        const team = teamById.get(s.teamId);
+        return {
+          id: p.id,
+          full_name: p.full_name,
+          position: p.position,
+          photoUrl: p.photo_url,
+          teamName: team?.name ?? p.current_team?.name ?? null,
+          teamIndex: team?.external_id === 377 ? 1 : 0,
+          teamExternalId: team?.external_id ?? null,
+          stat: { goals: s.goals, assists: s.assists, appearances: s.appearances, minutesPlayed: s.minutesPlayed, year: seasonFilter },
+        };
+      });
   }
 
   const sortKeyMap: Record<PlayerSortKey, keyof NonNullable<PlayerListItem["stat"]> | null> = {
@@ -174,7 +206,7 @@ export default async function PlayersIndexPage({
           <p className="mt-1 text-sm text-[#898781]">
             {sortedItems.length} spelare {teamFilter === "all" ? "från IFK Göteborg och AIK" : `från ${teamFilter}`}
             {seasonFilter === "all" ? ", 2022–2024" : `, säsongen ${seasonFilter}`}
-            {seasonFilter !== "all" ? " (som faktiskt spelade den säsongen)" : ""}.
+            {" "}(som faktiskt spelat minst en match{seasonFilter === "all" ? " under perioden" : ""}).
           </p>
         </div>
         <Link

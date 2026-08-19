@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { resolveTeam } from "./resolve-team";
 import { resolvePlayer } from "./resolve-player";
+import { hasPlayedSeason } from "./active-player";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -374,9 +375,21 @@ export async function getPlayerProfile(supabase: Supabase, params: PlayerProfile
     throw new FootballDataError(`Ingen statistik hittad för ${bio.full_name}.`);
   }
 
-  const availableSeasons = [...new Set(rows.map((r) => r.season?.year).filter((y): y is number => Boolean(y)))].sort(
-    (a, b) => b - a
-  );
+  // Bara säsonger spelaren faktiskt spelade (se lib/football/active-player.ts)
+  // erbjuds i säsongsväljaren — annars kunde man landa på en "spökssäsong"
+  // där raden bara betyder "registrerad", inte "spelade".
+  const availableSeasons = [
+    ...new Set(
+      rows
+        .filter((r) => hasPlayedSeason(r.appearances))
+        .map((r) => r.season?.year)
+        .filter((y): y is number => Boolean(y))
+    ),
+  ].sort((a, b) => b - a);
+
+  if (availableSeasons.length === 0) {
+    throw new FootballDataError(`${bio.full_name} har inte spelat en enda match i någon importerad säsong.`);
+  }
 
   let seasonYear = params.season ?? availableSeasons[0] ?? null;
   const row = rows.find((r) => r.season?.year === seasonYear);
@@ -739,20 +752,49 @@ export async function getTeamProfile(supabase: Supabase, params: TeamProfilePara
     if (seasonYear) scopedFixtures = allFixtures.filter((f) => f.season?.year === seasonYear);
   }
 
+  // seasonId sattes bara ovan om params.season gavs explicit — om
+  // seasonYear istället kom från fallbacken behöver vi slå upp id:t här,
+  // annars kan inte truppfrågan nedan filtrera på season_id.
+  if (!seasonId && seasonYear) {
+    const { data: resolvedSeasonRow } = await supabase.from("season").select("id").eq("year", seasonYear).maybeSingle();
+    seasonId = resolvedSeasonRow?.id ?? null;
+  }
+
   const record = computeFormRecord(scopedFixtures, team.id);
 
-  const [{ data: squadData }, scorersResult, facts, { data: logoRow }, recentFixtures] = await Promise.all([
-    supabase
-      .from("player")
-      .select("id, full_name, position, photo_url")
-      .eq("current_team_id", team.id)
-      .order("full_name")
-      .returns<{ id: number; full_name: string; position: string | null; photo_url: string | null }[]>(),
+  const [squadStatsResult, scorersResult, facts, { data: logoRow }, recentFixtures] = await Promise.all([
+    // Trupp = spelare som faktiskt spelade för LAGET DEN säsongen (se
+    // lib/football/active-player.ts) — inte player.current_team_id, som
+    // bara säger vilken klubb spelaren råkar tillhöra IDAG och varken
+    // respekterar vald säsong eller om de faktiskt kom till en match.
+    seasonId
+      ? supabase
+          .from("statistics")
+          .select("appearances, player:player_id(id, full_name, position, photo_url)")
+          .eq("team_id", team.id)
+          .eq("season_id", seasonId)
+          .returns<
+            { appearances: number; player: { id: number; full_name: string; position: string | null; photo_url: string | null } | null }[]
+          >()
+      : Promise.resolve({ data: [] as { appearances: number; player: { id: number; full_name: string; position: string | null; photo_url: string | null } | null }[] }),
     getTopScorers(supabase, { team: team.name, season: seasonYear ?? undefined, limit: 50 }),
     getTeamFacts(supabase, team.name),
     supabase.from("team").select("logo_url").eq("id", team.id).single<{ logo_url: string | null }>(),
     getFixtures(supabase, { team: team.name, season: seasonYear ?? undefined, limit: 5 }),
   ]);
+
+  // En spelare kan ha flera statistikrader samma säsong (t.ex. olika
+  // league_id för cup/liga) — dedupe per spelare, håll om NÅGON rad visar
+  // att de faktiskt spelade.
+  const squadByPlayer = new Map<
+    number,
+    { id: number; full_name: string; position: string | null; photo_url: string | null }
+  >();
+  for (const row of squadStatsResult.data ?? []) {
+    if (!row.player || !hasPlayedSeason(row.appearances)) continue;
+    squadByPlayer.set(row.player.id, row.player);
+  }
+  const squad = [...squadByPlayer.values()].sort((a, b) => a.full_name.localeCompare(b.full_name, "sv"));
 
   const scorers = scorersResult.scorers;
   const topScorer = scorers.length > 0 ? scorers[0] : null;
@@ -762,7 +804,7 @@ export async function getTeamProfile(supabase: Supabase, params: TeamProfilePara
     team: { name: team.name, logoUrl: logoRow?.logo_url ?? null },
     season: seasonYear,
     record,
-    squad: (squadData ?? []).map((p) => ({
+    squad: squad.map((p) => ({
       id: p.id,
       name: p.full_name,
       position: p.position,
