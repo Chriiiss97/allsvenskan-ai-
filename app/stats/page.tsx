@@ -40,6 +40,13 @@ interface TeamFactsRow {
   team_rivalry: Array<{ rival_name: string | null; description: string | null }>;
 }
 
+interface LeagueFactsRow {
+  name: string;
+  founded_year: number | null;
+  short_history: string | null;
+  league_fact: Array<{ label: string; description: string; year: number | null }>;
+}
+
 export default async function StatsPreviewPage() {
   const supabase = await createClient();
 
@@ -68,6 +75,12 @@ export default async function StatsPreviewPage() {
     .in("external_id", [366, 377])
     .returns<TeamFactsRow[]>();
 
+  const { data: leagueFactsData, error: leagueFactsError } = await supabase
+    .from("league")
+    .select("name, founded_year, short_history, league_fact(label, description, year)")
+    .eq("external_id", 113)
+    .single<LeagueFactsRow>();
+
   const stats = statsData ?? [];
   const fixtures = fixturesData ?? [];
   const teamFacts = factsData ?? [];
@@ -91,10 +104,27 @@ export default async function StatsPreviewPage() {
         innan chattlagret är byggt.
       </p>
 
-      {(statsError || fixturesError || factsError) && (
+      {(statsError || fixturesError || factsError || leagueFactsError) && (
         <p className="mt-4 text-sm text-red-600 dark:text-red-400">
-          Kunde inte hämta data: {statsError?.message ?? fixturesError?.message ?? factsError?.message}
+          Kunde inte hämta data:{" "}
+          {statsError?.message ?? fixturesError?.message ?? factsError?.message ?? leagueFactsError?.message}
         </p>
+      )}
+
+      {leagueFactsData && (
+        <section className="mt-10">
+          <h2 className="text-lg font-medium">
+            {leagueFactsData.name} {leagueFactsData.founded_year && `(grundad ${leagueFactsData.founded_year})`}
+          </h2>
+          <p className="mt-2 text-sm">{leagueFactsData.short_history}</p>
+          <ul className="mt-3 space-y-1 text-xs text-black/60 dark:text-white/60">
+            {leagueFactsData.league_fact.map((f) => (
+              <li key={f.label}>
+                <strong>{f.label}:</strong> {f.description}
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       <section className="mt-10">

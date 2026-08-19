@@ -7,6 +7,7 @@ import { importPlayersAndStatistics } from "./import-players";
 import { importFixtures } from "./import-fixtures";
 import { importFixtureEvents } from "./import-events";
 import { seedTeamFacts } from "./seed-team-facts";
+import { seedLeagueFacts } from "./seed-league-facts";
 
 config({ path: path.resolve(process.cwd(), ".env.local") });
 
@@ -16,7 +17,11 @@ const STEPS: Record<string, () => Promise<void>> = {
   players: importPlayersAndStatistics,
   fixtures: importFixtures,
   events: () => importFixtureEvents(),
-  facts: seedTeamFacts, // ingen API-Football-koppling, kostar inget av dagskvoten
+  // ingen API-Football-koppling, kostar inget av dagskvoten
+  facts: async () => {
+    await seedTeamFacts();
+    await seedLeagueFacts();
+  },
   // 'all' kör de billiga stegen (~25 anrop totalt för 2 lag x 3 säsonger).
   // 'events' kör INTE med här — den kostar ett anrop per match och kan
   // ensam äta upp hela dagskvoten. Kör den separat: `npm run import events`.
@@ -26,6 +31,7 @@ const STEPS: Record<string, () => Promise<void>> = {
     await importPlayersAndStatistics();
     await importFixtures();
     await seedTeamFacts();
+    await seedLeagueFacts();
   },
 };
 

@@ -40,11 +40,30 @@ export interface Database {
           country: string | null;
           type: string | null;
           logo_url: string | null;
+          founded_year: number | null;
+          short_history: string | null;
           created_at: string;
           updated_at: string;
         };
         Insert: Partial<Database["public"]["Tables"]["league"]["Row"]> & { name: string };
         Update: Partial<Database["public"]["Tables"]["league"]["Row"]>;
+        Relationships: [];
+      };
+      league_fact: {
+        Row: {
+          id: number;
+          league_id: number;
+          label: string;
+          description: string;
+          year: number | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["league_fact"]["Row"]> & {
+          league_id: number;
+          label: string;
+          description: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["league_fact"]["Row"]>;
         Relationships: [];
       };
       season: {
