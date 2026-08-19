@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm -v)",
+      "Bash(npx --yes create-next-app@latest . --typescript --tailwind --eslint --app --src-dir=false --import-alias \"@/*\" --use-npm --no-turbopack)",
+      "Bash(npx --yes create-next-app@latest allsvenskan-ai --typescript --tailwind --eslint --app --src-dir=false --import-alias \"@/*\" --use-npm --no-turbopack)",
+      "Bash(npm install *)",
+      "Bash(cd \"/c/Users/Chriiss1997/Desktop/Allsvenskan ai\" && mkdir -p lib/supabase lib/i18n components/auth supabase/migrations app/auth/callback app/login && npm install server-only 2>&1 | tail -10)",
+      "Bash(npx tsc *)",
+      "Bash(node -e \"console.log\\(require\\('@supabase/supabase-js/package.json'\\).version\\)\")",
+      "Bash(xargs grep -l \"GenericSchema\")",
+      "Bash(node -e ' *)",
+      "Bash(npm run *)",
+      "Bash(npx --yes @next/codemod@canary middleware-to-proxy .)"
+    ]
+  }
+}
