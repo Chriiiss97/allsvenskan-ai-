@@ -35,6 +35,8 @@ export const strings = {
     openChatDesc: "Fråga fritt om mål, kort, matcher och klubbhistoria.",
     openData: "Utforska data",
     openDataDesc: "Spelarprofiler, jämförelser och matcher — siffrorna visuellt.",
+    accountActive: "Konto aktivt",
+    popularQuestions: "Populära frågor",
   },
   onboarding: {
     title: "Vilket lag följer du?",
