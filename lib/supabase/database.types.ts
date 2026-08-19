@@ -265,12 +265,44 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["unanswered_questions"]["Row"]>;
         Relationships: [];
       };
+      conversation: {
+        Row: {
+          id: number;
+          user_id: string;
+          title: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["conversation"]["Row"]> & { user_id: string };
+        Update: Partial<Database["public"]["Tables"]["conversation"]["Row"]>;
+        Relationships: [];
+      };
+      message: {
+        Row: {
+          id: number;
+          conversation_id: number;
+          role: "user" | "assistant";
+          content: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["message"]["Row"]> & {
+          conversation_id: number;
+          role: "user" | "assistant";
+          content: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["message"]["Row"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
       set_favorite_team: {
         Args: { p_team_id: number | null };
         Returns: undefined;
+      };
+      increment_message_quota: {
+        Args: { p_daily_limit: number };
+        Returns: { allowed: boolean; message_count: number }[];
       };
     };
   };

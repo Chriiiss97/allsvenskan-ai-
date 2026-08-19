@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { resolveTeam } from "@/lib/football/resolve-team";
+import { getTeamFacts, FootballDataError } from "@/lib/football/tools";
 
 // Lagfakta (historia, smeknamn, legendarer) ändras nästan aldrig — cacha länge.
 export const revalidate = 3600;
@@ -13,25 +13,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ tea
   const { team: teamIdentifier } = await params;
   const supabase = await createClient();
 
-  const team = await resolveTeam(supabase, decodeURIComponent(teamIdentifier));
-  if (!team) {
-    return NextResponse.json({ error: `Okänt lag: "${teamIdentifier}"` }, { status: 404 });
+  try {
+    const result = await getTeamFacts(supabase, decodeURIComponent(teamIdentifier));
+    return NextResponse.json(result);
+  } catch (err) {
+    if (err instanceof FootballDataError) {
+      return NextResponse.json({ error: err.message }, { status: 404 });
+    }
+    return NextResponse.json({ error: "Internt fel" }, { status: 500 });
   }
-
-  const { data, error } = await supabase
-    .from("team")
-    .select(
-      "name, nicknames, founded_year, short_history, website_url, venue_name, logo_url, " +
-        "team_trophy(competition, year), " +
-        "team_legend(name, period, role, description), " +
-        "team_rivalry!team_rivalry_team_id_fkey(rival_name, description)"
-    )
-    .eq("id", team.id)
-    .single();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json(data);
 }

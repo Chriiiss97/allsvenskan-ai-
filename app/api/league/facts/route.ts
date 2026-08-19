@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getLeagueFacts, FootballDataError } from "@/lib/football/tools";
 
 export const revalidate = 3600;
 
@@ -12,15 +13,13 @@ export const revalidate = 3600;
 export async function GET() {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .from("league")
-    .select("name, country, founded_year, short_history, league_fact(label, description, year)")
-    .eq("external_id", 113)
-    .single();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  try {
+    const result = await getLeagueFacts(supabase);
+    return NextResponse.json(result);
+  } catch (err) {
+    if (err instanceof FootballDataError) {
+      return NextResponse.json({ error: err.message }, { status: 404 });
+    }
+    return NextResponse.json({ error: "Internt fel" }, { status: 500 });
   }
-
-  return NextResponse.json(data);
 }
