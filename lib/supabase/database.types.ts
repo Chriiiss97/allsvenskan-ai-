@@ -162,6 +162,7 @@ export interface Database {
           home_score: number | null;
           away_score: number | null;
           venue_name: string | null;
+          events_synced_at: string | null;
           created_at: string;
           updated_at: string;
         };
