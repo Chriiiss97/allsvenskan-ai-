@@ -6,6 +6,7 @@ interface PlayerListRow {
   id: number;
   full_name: string;
   position: string | null;
+  photo_url: string | null;
   current_team: { id: number; name: string; external_id: number | null } | null;
 }
 
@@ -21,7 +22,7 @@ export default async function PlayersIndexPage() {
 
   const { data, error } = await supabase
     .from("player")
-    .select("id, full_name, position, current_team:current_team_id(id, name, external_id)")
+    .select("id, full_name, position, photo_url, current_team:current_team_id(id, name, external_id)")
     .order("full_name")
     .returns<PlayerListRow[]>();
 
@@ -52,6 +53,7 @@ export default async function PlayersIndexPage() {
     id: p.id,
     full_name: p.full_name,
     position: p.position,
+    photoUrl: p.photo_url,
     teamName: p.current_team?.name ?? null,
     // IFK Göteborg (external_id 366) -> accent 0, AIK (377) -> accent 1.
     teamIndex: p.current_team?.external_id === 377 ? 1 : 0,

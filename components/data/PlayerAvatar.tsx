@@ -1,3 +1,7 @@
+"use client";
+
+import { useState } from "react";
+
 // Kategorisk slot 1 (blå) / slot 2 (orange) från dataviz-skillens palett —
 // samma konvention som PlayerCompareRadar/RecordBar, inte hårdkodade
 // klubbfärger, så komponenten håller om fler lag läggs till senare.
@@ -10,20 +14,38 @@ function initials(name: string): string {
 }
 
 /**
- * Initial-baserad avatar med lagfärgad bakgrund — ersätter <img>-taggar mot
- * externa spelarfoton som ofta saknas/är trasiga för mindre kända spelare.
- * `teamIndex` väljer accentfärg (0 eller 1), matchar ordningen lagen
- * presenteras i (t.ex. IFK=0/AIK=1 i en jämförelse).
+ * Spelaravatar: visar riktigt foto (API-Football har en photo_url för alla
+ * importerade spelare) om det finns och faktiskt går att ladda, annars en
+ * initial-baserad avatar med lagfärgad bakgrund. `onError` fångar trasiga
+ * bild-URL:er och byter tyst till fallbacken istället för att visa en
+ * trasig bild-ikon.
  */
 export function PlayerAvatar({
   name,
   teamIndex = 0,
   size = 40,
+  photoUrl,
 }: {
   name: string;
   teamIndex?: 0 | 1;
   size?: number;
+  photoUrl?: string | null;
 }) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  if (photoUrl && !imageFailed) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- extern spelarbild, ingen lokal optimering krävs
+      <img
+        src={photoUrl}
+        alt=""
+        onError={() => setImageFailed(true)}
+        className="shrink-0 rounded-full bg-white/5 object-cover"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+
   return (
     <div
       className="flex shrink-0 items-center justify-center rounded-full font-semibold text-white"

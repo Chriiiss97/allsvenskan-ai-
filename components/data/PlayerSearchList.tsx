@@ -3,11 +3,13 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { PlayerAvatar } from "./PlayerAvatar";
+import { translatePosition } from "@/lib/i18n/sv";
 
 export interface PlayerListItem {
   id: number;
   full_name: string;
   position: string | null;
+  photoUrl: string | null;
   teamName: string | null;
   teamIndex: 0 | 1;
   stat: { goals: number; appearances: number; year: number } | null;
@@ -68,11 +70,11 @@ export function PlayerSearchList({ players }: { players: PlayerListItem[] }) {
             href={`/data/players/${p.id}`}
             className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#1a1a19] p-3 transition-colors hover:border-white/25 hover:bg-white/[.03]"
           >
-            <PlayerAvatar name={p.full_name} teamIndex={p.teamIndex} />
+            <PlayerAvatar name={p.full_name} teamIndex={p.teamIndex} photoUrl={p.photoUrl} />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{p.full_name}</p>
               <p className="truncate text-xs text-[#898781]">
-                {p.teamName ?? "—"} {p.position && `· ${p.position}`}
+                {p.teamName ?? "—"} {p.position && `· ${translatePosition(p.position)}`}
               </p>
             </div>
             {p.stat && (

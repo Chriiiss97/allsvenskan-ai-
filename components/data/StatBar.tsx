@@ -1,9 +1,10 @@
 /**
  * Meter/progress-bar: fyllning = spelarens värde, ljusare steg av samma
  * ramp = spårets bakgrund, en markör visar ligasnittet (se dataviz-skillens
- * palette.md "Meter"-spec). Visar "Ej tillgängligt" istället för en stapel
- * om vi saknar datan — ritar aldrig 0 för null (0 skulle felaktigt betyda
- * "sämst möjligt", inte "ingen data").
+ * palette.md "Meter"-spec). Renderar INGET alls om värdet saknas — en synlig
+ * "Ej tillgängligt"-rad såg trasig/amatörmässig ut och tillförde inget;
+ * bättre att panelen bara innehåller de mått vi faktiskt har (se
+ * anropsställena, som räknar ut om en hel panel ska visas överhuvudtaget).
  */
 export function StatBar({
   label,
@@ -16,16 +17,7 @@ export function StatBar({
   leagueAverage: number | null;
   suffix?: string;
 }) {
-  if (value === null) {
-    return (
-      <div className="py-1.5">
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-[#c3c2b7]">{label}</span>
-          <span className="text-[#898781]">Ej tillgängligt</span>
-        </div>
-      </div>
-    );
-  }
+  if (value === null) return null;
 
   const max = Math.max(value, leagueAverage ?? 0) * 1.25 || 1;
   const fillPct = Math.min(100, (value / max) * 100);

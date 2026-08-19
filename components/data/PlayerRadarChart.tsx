@@ -50,13 +50,29 @@ export function PlayerRadarChart({
   const data = AXES.map((axis) => {
     const playerValue = per90[axis.key];
     const avgValue = leagueAveragePer90[axis.key];
-    const pct = playerValue !== null && avgValue ? Math.min(200, (playerValue / avgValue) * 100) : null;
+    // Ingen övre cap längre — hellre en dynamisk skala (se ceiling nedan)
+    // än att klippa av verkliga extremvärden vid en godtycklig gräns.
+    const pct = playerValue !== null && avgValue ? (playerValue / avgValue) * 100 : null;
     return { axis: axis.label, Spelare: pct, Ligasnitt: pct !== null ? 100 : null };
   }).filter((d) => d.Spelare !== null);
 
-  if (data.length === 0) {
-    return <p className="text-sm text-[#898781]">Inte tillräckligt med data för ett diagram än.</p>;
+  // Ett spindeldiagram med 1-2 axlar ser trasigt ut (en spik, inte en
+  // "spindel") — hellre en ärlig text än ett konstigt diagram tills vi har
+  // fler mått per spelare.
+  if (data.length < 3) {
+    return (
+      <p className="text-sm text-[#898781]">
+        Väntar på fler jämförbara mått för ett diagram (har just nu {data.length} av {AXES.length}).
+      </p>
+    );
   }
+
+  // Skalan anpassas till de faktiska värdena istället för ett fast tak —
+  // annars klämmer ett fast 0–200-tak ihop diagrammet till en smal remsa när
+  // alla riktiga värden ligger runt 100. Golv på 120 så 100-referensringen
+  // (ligasnittet) alltid har lite luft omkring sig.
+  const maxValue = Math.max(...data.map((d) => d.Spelare ?? 0));
+  const ceiling = Math.max(120, Math.ceil((maxValue * 1.15) / 20) * 20);
 
   return (
     <div>
@@ -68,7 +84,7 @@ export function PlayerRadarChart({
           <PolarGrid stroke="#2c2c2a" />
           <PolarAngleAxis dataKey="axis" tick={{ fill: "#c3c2b7", fontSize: 12 }} />
           <PolarRadiusAxis
-            domain={[0, 200]}
+            domain={[0, ceiling]}
             tick={{ fill: "#898781", fontSize: 10 }}
             axisLine={false}
           />
