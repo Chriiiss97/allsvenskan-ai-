@@ -120,6 +120,10 @@ export async function POST(request: Request) {
       const response = await anthropic.messages.create({
         model: CHAT_MODEL,
         max_tokens: 1024,
+        // Lägre temperatur = mer förutsägbart verktygsval. Vi vill ha
+        // konsekvent beteende (alltid försöka ett verktyg innan den ger upp)
+        // snarare än kreativ variation i en databunden assistent.
+        temperature: 0.3,
         system: CHAT_SYSTEM_PROMPT,
         tools: FOOTBALL_TOOLS,
         messages,
