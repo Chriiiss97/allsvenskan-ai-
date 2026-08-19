@@ -27,7 +27,11 @@ export async function seedTeamFacts() {
 
     const { error: updateError } = await supabase
       .from("team")
-      .update({ nicknames: facts.nicknames, short_history: facts.shortHistory })
+      .update({
+        nicknames: facts.nicknames,
+        short_history: facts.shortHistory,
+        website_url: facts.websiteUrl,
+      })
       .eq("id", teamRow.id);
     if (updateError) throw updateError;
 

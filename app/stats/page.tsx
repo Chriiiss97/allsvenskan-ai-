@@ -34,6 +34,7 @@ interface TeamFactsRow {
   nicknames: string[];
   founded_year: number | null;
   short_history: string | null;
+  website_url: string | null;
   team_trophy: Array<{ competition: string; year: number }>;
   team_legend: Array<{ name: string; period: string | null; role: string | null }>;
   team_rivalry: Array<{ rival_name: string | null; description: string | null }>;
@@ -62,7 +63,7 @@ export default async function StatsPreviewPage() {
   const { data: factsData, error: factsError } = await supabase
     .from("team")
     .select(
-      "name, nicknames, founded_year, short_history, team_trophy(competition, year), team_legend(name, period, role), team_rivalry!team_rivalry_team_id_fkey(rival_name, description)"
+      "name, nicknames, founded_year, short_history, website_url, team_trophy(competition, year), team_legend(name, period, role), team_rivalry!team_rivalry_team_id_fkey(rival_name, description)"
     )
     .in("external_id", [366, 377])
     .returns<TeamFactsRow[]>();
@@ -127,6 +128,13 @@ export default async function StatsPreviewPage() {
               {t.team_rivalry.length > 0 && (
                 <p className="mt-3 text-xs text-black/50 dark:text-white/50">
                   Rival: {t.team_rivalry.map((r) => r.rival_name).join(", ")}
+                </p>
+              )}
+              {t.website_url && (
+                <p className="mt-2 text-xs">
+                  <a href={t.website_url} className="underline" target="_blank" rel="noreferrer">
+                    {t.website_url.replace(/^https?:\/\//, "")}
+                  </a>
                 </p>
               )}
             </div>

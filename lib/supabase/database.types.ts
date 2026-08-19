@@ -74,6 +74,7 @@ export interface Database {
           founded_year: number | null;
           nicknames: string[];
           short_history: string | null;
+          website_url: string | null;
           created_at: string;
           updated_at: string;
         };
