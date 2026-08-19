@@ -2,6 +2,7 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { strings } from "@/lib/i18n/sv";
+import { MessageContent } from "./MessageContent";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -90,7 +91,7 @@ export function ChatInterface() {
         {strings.chat.liveHint}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-6">
+      <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
         {messages.length === 0 ? (
           <div className="mx-auto max-w-md text-center">
             <p className="text-sm font-medium text-black/70 dark:text-white/70">
@@ -110,22 +111,34 @@ export function ChatInterface() {
             </div>
           </div>
         ) : (
-          <div className="mx-auto flex max-w-2xl flex-col gap-3">
-            {messages.map((m, i) => (
-              <div
-                key={i}
-                className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm whitespace-pre-wrap ${
-                  m.role === "user"
-                    ? "self-end bg-foreground text-background"
-                    : "self-start bg-black/[.05] dark:bg-white/[.08]"
-                }`}
-              >
-                {m.content}
-              </div>
-            ))}
+          <div className="mx-auto flex max-w-3xl flex-col gap-6">
+            {messages.map((m, i) =>
+              m.role === "user" ? (
+                <div
+                  key={i}
+                  className="max-w-[80%] self-end rounded-2xl bg-foreground px-4 py-2 text-sm whitespace-pre-wrap text-background"
+                >
+                  {m.content}
+                </div>
+              ) : (
+                <div key={i} className="w-full">
+                  <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-black/40 dark:text-white/40">
+                    <span aria-hidden>⚽</span> Allsvenskan-AI
+                  </p>
+                  <MessageContent content={m.content} />
+                </div>
+              )
+            )}
             {loading && (
-              <div className="self-start rounded-2xl bg-black/[.05] px-4 py-2 text-sm text-black/40 dark:bg-white/[.08] dark:text-white/40">
-                {strings.chat.sending}
+              <div className="w-full">
+                <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-black/40 dark:text-white/40">
+                  <span aria-hidden>⚽</span> Allsvenskan-AI
+                </p>
+                <div className="flex gap-1 py-1">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-black/30 [animation-delay:-0.3s] dark:bg-white/30" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-black/30 [animation-delay:-0.15s] dark:bg-white/30" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-black/30 dark:bg-white/30" />
+                </div>
               </div>
             )}
             <div ref={bottomRef} />
