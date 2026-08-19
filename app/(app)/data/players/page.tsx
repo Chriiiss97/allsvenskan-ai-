@@ -177,11 +177,17 @@ export default async function PlayersIndexPage({
         });
 
   function buildHref(overrides: { sort?: string; season?: string; team?: string }) {
+    // "in"-kollen (inte "!== undefined") är avgörande: en pill som ska
+    // RENSA ett filter måste kunna skicka {season: undefined} och få det
+    // att faktiskt betyda "ta bort season-parametern" — med en
+    // !==undefined-koll är ett explicit undefined-värde och en helt
+    // utelämnad nyckel omöjliga att skilja åt, så "Alla säsonger" föll
+    // tillbaka till den redan aktiva säsongen istället för att rensa den.
     const params = new URLSearchParams();
     const next = {
-      sort: overrides.sort !== undefined ? overrides.sort : rawSort,
-      season: overrides.season !== undefined ? overrides.season : rawSeason,
-      team: overrides.team !== undefined ? overrides.team : rawTeam,
+      sort: "sort" in overrides ? overrides.sort : rawSort,
+      season: "season" in overrides ? overrides.season : rawSeason,
+      team: "team" in overrides ? overrides.team : rawTeam,
     };
     if (next.sort) params.set("sort", next.sort);
     if (next.season) params.set("season", next.season);
@@ -246,9 +252,11 @@ export default async function PlayersIndexPage({
               Alla
             </Link>
             {TEAM_OPTIONS.map((t) => (
+              // Klick på ett redan valt lag avmarkerar det (går tillbaka
+              // till "Alla") istället för att bara peka på samma URL.
               <Link
                 key={t}
-                href={buildHref({ team: t })}
+                href={buildHref({ team: teamFilter === t ? undefined : t })}
                 className={`rounded-full px-2.5 py-1 font-medium transition-colors ${
                   teamFilter === t ? "bg-[#3987e5]/15 text-white" : "text-[#898781] hover:text-white"
                 }`}
