@@ -92,6 +92,7 @@ export interface Database {
           short_name: string | null;
           logo_url: string | null;
           venue_name: string | null;
+          venue_id: number | null;
           founded_year: number | null;
           nicknames: string[];
           short_history: string | null;
@@ -184,7 +185,12 @@ export interface Database {
           home_score: number | null;
           away_score: number | null;
           venue_name: string | null;
+          venue_id: number | null;
+          referee_id: number | null;
           events_synced_at: string | null;
+          lineups_synced_at: string | null;
+          statistics_synced_at: string | null;
+          player_stats_synced_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -259,6 +265,287 @@ export interface Database {
           season_id: number;
         };
         Update: Partial<Database["public"]["Tables"]["statistics"]["Row"]>;
+        Relationships: [];
+      };
+      venue: {
+        Row: {
+          id: number;
+          external_id: number | null;
+          name: string;
+          address: string | null;
+          city: string | null;
+          country: string | null;
+          capacity: number | null;
+          surface: string | null;
+          image_url: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["venue"]["Row"]> & { name: string };
+        Update: Partial<Database["public"]["Tables"]["venue"]["Row"]>;
+        Relationships: [];
+      };
+      coach: {
+        Row: {
+          id: number;
+          external_id: number | null;
+          full_name: string;
+          nationality: string | null;
+          birth_date: string | null;
+          photo_url: string | null;
+          current_team_id: number | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["coach"]["Row"]> & { full_name: string };
+        Update: Partial<Database["public"]["Tables"]["coach"]["Row"]>;
+        Relationships: [];
+      };
+      referee: {
+        Row: {
+          id: number;
+          full_name: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["referee"]["Row"]> & { full_name: string };
+        Update: Partial<Database["public"]["Tables"]["referee"]["Row"]>;
+        Relationships: [];
+      };
+      fixture_lineup: {
+        Row: {
+          id: number;
+          fixture_id: number;
+          team_id: number;
+          coach_id: number | null;
+          formation: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fixture_lineup"]["Row"]> & {
+          fixture_id: number;
+          team_id: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["fixture_lineup"]["Row"]>;
+        Relationships: [];
+      };
+      fixture_lineup_player: {
+        Row: {
+          id: number;
+          fixture_lineup_id: number;
+          player_id: number | null;
+          is_starter: boolean;
+          shirt_number: number | null;
+          position: string | null;
+          grid: string | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fixture_lineup_player"]["Row"]> & {
+          fixture_lineup_id: number;
+          is_starter: boolean;
+        };
+        Update: Partial<Database["public"]["Tables"]["fixture_lineup_player"]["Row"]>;
+        Relationships: [];
+      };
+      fixture_player_stats: {
+        Row: {
+          id: number;
+          fixture_id: number;
+          team_id: number;
+          player_id: number | null;
+          minutes_played: number | null;
+          position: string | null;
+          shirt_number: number | null;
+          rating: number | null;
+          is_captain: boolean | null;
+          is_substitute: boolean | null;
+          shots_total: number | null;
+          shots_on_target: number | null;
+          goals: number | null;
+          goals_conceded: number | null;
+          assists: number | null;
+          saves: number | null;
+          passes_total: number | null;
+          passes_key: number | null;
+          passes_accuracy: number | null;
+          tackles_total: number | null;
+          tackles_blocks: number | null;
+          tackles_interceptions: number | null;
+          duels_total: number | null;
+          duels_won: number | null;
+          dribbles_attempts: number | null;
+          dribbles_success: number | null;
+          dribbles_past: number | null;
+          fouls_drawn: number | null;
+          fouls_committed: number | null;
+          offsides: number | null;
+          yellow_cards: number | null;
+          red_cards: number | null;
+          penalty_won: number | null;
+          penalty_committed: number | null;
+          penalty_scored: number | null;
+          penalty_missed: number | null;
+          penalty_saved: number | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fixture_player_stats"]["Row"]> & {
+          fixture_id: number;
+          team_id: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["fixture_player_stats"]["Row"]>;
+        Relationships: [];
+      };
+      fixture_team_stats: {
+        Row: {
+          id: number;
+          fixture_id: number;
+          team_id: number;
+          shots_on_goal: number | null;
+          shots_off_goal: number | null;
+          shots_total: number | null;
+          shots_blocked: number | null;
+          shots_inside_box: number | null;
+          shots_outside_box: number | null;
+          fouls: number | null;
+          corners: number | null;
+          offsides: number | null;
+          possession_pct: number | null;
+          yellow_cards: number | null;
+          red_cards: number | null;
+          goalkeeper_saves: number | null;
+          passes_total: number | null;
+          passes_accurate: number | null;
+          passes_pct: number | null;
+          expected_goals: number | null;
+          goals_prevented: number | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fixture_team_stats"]["Row"]> & {
+          fixture_id: number;
+          team_id: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["fixture_team_stats"]["Row"]>;
+        Relationships: [];
+      };
+      fixture_live_snapshots: {
+        Row: {
+          id: number;
+          fixture_id: number;
+          captured_at: string;
+          match_minute: number | null;
+          home_score: number | null;
+          away_score: number | null;
+          home_possession_pct: number | null;
+          away_possession_pct: number | null;
+          home_shots_total: number | null;
+          away_shots_total: number | null;
+          home_shots_on_target: number | null;
+          away_shots_on_target: number | null;
+          home_corners: number | null;
+          away_corners: number | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fixture_live_snapshots"]["Row"]> & {
+          fixture_id: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["fixture_live_snapshots"]["Row"]>;
+        Relationships: [];
+      };
+      player_injury: {
+        Row: {
+          id: number;
+          player_id: number;
+          kind: "sidelined" | "matchstatus";
+          type: string | null;
+          reason: string | null;
+          start_date: string | null;
+          end_date: string | null;
+          fixture_id: number | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["player_injury"]["Row"]> & {
+          player_id: number;
+          kind: "sidelined" | "matchstatus";
+        };
+        Update: Partial<Database["public"]["Tables"]["player_injury"]["Row"]>;
+        Relationships: [];
+      };
+      standings: {
+        Row: {
+          id: number;
+          season_id: number;
+          team_id: number;
+          round: string | null;
+          rank: number;
+          points: number;
+          goals_diff: number | null;
+          played: number | null;
+          win: number | null;
+          draw: number | null;
+          lose: number | null;
+          goals_for: number | null;
+          goals_against: number | null;
+          home_played: number | null;
+          home_win: number | null;
+          home_draw: number | null;
+          home_lose: number | null;
+          home_goals_for: number | null;
+          home_goals_against: number | null;
+          away_played: number | null;
+          away_win: number | null;
+          away_draw: number | null;
+          away_lose: number | null;
+          away_goals_for: number | null;
+          away_goals_against: number | null;
+          form: string | null;
+          captured_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["standings"]["Row"]> & {
+          season_id: number;
+          team_id: number;
+          rank: number;
+          points: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["standings"]["Row"]>;
+        Relationships: [];
+      };
+      api_raw_response: {
+        Row: {
+          id: number;
+          endpoint: string;
+          params: Record<string, unknown>;
+          fixture_id: number | null;
+          response: unknown;
+          fetched_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["api_raw_response"]["Row"]> & {
+          endpoint: string;
+          params: Record<string, unknown>;
+          response: unknown;
+        };
+        Update: Partial<Database["public"]["Tables"]["api_raw_response"]["Row"]>;
+        Relationships: [];
+      };
+      ingestion_log: {
+        Row: {
+          id: number;
+          job_name: string;
+          endpoint: string;
+          params: Record<string, unknown> | null;
+          calls_used: number;
+          rows_written: number;
+          status: "success" | "error" | "partial";
+          error_message: string | null;
+          started_at: string;
+          finished_at: string | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["ingestion_log"]["Row"]> & {
+          job_name: string;
+          endpoint: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["ingestion_log"]["Row"]>;
         Relationships: [];
       };
       unanswered_questions: {
