@@ -473,8 +473,9 @@ export async function computePlayerDNA(
   if (!seasonRow) return unavailable("Ingen data för den säsongen.");
 
   // Poolat över ALLA säsonger i samma liga (inte bara den valda) — se
-  // filbeskrivningen. Fortfarande bara IFK/AIK, eftersom det är allt vi
-  // importerar.
+  // filbeskrivningen. Filtrerar bara på league_id, ingen lagbegränsning —
+  // sedan steg 3/4:s breddning till 33 lag är det här hela Allsvenskan,
+  // inte bara IFK/AIK (verifierat i steg 8, se tools.ts:s motsvarande kommentar).
   const { data: rows } = await supabase
     .from("statistics")
     .select(

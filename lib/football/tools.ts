@@ -420,8 +420,10 @@ export async function getPlayerProfile(supabase: Supabase, params: PlayerProfile
   // och försvarare (nästan alltid höga tacklingssiffror) — annars blir
   // "bättre än snittet" en artefakt av vem som råkar vara i poolen, inte ett
   // verkligt uttalande om spelaren. Se lib/football/position-group.ts.
-  // OBS: fortfarande bara vår spelarpool (IFK/AIK), inte hela Allsvenskan —
-  // markeras tydligt i UI:t via peerGroup.
+  // Poolen nedan filtrerar bara på league_id+season_id — sedan steg 3/4:s
+  // breddning till 33 lag (2026-08-20) är det alltså HELA Allsvenskan den
+  // säsongen, inte bara IFK/AIK (verifierat i steg 8: t.ex. 65 anfallare med
+  // ≥450 minuter 2022, mot en handfull om poolen fortfarande var IFK/AIK).
   const positionGroupInfo = getPositionGroup(bio.position);
 
   const { data: peerRowsRaw } = await supabase
