@@ -76,7 +76,8 @@ export interface ApiFixtureResponse {
     id: number;
     date: string;
     status: { short: string };
-    venue: { name: string | null };
+    referee: string | null;
+    venue: { id: number | null; name: string | null; city: string | null };
   };
   league: {
     round: string;
@@ -89,6 +90,63 @@ export interface ApiFixtureResponse {
     home: number | null;
     away: number | null;
   };
+}
+
+// --- Steg 4: matchdjup (bekräftat i steg 1 mot en riktig match) ---
+
+export interface ApiLineupPlayerEntry {
+  player: {
+    id: number;
+    name: string;
+    number: number | null;
+    pos: string | null; // G/D/M/F
+    grid: string | null; // "rad:kolumn", t.ex. "2:1" — null för avbytare
+  };
+}
+
+export interface ApiLineupResponse {
+  team: { id: number; name: string };
+  coach: { id: number; name: string } | null;
+  formation: string | null;
+  startXI: ApiLineupPlayerEntry[];
+  substitutes: ApiLineupPlayerEntry[];
+}
+
+export interface ApiFixtureStatisticsResponse {
+  team: { id: number; name: string };
+  statistics: { type: string; value: string | number | null }[];
+}
+
+interface ApiFixturePlayerStat {
+  games: {
+    minutes: number | null;
+    number: number | null;
+    position: string | null;
+    rating: string | null;
+    captain: boolean | null;
+    substitute: boolean | null;
+  };
+  offsides: number | null;
+  shots: { total: number | null; on: number | null };
+  goals: { total: number | null; conceded: number | null; assists: number | null; saves: number | null };
+  passes: { total: number | null; key: number | null; accuracy: string | number | null };
+  tackles: { total: number | null; blocks: number | null; interceptions: number | null };
+  duels: { total: number | null; won: number | null };
+  dribbles: { attempts: number | null; success: number | null; past: number | null };
+  fouls: { drawn: number | null; committed: number | null };
+  cards: { yellow: number | null; red: number | null };
+  penalty: {
+    won: number | null;
+    commited: number | null; // API:ts egen stavning, inte vår — bevarad medvetet
+    scored: number | null;
+    missed: number | null;
+    saved: number | null;
+  };
+}
+
+export interface ApiFixturePlayersResponse {
+  team: { id: number; name: string };
+  players: { player: { id: number; name: string }; statistics: ApiFixturePlayerStat[] }[];
 }
 
 export interface ApiEventResponse {

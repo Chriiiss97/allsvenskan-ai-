@@ -2,8 +2,11 @@ import { apiFootballGet } from "../../lib/api-football/client";
 import type { ApiEventResponse } from "../../lib/api-football/types";
 import { createAdminClient } from "./admin-client";
 import { createTeamCache } from "./team-cache";
+import { createPlayerCache } from "./player-cache";
 
-const DEFAULT_MAX_FIXTURES_PER_RUN = 60; // lämnar marginal under 100 anrop/dag
+// Ultra: gott om marginal för att täcka alla ~720 matcher i en enda körning
+// (var 60 på gratisplanens 100/dag).
+const DEFAULT_MAX_FIXTURES_PER_RUN = 800;
 
 /**
  * Hämtar matchhändelser (mål, kort, byten) per match. Till skillnad från
@@ -19,6 +22,7 @@ const DEFAULT_MAX_FIXTURES_PER_RUN = 60; // lämnar marginal under 100 anrop/dag
 export async function importFixtureEvents(maxFixturesPerRun = DEFAULT_MAX_FIXTURES_PER_RUN) {
   const supabase = createAdminClient();
   const teamCache = createTeamCache(supabase);
+  const playerCache = createPlayerCache(supabase);
 
   const { data: fixtures, error } = await supabase
     .from("fixture")
@@ -48,8 +52,8 @@ export async function importFixtureEvents(maxFixturesPerRun = DEFAULT_MAX_FIXTUR
     for (const e of events) {
       const teamId = await teamCache.ensure(e.team);
 
-      const playerId = e.player.id ? await lookupPlayerId(supabase, e.player.id) : null;
-      const assistPlayerId = e.assist.id ? await lookupPlayerId(supabase, e.assist.id) : null;
+      const playerId = await playerCache.lookup(e.player.id);
+      const assistPlayerId = await playerCache.lookup(e.assist.id);
 
       const { error: eventError } = await supabase.from("event").upsert(
         {
@@ -75,16 +79,4 @@ export async function importFixtureEvents(maxFixturesPerRun = DEFAULT_MAX_FIXTUR
 
     console.log(`  ✓ Match ${fixture.external_id}: ${events.length} händelser`);
   }
-}
-
-async function lookupPlayerId(
-  supabase: ReturnType<typeof createAdminClient>,
-  externalId: number
-): Promise<number | null> {
-  const { data } = await supabase
-    .from("player")
-    .select("id")
-    .eq("external_id", externalId)
-    .maybeSingle();
-  return data?.id ?? null;
 }

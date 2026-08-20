@@ -6,6 +6,9 @@ import { importTeams } from "./import-teams";
 import { importPlayersAndStatistics } from "./import-players";
 import { importFixtures } from "./import-fixtures";
 import { importFixtureEvents } from "./import-events";
+import { importLineups } from "./import-lineups";
+import { importTeamStats } from "./import-team-stats";
+import { importPlayerStats } from "./import-player-stats";
 import { importCoaches } from "./import-coaches";
 import { importStandings } from "./import-standings";
 import { seedTeamFacts } from "./seed-team-facts";
@@ -19,6 +22,9 @@ const STEPS: Record<string, () => Promise<void>> = {
   players: importPlayersAndStatistics,
   fixtures: importFixtures,
   events: () => importFixtureEvents(),
+  lineups: () => importLineups(),
+  "team-stats": () => importTeamStats(),
+  "player-stats": () => importPlayerStats(),
   coaches: importCoaches,
   standings: importStandings,
   // ingen API-Football-koppling, kostar inget av dagskvoten
