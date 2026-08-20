@@ -21,6 +21,14 @@ export interface ApiLeagueResponse {
   }>;
 }
 
+// Bekräftat i steg 1/5: matchbunden statusrapport ("Questionable"/"Out" inför
+// EN specifik match) — skiljer sig från /sidelined (rena datumintervall).
+export interface ApiInjuryResponse {
+  player: { id: number; name: string; photo: string | null; type: string; reason: string | null };
+  team: { id: number; name: string; logo: string };
+  fixture: { id: number; timezone: string; date: string; timestamp: number };
+}
+
 export interface ApiTeamResponse {
   team: {
     id: number;

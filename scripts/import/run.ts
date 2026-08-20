@@ -11,6 +11,7 @@ import { importTeamStats } from "./import-team-stats";
 import { importPlayerStats } from "./import-player-stats";
 import { importCoaches } from "./import-coaches";
 import { importStandings } from "./import-standings";
+import { runPreMatchPipeline } from "./pre-match-pipeline";
 import { seedTeamFacts } from "./seed-team-facts";
 import { seedLeagueFacts } from "./seed-league-facts";
 
@@ -27,6 +28,7 @@ const STEPS: Record<string, () => Promise<void>> = {
   "player-stats": () => importPlayerStats(),
   coaches: importCoaches,
   standings: importStandings,
+  "pre-match": runPreMatchPipeline,
   // ingen API-Football-koppling, kostar inget av dagskvoten
   facts: async () => {
     await seedTeamFacts();
