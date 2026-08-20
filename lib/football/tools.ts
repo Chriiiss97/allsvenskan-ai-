@@ -3,6 +3,7 @@ import type { Database } from "@/lib/supabase/database.types";
 import { resolveTeam } from "./resolve-team";
 import { resolvePlayer } from "./resolve-player";
 import { hasPlayedSeason } from "./active-player";
+import { getPositionGroup, selectPeers, type PeerGroupSummary } from "./position-group";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -325,6 +326,21 @@ interface PlayerStatsRow {
   fouls_committed: number | null;
 }
 
+interface PeerRow {
+  minutes_played: number;
+  goals: number;
+  assists: number;
+  passes_total: number | null;
+  passes_key: number | null;
+  tackles_total: number | null;
+  tackles_interceptions: number | null;
+  duels_total: number | null;
+  duels_won: number | null;
+  dribbles_attempts: number | null;
+  dribbles_success: number | null;
+  player: { position: string | null } | null;
+}
+
 const PLAYER_STATS_SELECT =
   "season_id, league_id, team_id, appearances, minutes_played, goals, assists, " +
   "yellow_cards, red_cards, rating, shots_total, shots_on_target, passes_total, " +
@@ -398,23 +414,40 @@ export async function getPlayerProfile(supabase: Supabase, params: PlayerProfile
   }
   seasonYear = row.season?.year ?? seasonYear;
 
-  // Ligasnitt: per-90-genomsnitt över alla spelare i vår databas (IFK+AIK)
-  // för samma liga+säsong — en verklig, uträknad siffra (AVG), inte påhittad.
-  // OBS: bara vår spelarpool (IFK/AIK), inte hela Allsvenskan — markeras
-  // tydligt i UI:t.
-  const { data: peers } = await supabase
+  // Positionssnitt: en anfallares FÖRSVARSsiffror ska jämföras med ANDRA
+  // ANFALLARE, inte med en pool som blandar in målvakter (~0 tacklingar/90)
+  // och försvarare (nästan alltid höga tacklingssiffror) — annars blir
+  // "bättre än snittet" en artefakt av vem som råkar vara i poolen, inte ett
+  // verkligt uttalande om spelaren. Se lib/football/position-group.ts.
+  // OBS: fortfarande bara vår spelarpool (IFK/AIK), inte hela Allsvenskan —
+  // markeras tydligt i UI:t via peerGroup.
+  const positionGroupInfo = getPositionGroup(bio.position);
+
+  const { data: peerRowsRaw } = await supabase
     .from("statistics")
     .select(
-      "minutes_played, goals, assists, passes_total, passes_key, tackles_total, tackles_interceptions, duels_total, duels_won, dribbles_attempts, dribbles_success"
+      "minutes_played, goals, assists, passes_total, passes_key, tackles_total, tackles_interceptions, duels_total, duels_won, dribbles_attempts, dribbles_success, player:player_id(position)"
     )
     .eq("league_id", row.league_id)
     .eq("season_id", row.season_id)
-    .gt("minutes_played", 0);
+    .gt("minutes_played", 0)
+    .neq("player_id", resolved.id)
+    .returns<PeerRow[]>();
 
-  const peerRows = peers ?? [];
+  const allPeers = peerRowsRaw ?? [];
+  const samePosition = positionGroupInfo
+    ? allPeers.filter((p) => getPositionGroup(p.player?.position)?.group === positionGroupInfo.group)
+    : allPeers;
+  const { peers: peerRows, summary: peerGroupBase } = selectPeers(
+    samePosition,
+    positionGroupInfo?.label ?? "spelare",
+    row.minutes_played
+  );
+  const peerGroup: PeerGroupSummary = peerGroupBase;
+
   // Samma camelCase-nycklar som per90-objektet nedan, så UI-komponenter kan
   // slå upp samma fältnamn i båda utan att behöva mappa mellan konventioner.
-  const leagueAveragePer90 = {
+  const positionAveragePer90 = {
     goals: average(peerRows.map((p) => per90(p.goals, p.minutes_played))),
     assists: average(peerRows.map((p) => per90(p.assists, p.minutes_played))),
     passesTotal: average(peerRows.map((p) => per90(p.passes_total, p.minutes_played))),
@@ -478,7 +511,8 @@ export async function getPlayerProfile(supabase: Supabase, params: PlayerProfile
       row.duels_total && row.duels_total > 0 && row.duels_won !== null
         ? Math.round(((row.duels_won / row.duels_total) * 100 + Number.EPSILON) * 10) / 10
         : null,
-    leagueAveragePer90,
+    positionAveragePer90,
+    peerGroup,
   };
 }
 

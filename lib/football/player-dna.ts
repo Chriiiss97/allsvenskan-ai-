@@ -1,18 +1,25 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
+import { getPositionGroup, selectPeers, type PeerGroupSummary } from "./position-group";
 
 type Supabase = SupabaseClient<Database>;
 
 /**
  * "Player DNA" — fem kategoriserade betyg (0–100) beräknade som PERCENTIL
- * mot samma spelarpool vi redan använder för ligasnittet (IFK+AIK, samma
- * liga+säsong, minutes_played > 0) — inte ett påhittat "form"-index.
+ * mot ANDRA SPELARE PÅ SAMMA POSITION (se lib/football/position-group.ts),
+ * inte ett påhittat "form"-index.
  *
  * Percentil = andelen peers (i procent) med lägre-eller-lika värde på
  * måttet. Kategorins poäng = medelvärdet av de underliggande mått som
  * FAKTISKT finns för spelaren. Saknas ALLA mått i en kategori blir
  * poängen `null` ("Ej tillgängligt") — ALDRIG 0, eftersom 0 skulle
  * påstå "sämst i truppen" när det egentligen betyder "vi vet inte".
+ *
+ * Position spelar roll av samma skäl som i getPlayerProfile: att jämföra en
+ * anfallares tacklingar mot en pool som blandar in målvakter (~0/90) gör
+ * "bättre än snittet" meningslöst. `peerGroup` beskriver exakt vilken pool
+ * (position, antal, minutgräns) percentilerna faktiskt bygger på, så UI:t
+ * kan visa det istället för att låtsas som att det alltid är "ligan".
  */
 export interface PlayerDNACategory {
   score: number | null;
@@ -25,6 +32,7 @@ export interface PlayerDNA {
   passing: PlayerDNACategory;
   duels: PlayerDNACategory;
   defense: PlayerDNACategory;
+  peerGroup: PeerGroupSummary | null;
 }
 
 interface PeerStatRow {
@@ -40,6 +48,7 @@ interface PeerStatRow {
   duels_total: number | null;
   tackles_total: number | null;
   tackles_interceptions: number | null;
+  player: { position: string | null } | null;
 }
 
 function per90(value: number | null, minutes: number): number | null {
@@ -69,7 +78,7 @@ function categoryScore(
 
 function emptyDNA(): PlayerDNA {
   const empty: PlayerDNACategory = { score: null, basis: [] };
-  return { offensive: empty, creation: empty, passing: empty, duels: empty, defense: empty };
+  return { offensive: empty, creation: empty, passing: empty, duels: empty, defense: empty, peerGroup: null };
 }
 
 export async function computePlayerDNA(
@@ -86,7 +95,7 @@ export async function computePlayerDNA(
   const { data: rows } = await supabase
     .from("statistics")
     .select(
-      "player_id, minutes_played, goals, shots_total, assists, passes_key, passes_total, passes_accuracy, duels_won, duels_total, tackles_total, tackles_interceptions"
+      "player_id, minutes_played, goals, shots_total, assists, passes_key, passes_total, passes_accuracy, duels_won, duels_total, tackles_total, tackles_interceptions, player:player_id(position)"
     )
     .eq("season_id", seasonRow.id)
     .eq("league_id", seasonRow.league_id)
@@ -97,9 +106,18 @@ export async function computePlayerDNA(
   const player = allRows.find((r) => r.player_id === params.playerId);
   if (!player) return emptyDNA();
 
-  // Percentil beräknas mot ÖVRIGA spelare i poolen, inte inklusive
-  // spelaren själv.
-  const peers = allRows.filter((r) => r.player_id !== params.playerId);
+  // Percentil beräknas mot ANDRA SPELARE PÅ SAMMA POSITION (inte hela
+  // poolen, inte spelaren själv) — se filbeskrivningen ovan.
+  const positionGroupInfo = getPositionGroup(player.player?.position);
+  const otherRows = allRows.filter((r) => r.player_id !== params.playerId);
+  const samePosition = positionGroupInfo
+    ? otherRows.filter((r) => getPositionGroup(r.player?.position)?.group === positionGroupInfo.group)
+    : otherRows;
+  const { peers, summary: peerGroup } = selectPeers(
+    samePosition,
+    positionGroupInfo?.label ?? "spelare",
+    player.minutes_played
+  );
 
   const peerPer90 = (key: keyof PeerStatRow) =>
     peers.map((p) => per90(p[key] as number | null, p.minutes_played)).filter((v): v is number => v !== null);
@@ -132,5 +150,6 @@ export async function computePlayerDNA(
         peerValues: peerPer90("tackles_interceptions"),
       },
     ]),
+    peerGroup,
   };
 }

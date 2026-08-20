@@ -71,6 +71,9 @@ export default async function PlayerProfilePage({
   const hasForsvar = [profile.per90.tacklesTotal, profile.per90.tacklesBlocks, profile.per90.tacklesInterceptions].some(
     (v) => v !== null
   );
+  // "Snitt anfallare" i StatBar-tooltips — positionsspecifikt, aldrig ett
+  // hårdkodat "ligasnitt" (se lib/football/position-group.ts).
+  const peerLabel = `Snitt ${profile.peerGroup.label}`;
 
   return (
     <div>
@@ -144,9 +147,13 @@ export default async function PlayerProfilePage({
 
         {/* Radardiagram */}
         <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
-          <h2 className="text-sm font-semibold">Jämförelse mot ligasnitt</h2>
+          <h2 className="text-sm font-semibold">Jämförelse mot positionssnitt</h2>
           <div className="mt-3">
-            <PlayerRadarChart per90={profile.per90} leagueAveragePer90={profile.leagueAveragePer90} />
+            <PlayerRadarChart
+              per90={profile.per90}
+              positionAveragePer90={profile.positionAveragePer90}
+              peerGroup={profile.peerGroup}
+            />
           </div>
         </div>
       </div>
@@ -158,24 +165,32 @@ export default async function PlayerProfilePage({
           {hasAnfall && (
             <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
               <h2 className="text-sm font-semibold">Anfall</h2>
-              <p className="mb-2 text-[11px] text-[#898781]">Per 90 min · orange = ligasnitt</p>
-              <StatBar label="Mål" value={profile.per90.goals} leagueAverage={profile.leagueAveragePer90.goals} />
+              <p className="mb-2 text-[11px] text-[#898781]">Per 90 min · orange = snitt {profile.peerGroup.label}</p>
+              <StatBar
+                label="Mål"
+                value={profile.per90.goals}
+                peerAverage={profile.positionAveragePer90.goals}
+                peerLabel={peerLabel}
+              />
               <StatBar
                 label="Assist"
                 value={profile.per90.assists}
-                leagueAverage={profile.leagueAveragePer90.assists}
+                peerAverage={profile.positionAveragePer90.assists}
+                peerLabel={peerLabel}
               />
               <StatBar
                 label="Nyckelpassningar"
                 value={profile.per90.passesKey}
-                leagueAverage={profile.leagueAveragePer90.passesKey}
+                peerAverage={profile.positionAveragePer90.passesKey}
+                peerLabel={peerLabel}
               />
-              <StatBar label="Skott" value={profile.per90.shotsTotal} leagueAverage={null} />
-              <StatBar label="Skott på mål" value={profile.per90.shotsOnTarget} leagueAverage={null} />
+              <StatBar label="Skott" value={profile.per90.shotsTotal} peerAverage={null} />
+              <StatBar label="Skott på mål" value={profile.per90.shotsOnTarget} peerAverage={null} />
               <StatBar
                 label="Lyckade dribblingar"
                 value={profile.per90.dribblesSuccess}
-                leagueAverage={profile.leagueAveragePer90.dribblesSuccess}
+                peerAverage={profile.positionAveragePer90.dribblesSuccess}
+                peerLabel={peerLabel}
               />
             </div>
           )}
@@ -183,16 +198,17 @@ export default async function PlayerProfilePage({
           {hasPassningsspel && (
             <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
               <h2 className="text-sm font-semibold">Passningsspel</h2>
-              <p className="mb-2 text-[11px] text-[#898781]">Per 90 min · orange = ligasnitt</p>
+              <p className="mb-2 text-[11px] text-[#898781]">Per 90 min · orange = snitt {profile.peerGroup.label}</p>
               <StatBar
                 label="Passningar"
                 value={profile.per90.passesTotal}
-                leagueAverage={profile.leagueAveragePer90.passesTotal}
+                peerAverage={profile.positionAveragePer90.passesTotal}
+                peerLabel={peerLabel}
               />
               <StatBar
                 label="Passningssäkerhet"
                 value={profile.stats.passesAccuracy}
-                leagueAverage={null}
+                peerAverage={null}
                 suffix="%"
               />
             </div>
@@ -201,30 +217,33 @@ export default async function PlayerProfilePage({
           {hasDuellspel && (
             <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
               <h2 className="text-sm font-semibold">Duellspel</h2>
-              <p className="mb-2 text-[11px] text-[#898781]">Per 90 min · orange = ligasnitt</p>
+              <p className="mb-2 text-[11px] text-[#898781]">Per 90 min · orange = snitt {profile.peerGroup.label}</p>
               <StatBar
                 label="Vunna dueller"
                 value={profile.per90.duelsWon}
-                leagueAverage={profile.leagueAveragePer90.duelsWon}
+                peerAverage={profile.positionAveragePer90.duelsWon}
+                peerLabel={peerLabel}
               />
-              <StatBar label="Vinstprocent" value={profile.duelsWinRate} leagueAverage={null} suffix="%" />
+              <StatBar label="Vinstprocent" value={profile.duelsWinRate} peerAverage={null} suffix="%" />
             </div>
           )}
 
           {hasForsvar && (
             <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
               <h2 className="text-sm font-semibold">Försvar</h2>
-              <p className="mb-2 text-[11px] text-[#898781]">Per 90 min · orange = ligasnitt</p>
+              <p className="mb-2 text-[11px] text-[#898781]">Per 90 min · orange = snitt {profile.peerGroup.label}</p>
               <StatBar
                 label="Tacklingar"
                 value={profile.per90.tacklesTotal}
-                leagueAverage={profile.leagueAveragePer90.tacklesTotal}
+                peerAverage={profile.positionAveragePer90.tacklesTotal}
+                peerLabel={peerLabel}
               />
-              <StatBar label="Blockeringar" value={profile.per90.tacklesBlocks} leagueAverage={null} />
+              <StatBar label="Blockeringar" value={profile.per90.tacklesBlocks} peerAverage={null} />
               <StatBar
                 label="Interceptions"
                 value={profile.per90.tacklesInterceptions}
-                leagueAverage={profile.leagueAveragePer90.tacklesInterceptions}
+                peerAverage={profile.positionAveragePer90.tacklesInterceptions}
+                peerLabel={peerLabel}
               />
             </div>
           )}

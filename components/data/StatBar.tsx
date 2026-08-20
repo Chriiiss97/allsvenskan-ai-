@@ -1,27 +1,32 @@
 /**
  * Meter/progress-bar: fyllning = spelarens värde, ljusare steg av samma
- * ramp = spårets bakgrund, en markör visar ligasnittet (se dataviz-skillens
- * palette.md "Meter"-spec). Renderar INGET alls om värdet saknas — en synlig
- * "Ej tillgängligt"-rad såg trasig/amatörmässig ut och tillförde inget;
- * bättre att panelen bara innehåller de mått vi faktiskt har (se
- * anropsställena, som räknar ut om en hel panel ska visas överhuvudtaget).
+ * ramp = spårets bakgrund, en markör visar peer-snittet (se dataviz-skillens
+ * palette.md "Meter"-spec). `peerLabel` namnger VAD markören visar snitt för
+ * (t.ex. "Snitt anfallare") — aldrig ett hårdkodat "ligasnitt", eftersom
+ * jämförelsen är positionsspecifik (se lib/football/position-group.ts).
+ * Renderar INGET alls om värdet saknas — en synlig "Ej tillgängligt"-rad såg
+ * trasig/amatörmässig ut och tillförde inget; bättre att panelen bara
+ * innehåller de mått vi faktiskt har (se anropsställena, som räknar ut om en
+ * hel panel ska visas överhuvudtaget).
  */
 export function StatBar({
   label,
   value,
-  leagueAverage,
+  peerAverage,
+  peerLabel = "Snitt",
   suffix = "",
 }: {
   label: string;
   value: number | null;
-  leagueAverage: number | null;
+  peerAverage: number | null;
+  peerLabel?: string;
   suffix?: string;
 }) {
   if (value === null) return null;
 
-  const max = Math.max(value, leagueAverage ?? 0) * 1.25 || 1;
+  const max = Math.max(value, peerAverage ?? 0) * 1.25 || 1;
   const fillPct = Math.min(100, (value / max) * 100);
-  const markerPct = leagueAverage !== null ? Math.min(100, (leagueAverage / max) * 100) : null;
+  const markerPct = peerAverage !== null ? Math.min(100, (peerAverage / max) * 100) : null;
 
   return (
     <div className="py-1.5">
@@ -41,7 +46,7 @@ export function StatBar({
           <div
             className="absolute top-1/2 h-3 w-0.5 -translate-y-1/2 bg-[#d95926]"
             style={{ left: `${markerPct}%` }}
-            title={`Ligasnitt: ${leagueAverage}${suffix}`}
+            title={`${peerLabel}: ${peerAverage}${suffix}`}
           />
         )}
       </div>

@@ -32,28 +32,38 @@ const AXES: AxisDef[] = [
   { key: "tacklesTotal", label: "Försvarsarbete" },
 ];
 
+interface PeerGroupInfo {
+  label: string;
+  count: number;
+  minMinutesApplied: number;
+  isLowSample: boolean;
+}
+
 /**
  * Två serier (kategoriska slot 1 blue = spelaren, slot 2 orange =
- * ligasnitt), värden uttryckta som % av ligasnitt (100 = snittet bland
- * IFK/AIK-spelare den här säsongen) — INTE ett påhittat "DNA"-index, bara
+ * positionssnitt), värden uttryckta som % av snittet BLAND SAMMA POSITION
+ * (100 = snittet bland andra {peerGroup.label} i IFK/AIK den här säsongen,
+ * se lib/football/position-group.ts) — INTE ett påhittat "DNA"-index, bara
  * en normaliserad vy av redan uträknade per-90-tal så axlarna blir
  * jämförbara på samma skala. En axel som saknar data för spelaren tas bort
  * helt istället för att visas som 0.
  */
 export function PlayerRadarChart({
   per90,
-  leagueAveragePer90,
+  positionAveragePer90,
+  peerGroup,
 }: {
   per90: Per90Stats;
-  leagueAveragePer90: Per90Stats;
+  positionAveragePer90: Per90Stats;
+  peerGroup: PeerGroupInfo;
 }) {
   const data = AXES.map((axis) => {
     const playerValue = per90[axis.key];
-    const avgValue = leagueAveragePer90[axis.key];
+    const avgValue = positionAveragePer90[axis.key];
     // Ingen övre cap längre — hellre en dynamisk skala (se ceiling nedan)
     // än att klippa av verkliga extremvärden vid en godtycklig gräns.
     const pct = playerValue !== null && avgValue ? (playerValue / avgValue) * 100 : null;
-    return { axis: axis.label, Spelare: pct, Ligasnitt: pct !== null ? 100 : null };
+    return { axis: axis.label, Spelare: pct, Positionssnitt: pct !== null ? 100 : null };
   }).filter((d) => d.Spelare !== null);
 
   // Ett spindeldiagram med 1-2 axlar ser trasigt ut (en spik, inte en
@@ -70,15 +80,21 @@ export function PlayerRadarChart({
   // Skalan anpassas till de faktiska värdena istället för ett fast tak —
   // annars klämmer ett fast 0–200-tak ihop diagrammet till en smal remsa när
   // alla riktiga värden ligger runt 100. Golv på 120 så 100-referensringen
-  // (ligasnittet) alltid har lite luft omkring sig.
+  // (positionssnittet) alltid har lite luft omkring sig.
   const maxValue = Math.max(...data.map((d) => d.Spelare ?? 0));
   const ceiling = Math.max(120, Math.ceil((maxValue * 1.15) / 20) * 20);
 
   return (
     <div>
       <p className="mb-2 text-xs text-[#898781]">
-        100 = snitt bland IFK/AIK-spelare den här säsongen (inte hela Allsvenskan)
+        100 = snitt bland {peerGroup.count} andra {peerGroup.label} i IFK/AIK den här säsongen
+        {peerGroup.minMinutesApplied > 0 && ` (minst ${peerGroup.minMinutesApplied} spelade minuter)`}
       </p>
+      {peerGroup.isLowSample && (
+        <p className="mb-2 text-xs text-[#d9a526]">
+          ⚠ Litet jämförelseunderlag — bara {peerGroup.count} {peerGroup.label} att jämföra med den här säsongen.
+        </p>
+      )}
       <ResponsiveContainer width="100%" height={280}>
         <RadarChart data={data} outerRadius="70%">
           <PolarGrid stroke="#2c2c2a" />
@@ -96,8 +112,8 @@ export function PlayerRadarChart({
             fillOpacity={0.35}
           />
           <Radar
-            name="Ligasnitt"
-            dataKey="Ligasnitt"
+            name="Positionssnitt"
+            dataKey="Positionssnitt"
             stroke="#d95926"
             fill="#d95926"
             fillOpacity={0.1}
