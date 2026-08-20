@@ -101,7 +101,7 @@ export function PlayerDNA({ dna, compact = false }: { dna: PlayerDNAData; compac
     );
   }
 
-  const { categories, confidence, playerType, insights } = dna;
+  const { categories, confidence, playerType, summary, insights } = dna;
   if (!confidence) return null; // typvakt — available:true garanterar confidence, men TS vet inte det
 
   const orderedKeys = [
@@ -139,6 +139,8 @@ export function PlayerDNA({ dna, compact = false }: { dna: PlayerDNAData; compac
         </span>
       </div>
 
+      {summary && <p className="mt-2 text-sm leading-relaxed text-[#c3c2b7]">{summary}</p>}
+
       {radarData.length >= 3 ? (
         <div className="mt-2">
           <ResponsiveContainer width="100%" height={220}>
@@ -157,18 +159,21 @@ export function PlayerDNA({ dna, compact = false }: { dna: PlayerDNAData; compac
       )}
 
       {insights.length > 0 && (
-        <ul className="mt-3 space-y-1.5 border-t border-white/10 pt-3">
-          {insights.map((insight, i) => (
-            <li key={i} className="flex items-start gap-2 text-sm text-[#c3c2b7]">
-              <span
-                className="mt-1.5 h-1 w-1 shrink-0 rounded-full"
-                style={{ backgroundColor: INSIGHT_DOT_COLOR[insight.type] }}
-                aria-hidden
-              />
-              {insight.text}
-            </li>
-          ))}
-        </ul>
+        <div className="mt-3 border-t border-white/10 pt-3">
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#7d7c76]">Specifika mönster</p>
+          <ul className="space-y-1.5">
+            {insights.map((insight, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-[#c3c2b7]">
+                <span
+                  className="mt-1.5 h-1 w-1 shrink-0 rounded-full"
+                  style={{ backgroundColor: INSIGHT_DOT_COLOR[insight.type] }}
+                  aria-hidden
+                />
+                {insight.text}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {!compact && (

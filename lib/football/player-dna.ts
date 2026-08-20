@@ -123,6 +123,8 @@ export interface PlayerDNA {
   categories: Record<DNACategoryKey, PlayerDNACategory>;
   confidence: DNAConfidence | null;
   playerType: PlayerTypeResult;
+  /** Sammanfattningsparagrafen — 2-4 meningar, samma data som insights, bara i löptext istället för punktlista. */
+  summary: string | null;
   insights: PlayerDNAInsight[];
 }
 
@@ -227,6 +229,7 @@ function unavailable(reason: string): PlayerDNA {
     categories: emptyCategories(),
     confidence: null,
     playerType: { label: null, reason: null },
+    summary: null,
     insights: [],
   };
 }
@@ -287,11 +290,18 @@ function findBiggestSingleMetricGap(
   };
 }
 
-function buildInsights(
-  categories: Record<DNACategoryKey, PlayerDNACategory>,
-  peerLabel: string
-): PlayerDNAInsight[] {
-  const insights: PlayerDNAInsight[] = [];
+interface KeyCategories {
+  strengthKey: DNACategoryKey | null;
+  weaknessKey: DNACategoryKey | null;
+  uniqueKey: DNACategoryKey | null;
+}
+
+/**
+ * Vilken kategori är styrkan/svagheten/den mest oväntade — den gemensamma
+ * grunden för både sammanfattningsparagrafen och aha-listan, så de två
+ * aldrig kan komma fram till olika svar på samma fråga.
+ */
+function identifyKeyCategories(categories: Record<DNACategoryKey, PlayerDNACategory>): KeyCategories {
   const scored = CATEGORY_KEYS.map((key) => ({ key, cat: categories[key] })).filter((c) => c.cat.score !== null);
 
   let strengthKey: DNACategoryKey | null = null;
@@ -303,36 +313,67 @@ function buildInsights(
     if (worst.cat.score! <= 30 && worst.key !== strengthKey) weaknessKey = worst.key;
   }
 
-  if (strengthKey) {
-    insights.push({
-      type: "strength",
-      categoryKey: strengthKey,
-      text: `Starkast i ${CATEGORY_LABELS[strengthKey].toLowerCase()} — percentil ${categories[strengthKey].score} bland ${peerLabel}.`,
-    });
-  }
-  if (weaknessKey) {
-    insights.push({
-      type: "weakness",
-      categoryKey: weaknessKey,
-      text: `Svagast i ${CATEGORY_LABELS[weaknessKey].toLowerCase()} — percentil ${categories[weaknessKey].score} bland ${peerLabel}.`,
-    });
-  }
-  if (!strengthKey && !weaknessKey && scored.length > 0) {
-    insights.push({ type: "strength", text: "Jämn profil — ingen kategori sticker ut tydligt över eller under snittet." });
-  }
-
   // Mest unikt: högst sekundär kategori, om den faktiskt sticker ut och inte redan är styrkan.
   const secondaryScored = scored.filter((c) => c.cat.tier === "secondary" && c.key !== strengthKey);
+  let uniqueKey: DNACategoryKey | null = null;
   if (secondaryScored.length > 0) {
     const bestSecondary = secondaryScored.reduce((a, b) => (b.cat.score! > a.cat.score! ? b : a));
-    if (bestSecondary.cat.score! >= 75) {
-      insights.push({
-        type: "unique",
-        categoryKey: bestSecondary.key,
-        text: `Ovanligt för positionen: percentil ${bestSecondary.cat.score} i ${CATEGORY_LABELS[bestSecondary.key].toLowerCase()} — en sekundär kategori för ${peerLabel}, alltså inte det man normalt förväntar sig.`,
-      });
-    }
+    if (bestSecondary.cat.score! >= 75) uniqueKey = bestSecondary.key;
   }
+
+  return { strengthKey, weaknessKey, uniqueKey };
+}
+
+/**
+ * Sammanfattningsparagrafen — 2–4 sammanhängande meningar istället för en
+ * punktlista, byggd av EXAKT samma kategorier/percentiler som resten av
+ * motorn (identifyKeyCategories + playerType), bara omformulerat till
+ * löptext. Fortfarande ren templating, ingen fri text, ingen AI. Inga
+ * pronomen ("han"/"hans") — samma neutrala ton som resten av motorn.
+ */
+function buildSummary(
+  playerType: PlayerTypeResult,
+  categories: Record<DNACategoryKey, PlayerDNACategory>,
+  keys: KeyCategories,
+  peerLabel: string
+): string | null {
+  const { strengthKey, weaknessKey, uniqueKey } = keys;
+  if (!strengthKey && !weaknessKey && !uniqueKey && !playerType.label) return null;
+
+  const sentences: string[] = [];
+
+  if (playerType.label && strengthKey) {
+    sentences.push(
+      `${playerType.label} — starkast i ${CATEGORY_LABELS[strengthKey].toLowerCase()} (percentil ${categories[strengthKey].score} bland ${peerLabel}).`
+    );
+  } else if (playerType.label) {
+    sentences.push(`${playerType.label}.`);
+  } else if (strengthKey) {
+    sentences.push(
+      `Starkast i ${CATEGORY_LABELS[strengthKey].toLowerCase()} (percentil ${categories[strengthKey].score} bland ${peerLabel}).`
+    );
+  } else {
+    sentences.push(`Jämn profil bland ${peerLabel} — ingen kategori sticker ut tydligt över eller under snittet.`);
+  }
+
+  if (uniqueKey) {
+    sentences.push(
+      `Mer oväntat: percentil ${categories[uniqueKey].score} i ${CATEGORY_LABELS[uniqueKey].toLowerCase()} — en sekundär kategori för positionen, alltså inte det man normalt förväntar sig.`
+    );
+  }
+
+  if (weaknessKey) {
+    sentences.push(
+      `Svagast är ${CATEGORY_LABELS[weaknessKey].toLowerCase()} (percentil ${categories[weaknessKey].score}), tydligt under snittet för ${peerLabel}.`
+    );
+  }
+
+  return sentences.join(" ");
+}
+
+/** Kvarvarande aha-listan: specifika mönster som INTE redan täcks av sammanfattningsparagrafen (volym-vs-utdelning, störst enskild avvikelse). */
+function buildInsights(categories: Record<DNACategoryKey, PlayerDNACategory>, keys: KeyCategories): PlayerDNAInsight[] {
+  const insights: PlayerDNAInsight[] = [];
 
   const volymAvslutning = compareVolumeVsPayoff(categories.avslutning, "Skott", "Mål");
   if (volymAvslutning) insights.push(volymAvslutning);
@@ -340,14 +381,14 @@ function buildInsights(
   if (volymKreativitet) insights.push(volymKreativitet);
 
   const usedMetricKeys = new Set<string>();
-  for (const key of [strengthKey, weaknessKey] as (DNACategoryKey | null)[]) {
+  for (const key of [keys.strengthKey, keys.weaknessKey] as (DNACategoryKey | null)[]) {
     if (!key) continue;
     for (const m of categories[key].metrics) usedMetricKeys.add(`${key}:${m.label}`);
   }
   const biggestGap = findBiggestSingleMetricGap(categories, usedMetricKeys);
   if (biggestGap) insights.push(biggestGap);
 
-  return insights.slice(0, 5);
+  return insights.slice(0, 3);
 }
 
 // ---------------------------------------------------------------------------
@@ -456,7 +497,7 @@ export async function computePlayerDNA(
 
   const otherRows = allRows.filter((r) => r.player_id !== params.playerId);
   const samePosition = otherRows.filter((r) => getPositionGroup(r.player?.position)?.group === positionGroupInfo.group);
-  const { peers, summary } = selectPeers(samePosition, positionGroupInfo.label, player.minutes_played);
+  const { peers, summary: peerSummary } = selectPeers(samePosition, positionGroupInfo.label, player.minutes_played);
 
   const peerPer90For = (key: keyof StatRow) =>
     peers.map((p) => per90(p[key] as number | null, p.minutes_played)).filter((v): v is number => v !== null);
@@ -503,21 +544,24 @@ export async function computePlayerDNA(
   const peerTier = tierFromThresholds(peers.length, 12, 6);
   const confidence: DNAConfidence = {
     tier: worseTier(ownTier, peerTier),
-    peerLabel: summary.label,
-    peerCount: summary.count,
+    peerLabel: peerSummary.label,
+    peerCount: peerSummary.count,
     ownMinutes: player.minutes_played,
     ownTier,
     peerTier,
-    minMinutesApplied: summary.minMinutesApplied,
+    minMinutesApplied: peerSummary.minMinutesApplied,
     pooledSeasons: [...new Set(allRows.map((r) => r.season?.year).filter((y): y is number => Boolean(y)))].sort(),
   };
 
-  // Insikter och spelartyp genereras ALDRIG på ett lågt konfidensläge — en
-  // kort speltid mot en tunn peer-pool ger för mycket brus för att skriva ut
-  // en "aha"-mening eller en spelartyp som om det vore säkert.
+  // Sammanfattning, insikter och spelartyp genereras ALDRIG på ett lågt
+  // konfidensläge — en kort speltid mot en tunn peer-pool ger för mycket
+  // brus för att skriva ut en mening eller en spelartyp som om det vore
+  // säkert.
   const lowConfidence = confidence.tier === "låg";
   const playerType = lowConfidence ? { label: null, reason: null } : inferPlayerType(positionGroupInfo.group, categories);
-  const insights = lowConfidence ? [] : buildInsights(categories, summary.label);
+  const keyCategories = lowConfidence ? null : identifyKeyCategories(categories);
+  const summary = keyCategories ? buildSummary(playerType, categories, keyCategories, peerSummary.label) : null;
+  const insights = keyCategories ? buildInsights(categories, keyCategories) : [];
 
   return {
     available: true,
@@ -525,6 +569,7 @@ export async function computePlayerDNA(
     categories,
     confidence,
     playerType,
+    summary,
     insights,
   };
 }

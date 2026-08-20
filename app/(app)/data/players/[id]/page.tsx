@@ -45,6 +45,10 @@ export default async function PlayerProfilePage({
   const age = calculateAge(profile.player.birthDate);
   const teamIndex = profile.player.team?.external_id === 377 ? 1 : 0;
   const dna = profile.season ? await computePlayerDNA(supabase, { playerId: profile.player.id, season: profile.season }) : null;
+  // Bara första meningen i hjälten — hela sammanfattningen visas redan i
+  // Player DNA-kortet direkt nedanför, så en full dubblering här vore bara
+  // repetition, inte en teaser.
+  const heroQuote = dna?.summary ? dna.summary.split(". ")[0].replace(/\.$/, "") + "." : null;
 
   const grundstatistikRows = (
     [
@@ -95,12 +99,10 @@ export default async function PlayerProfilePage({
             {age !== null && ` · ${age} år`}
             {profile.player.nationality && ` · ${profile.player.nationality}`}
           </p>
-          {/* Öppningsraden i "scoutingrapporten" — den starkaste regelbaserade
-              insikten från Player DNA, om vi har en. Ren återanvändning av
-              redan beräknad data, ingen egen logik här. */}
-          {dna?.available && dna.insights[0] && (
-            <p className="mt-1.5 text-sm italic text-[#898781]">&ldquo;{dna.insights[0].text}&rdquo;</p>
-          )}
+          {/* Öppningsraden i "scoutingrapporten" — första meningen av
+              Player DNA:s sammanfattning, som en teaser till kortet
+              nedanför. */}
+          {heroQuote && <p className="mt-1.5 text-sm italic text-[#898781]">&ldquo;{heroQuote}&rdquo;</p>}
         </div>
 
         {/* Säsongsväljare */}
