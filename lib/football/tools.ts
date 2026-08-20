@@ -4,6 +4,7 @@ import { resolveTeam } from "./resolve-team";
 import { resolvePlayer } from "./resolve-player";
 import { hasPlayedSeason } from "./active-player";
 import { getPositionGroup, selectPeers, type PeerGroupSummary } from "./position-group";
+import { computeEventsComplete } from "./match-completeness";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -917,25 +918,13 @@ export async function getMatchReport(supabase: Supabase, fixtureId: number) {
     events = data ?? [];
   }
 
-  // Räknar om mål-events (självmål krediterat MOTSTÅNDARLAGET, inte laget
-  // på event-raden) matchar det riktiga resultatet. API-Football:s
-  // historiska händelsedata saknar ibland mål helt för äldre matcher —
-  // en äkta lucka i källan (verifierad 2026-08-20: kort/byten är rikt
-  // täckta, mål inte), inte ett importfel. UI:t ska aldrig låtsas
-  // tidslinjen är komplett när den inte är det.
-  let eventsComplete = true;
-  if (fixture.status === "FT" && fixture.home_score !== null && fixture.away_score !== null) {
-    let homeGoals = 0;
-    let awayGoals = 0;
-    for (const e of events) {
-      if (e.type !== "goal" || !e.team?.id) continue;
-      const scoringIsHome = e.team.id === fixture.home?.id;
-      const creditHome = e.detail === "Own Goal" ? !scoringIsHome : scoringIsHome;
-      if (creditHome) homeGoals++;
-      else awayGoals++;
-    }
-    eventsComplete = homeGoals === fixture.home_score && awayGoals === fixture.away_score;
-  }
+  // Delad med steg 7:s finalize-match.ts (lib/football/match-completeness.ts)
+  // — samma avstämningslogik oavsett om den körs vid läsning (här) eller i
+  // batch efter en match (finalize-match.ts, loggat till ingestion_log).
+  const eventsComplete = computeEventsComplete(
+    { status: fixture.status, home_score: fixture.home_score, away_score: fixture.away_score, home_team_id: fixture.home?.id ?? null },
+    events.map((e) => ({ type: e.type, detail: e.detail, team_id: e.team?.id ?? null }))
+  );
 
   return {
     id: fixture.id,

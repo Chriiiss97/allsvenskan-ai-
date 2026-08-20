@@ -13,6 +13,7 @@ import { importCoaches } from "./import-coaches";
 import { importStandings } from "./import-standings";
 import { runPreMatchPipeline } from "./pre-match-pipeline";
 import { runLiveTick } from "./live-pipeline";
+import { finalizeMatches } from "./finalize-match";
 import { seedTeamFacts } from "./seed-team-facts";
 import { seedLeagueFacts } from "./seed-league-facts";
 
@@ -31,6 +32,7 @@ const STEPS: Record<string, () => Promise<void>> = {
   standings: importStandings,
   "pre-match": runPreMatchPipeline,
   live: runLiveTick,
+  finalize: finalizeMatches,
   // ingen API-Football-koppling, kostar inget av dagskvoten
   facts: async () => {
     await seedTeamFacts();
