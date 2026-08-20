@@ -3,7 +3,7 @@ import type { ApiFixtureStatisticsResponse } from "../../lib/api-football/types"
 import { createAdminClient } from "./admin-client";
 import { createTeamCache } from "./team-cache";
 
-const DEFAULT_MAX_FIXTURES_PER_RUN = 800;
+const DEFAULT_MAX_FIXTURES_PER_RUN = 3000; // komfortabel marginal över dagens 2549 avslutade matcher
 
 /**
  * API:t ger statistiken som en platt lista av { type, value }-par (se

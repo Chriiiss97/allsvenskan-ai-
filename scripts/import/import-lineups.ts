@@ -4,7 +4,7 @@ import { createAdminClient } from "./admin-client";
 import { createTeamCache } from "./team-cache";
 import { createPlayerCache } from "./player-cache";
 
-const DEFAULT_MAX_FIXTURES_PER_RUN = 800;
+const DEFAULT_MAX_FIXTURES_PER_RUN = 3000; // komfortabel marginal över dagens 2549 avslutade matcher
 
 /**
  * Hämtar formation/startelva/avbytare per match (ett anrop/match).

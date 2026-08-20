@@ -4,9 +4,12 @@ import { createAdminClient } from "./admin-client";
 import { createTeamCache } from "./team-cache";
 import { createPlayerCache } from "./player-cache";
 
-// Ultra: gott om marginal för att täcka alla ~720 matcher i en enda körning
-// (var 60 på gratisplanens 100/dag).
-const DEFAULT_MAX_FIXTURES_PER_RUN = 800;
+// Ultra: gott om marginal för att täcka alla avslutade matcher i en enda
+// körning (var 60 på gratisplanens 100/dag). Höjd 2026-08-20 från 800 till
+// 3000 efter att 800 visade sig vara för lågt när scopet växte till
+// 2016–2026 (2549 avslutade matcher) — ett enskilt 800-tak fick då körningen
+// att tyst stanna av efter bara en delmängd, trots att den loggade "Klart".
+const DEFAULT_MAX_FIXTURES_PER_RUN = 3000;
 
 /**
  * Hämtar matchhändelser (mål, kort, byten) per match. Till skillnad från
