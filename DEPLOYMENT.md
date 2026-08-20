@@ -21,6 +21,14 @@ inget jag kan göra åt dig).
   `supabase`-parameter (defaultar till scriptens egna CLI-klient) så samma
   funktion kan återanvändas av både `npm run import <steg>` och en
   cron-route utan att koden dubbleras.
+- **Säkerhetsspärr på `/dev-login`** (`app/dev-login/page.tsx`): sidan
+  loggade tidigare in som `test@allsvenskan.local` (uppgraderat till admin)
+  utan någon spärr alls — vem som helst hade kunnat besöka
+  `dinapp.vercel.app/dev-login` på en publik deploy och logga in som admin.
+  404:ar nu bort sig själv i produktionsbygget (`process.env.NODE_ENV ===
+  "production"`, inlineat av `next build`), fungerar fortfarande i
+  `next dev`. Verifierat med en riktig `next build && next start` lokalt
+  (se nedan) innan detta ansågs klart.
 
 ## Steg för att aktivera
 
@@ -35,27 +43,36 @@ inget jag kan göra åt dig).
 4. **Sätt en `CRON_SECRET`** — en slumpad sträng, minst 16 tecken (t.ex. en lösenordsgenerator). Vercel skickar den automatiskt som `Authorization: Bearer <CRON_SECRET>` på varje cron-anrop; route-handlern jämför den mot miljövariabeln.
 5. **Deploya.** Cron-jobben aktiveras automatiskt från `vercel.json` vid deploy.
 
-## Schema och en verklig avvägning (Hobby vs Pro)
+## Schema — Hobby-anpassat (2026-08-20)
 
-| Route | Schema i `vercel.json` | Kräver |
+Användarens beslut: vänta med Vercel Pro tills produkten är mogen för
+riktig drift/betalande användare, deploya till gratisplanen (Hobby) under
+tiden. `vercel.json` är därför medvetet Hobby-säkert redan nu, inte satt
+till planens ursprungliga Pro-granularitet:
+
+| Route | Schema i `vercel.json` | Fungerar på Hobby? |
 |---|---|---|
-| `/api/cron/finalize` | `0 3 * * *` (en gång/dygn) | Fungerar på **Hobby** (gratis) |
-| `/api/cron/pre-match` | `*/30 * * * *` (var 30:e minut) | Kräver **Pro** |
-| `/api/cron/live` | `* * * * *` (varje minut) | Kräver **Pro** |
+| `/api/cron/finalize` | `0 3 * * *` (en gång/dygn, 03:00 UTC) | ✅ Ja — matchar planens egen naturliga takt (ett efterhandspass räcker) |
+| `/api/cron/pre-match` | `0 8 * * *` (en gång/dygn, 08:00 UTC) | ✅ Ja, men degraderat — skador/laguppställning fångas bara en gång/dygn, inte kontinuerligt nära avspark |
+| `/api/cron/live` | **inte med i `vercel.json` just nu** | Utelämnad medvetet — en gång/dygn hade varit meningslöst för minut-för-minut-livespårning (matchen hade oftast redan hunnit sluta) |
 
 Verifierat mot Vercels egen dokumentation (2026-08-20, inte gissat):
-**Hobby-konton tillåter bara cron-jobb en gång/dygn** — ett schema som
-`*/30 * * * *` eller `* * * * *` gör att HELA deploy:en misslyckas på
-Hobby, inte bara att det jobbet degraderas. Om du är på Hobby just nu,
-ändra `pre-match`/`live` till `0 X * * *`-uttryck (en gång/dygn) i
-`vercel.json` innan första deployen — annars failar bygget.
+**Hobby-konton tillåter bara cron-jobb en gång/dygn** — ett tätare schema
+(`*/30 * * * *`, `* * * * *`) gör att HELA deploy:en misslyckas, inte bara
+att det jobbet degraderas. Därför är `pre-match` satt till en gång/dygn och
+`live` helt borttagen ur schemat ovan.
 
-I praktiken gör det här `finalize` fullt användbar på Hobby (en avslutad
-match behöver bara ETT efterhandspass, dagen efter räcker gott), men
-`pre-match` (laguppställning nära avspark) och särskilt `live`
-(minut-för-minut under en match) blir i praktiken meningslösa på en
-gång/dygn — Pro-planen (fastprissatt, minutgranularitet) är den
-realistiska lägstanivån för att steg 5/6 ska göra det de är byggda för.
+`app/api/cron/live/route.ts` finns fortfarande kvar och deployas — den går
+att anropa manuellt (t.ex. `curl` med rätt `CRON_SECRET`) för att testa
+mot en riktig match, den körs bara inte på ett schema än.
+
+**Vid uppgradering till Pro**, lägg tillbaka en rad i `vercel.json`:
+```json
+{ "path": "/api/cron/live", "schedule": "* * * * *" }
+```
+och byt gärna `pre-match` till `*/30 * * * *` för tätare
+laguppställnings-pollning nära avspark. Ingen kodändring behövs, bara
+schemat.
 
 ## Vad som INTE byggdes i steg 10
 

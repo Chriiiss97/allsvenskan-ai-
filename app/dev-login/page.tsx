@@ -1,12 +1,20 @@
 "use client";
 
 // TILLFÄLLIG inloggningssida — bara för manuell testning under byggfasen,
-// tills Google-inloggningen är kopplad in på riktigt. Ta bort filen när
-// Google-inloggningen fungerar.
-
+// tills Google-inloggningen är kopplad in på riktigt (den är redan kodad,
+// se components/auth/LoginButton.tsx — bara aldrig testad mot en riktig
+// deploy). Ta bort filen helt när det är verifierat.
+//
+// SÄKERHETSSPÄRR (2026-08-20, inför första Vercel-deployen): den här sidan
+// loggar in som test@allsvenskan.local — ett konto uppgraderat till admin
+// med obegränsad kvot. Utan spärr skulle VEM SOM HELST kunna gå till
+// /dev-login på en publik deploy och logga in som admin. next build sätter
+// process.env.NODE_ENV till "production" (inlinead vid bygget, samma värde
+// i både server- och klientkod) — 404:ar därför bort sidan helt i en
+// produktionsbuild, oavsett Vercel-plan. Fungerar fortfarande i `next dev`.
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 export default function DevLoginPage() {
@@ -15,6 +23,10 @@ export default function DevLoginPage() {
   const [password, setPassword] = useState("Testa123!");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  if (process.env.NODE_ENV === "production") {
+    notFound();
+  }
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
