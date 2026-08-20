@@ -21,6 +21,22 @@ export interface ApiLeagueResponse {
   }>;
 }
 
+// /fixtures?live=all — bekräftat i steg 1: samma grundform som
+// ApiFixtureResponse, men med elapsed/long-status och UTAN score-splits
+// (halvtid/förlängning ges inte förrän matchen är klar).
+export interface ApiLiveFixtureResponse {
+  fixture: {
+    id: number;
+    status: { long: string; short: string; elapsed: number | null };
+  };
+  league: { id: number };
+  teams: {
+    home: { id: number; name: string };
+    away: { id: number; name: string };
+  };
+  goals: { home: number | null; away: number | null };
+}
+
 // Bekräftat i steg 1/5: matchbunden statusrapport ("Questionable"/"Out" inför
 // EN specifik match) — skiljer sig från /sidelined (rena datumintervall).
 export interface ApiInjuryResponse {
