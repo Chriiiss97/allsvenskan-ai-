@@ -6,6 +6,8 @@ import { importTeams } from "./import-teams";
 import { importPlayersAndStatistics } from "./import-players";
 import { importFixtures } from "./import-fixtures";
 import { importFixtureEvents } from "./import-events";
+import { importCoaches } from "./import-coaches";
+import { importStandings } from "./import-standings";
 import { seedTeamFacts } from "./seed-team-facts";
 import { seedLeagueFacts } from "./seed-league-facts";
 
@@ -17,6 +19,8 @@ const STEPS: Record<string, () => Promise<void>> = {
   players: importPlayersAndStatistics,
   fixtures: importFixtures,
   events: () => importFixtureEvents(),
+  coaches: importCoaches,
+  standings: importStandings,
   // ingen API-Football-koppling, kostar inget av dagskvoten
   facts: async () => {
     await seedTeamFacts();

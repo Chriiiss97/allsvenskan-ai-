@@ -29,7 +29,13 @@ export interface ApiTeamResponse {
     logo: string;
   };
   venue: {
+    id: number | null;
     name: string | null;
+    address: string | null;
+    city: string | null;
+    capacity: number | null;
+    surface: string | null;
+    image: string | null;
   };
 }
 
@@ -93,4 +99,51 @@ export interface ApiEventResponse {
   type: string; // "Goal" | "Card" | "subst" | "Var"
   detail: string;
   comments: string | null;
+}
+
+interface ApiStandingsRecord {
+  played: number | null;
+  win: number | null;
+  draw: number | null;
+  lose: number | null;
+  goals: { for: number | null; against: number | null };
+}
+
+export interface ApiStandingsTeamRow {
+  rank: number;
+  team: { id: number; name: string; logo: string };
+  points: number;
+  goalsDiff: number | null;
+  group: string | null;
+  form: string | null;
+  all: ApiStandingsRecord;
+  home: ApiStandingsRecord;
+  away: ApiStandingsRecord;
+}
+
+export interface ApiStandingsResponse {
+  league: {
+    id: number;
+    season: number;
+    // Nästlat en gång till: en array PER GRUPP (för Allsvenskan bara en grupp,
+    // men API:t har samma form för ligor med kval-/slutspelsgrupper).
+    standings: ApiStandingsTeamRow[][];
+  };
+}
+
+// Bekräftat i steg 1: /coachs ger karriärhistorik (lag+datumintervall) per
+// tränare. OBS — samma steg hittade två separata poster för vad som verkar
+// vara SAMMA verkliga person (olika id, en rik/en nästan tom). Vi importerar
+// varje rad rakt av (external_id är API:ts egen, unika nyckel) och löser
+// eventuell "samma person"-sammanslagning som en senare, egen analysfråga —
+// inte något vi gissar oss till vid inmatning.
+export interface ApiCoachResponse {
+  id: number;
+  name: string;
+  firstname: string | null;
+  lastname: string | null;
+  nationality: string | null;
+  birth: { date: string | null };
+  photo: string | null;
+  team: { id: number; name: string } | null;
 }
