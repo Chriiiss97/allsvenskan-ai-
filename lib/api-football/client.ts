@@ -1,20 +1,24 @@
 /**
  * Tunn klient mot API-Football v3 (https://v3.football.api-sports.io).
  *
- * Tre saker att respektera på gratisplanen (bekräftat i praktiken, se
- * PROJEKT_BRIEF.md och samtalshistorik):
- *   - 10 anrop/MINUT   -> throttling med ~7s mellanrum (marginal under gränsen)
- *   - 100 anrop/dygn   -> loggar kvarvarande kvot per anrop, kastar tydligt
- *                         fel om kvoten tar slut mitt i ett import-script
- *   - Vissa endpoints/säsonger kräver betald plan (t.ex. innevarande säsong)
- *     -> API:t svarar 200 med ett "errors"-objekt snarare än en HTTP-felkod,
- *        så vi måste kolla efter det explicit.
+ * Två saker att respektera:
+ *   - Anrop/MINUT — på gratisplanen 10/min (7s mellanrum). På Ultra
+ *     (2026-08-20, Allsvenskan Datalager-projektet) testades detta EMPIRISKT
+ *     inför steg 4:s ~2900-anropsimport: 50 anrop i rad med 150ms mellanrum
+ *     gav 0 st 429. Satt till 250ms (4/s) som en säkerhetsmarginal under den
+ *     testade gränsen — inte gissat. Skulle steg 4 tagit 5,6 timmar med den
+ *     gamla 7s-throttlen hade Ultra-planen inte gått att använda praktiskt.
+ *   - Anrop/DYGN — 75 000 på Ultra (100 på gratisplanen). Loggar kvarvarande
+ *     kvot per anrop, kastar tydligt fel om kvoten tar slut mitt i en körning.
+ * Vissa endpoints/säsonger kräver betald plan (t.ex. innevarande säsong) —
+ * API:t svarar då 200 med ett "errors"-objekt snarare än en HTTP-felkod, så
+ * vi måste kolla efter det explicit.
  * Om vi ändå träffar minutgränsen (HTTP 429) väntar vi och försöker igen
  * istället för att krascha hela import-körningen.
  */
 
 const BASE_URL = "https://v3.football.api-sports.io";
-const MIN_MS_BETWEEN_CALLS = 7000; // 10/minut -> ~8.5/minut med marginal
+const MIN_MS_BETWEEN_CALLS = 250; // Ultra, empiriskt testat — se kommentar ovan
 const MAX_429_RETRIES = 3;
 const RETRY_BACKOFF_MS = 15000;
 
