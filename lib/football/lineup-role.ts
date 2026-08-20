@@ -72,3 +72,21 @@ export async function getPlayerLineupRoleProfile(
     mostCommonFormation: mostCommon(seasonRows.map((r) => r.fixture_lineup?.formation ?? null)),
   };
 }
+
+interface TeamLineupRow {
+  formation: string | null;
+  fixture: { season_id: number } | null;
+}
+
+/** Lagets vanligaste formation en säsong — grunden för Team DNA:s "taktiska" del (steg 9). */
+export async function getTeamMostCommonFormation(supabase: Supabase, params: { teamId: number; seasonId: number }): Promise<string | null> {
+  const { data: rows, error } = await supabase
+    .from("fixture_lineup")
+    .select("formation, fixture:fixture_id(season_id)")
+    .eq("team_id", params.teamId)
+    .returns<TeamLineupRow[]>();
+  if (error) throw error;
+
+  const seasonRows = (rows ?? []).filter((r) => r.fixture?.season_id === params.seasonId);
+  return mostCommon(seasonRows.map((r) => r.formation));
+}

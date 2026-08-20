@@ -14,10 +14,11 @@ type Supabase = SupabaseClient<Database>;
  * varje kategori) — det är produktens signaturprincip ("visa min
  * beräkning"), inte bara en implementationsdetalj.
  *
- * Peer-poolen är SÄSONGSPOOLAD (2022–2024 tillsammans, samma liga) istället
- * för en enskild säsong — vår databas har bara IFK Göteborg + AIK, så en
- * enskild säsong ger för få jämförelsepunkter per position (13–28 spelare).
- * Poolad över tre säsonger blir underlaget 3–4x större. Peer-raden filtreras
+ * Peer-poolen är SÄSONGSPOOLAD (alla säsonger i samma liga tillsammans, för
+ * närvarande 2016–2026) istället för en enskild säsong — ger ett stabilare
+ * underlag än en enskild säsong även nu när poolen (sedan steg 3/4:s
+ * breddning till 33 lag, se steg 8) är hela Allsvenskan, inte bara
+ * IFK Göteborg + AIK. Peer-raden filtreras
  * fortfarande genom `hasPlayedSeason` (aldrig "registrerad men aldrig
  * spelade") och genom samma positions- + minutgolvsmodell som
  * getPlayerProfile använder för sin (enskild-säsongs-) benchmarking — se

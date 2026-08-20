@@ -136,3 +136,62 @@ export async function getMatchTeamStatsComparison(supabase: Supabase, fixtureId:
 
   return { home: forTeam(fixture.home_team_id), away: forTeam(fixture.away_team_id) };
 }
+
+export interface LeagueSeasonAverages {
+  /** Antal fixture_team_stats-rader snittet bygger på (~2 per avslutad match, en per lag). */
+  rowsAveraged: number;
+  possessionPct: number | null;
+  shotsTotal: number | null;
+  shotsOnTarget: number | null;
+  corners: number | null;
+  fouls: number | null;
+  passesAccuracyPct: number | null;
+  expectedGoals: number | null;
+  goalsPrevented: number | null;
+}
+
+/**
+ * Ligasnitt för en säsong — grunden Team DNA (steg 9) jämför ett enskilt lag
+ * mot. Sidnumrerar explicit (samma disciplin som steg 7:s finalize-match.ts)
+ * eftersom en hel säsongs fixture_team_stats-rader (~2 per match) i värsta
+ * fall kan passera Supabase:s tysta 1000-radstak.
+ */
+export async function getLeagueSeasonAverages(supabase: Supabase, seasonId: number): Promise<LeagueSeasonAverages | null> {
+  const { data: fixtures, error: fixtureError } = await supabase
+    .from("fixture")
+    .select("id")
+    .eq("season_id", seasonId)
+    .eq("status", "FT");
+  if (fixtureError) throw fixtureError;
+
+  const fixtureIds = (fixtures ?? []).map((f) => f.id);
+  if (fixtureIds.length === 0) return null;
+
+  const rows: TeamStatsRow[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data: page, error } = await supabase
+      .from("fixture_team_stats")
+      .select("team_id, possession_pct, shots_total, shots_on_goal, corners, fouls, passes_total, passes_accurate, expected_goals, goals_prevented")
+      .in("fixture_id", fixtureIds)
+      .range(from, from + PAGE - 1)
+      .returns<TeamStatsRow[]>();
+    if (error) throw error;
+    if (!page || page.length === 0) break;
+    rows.push(...page);
+    if (page.length < PAGE) break;
+  }
+  if (rows.length === 0) return null;
+
+  return {
+    rowsAveraged: rows.length,
+    possessionPct: avg(rows.map((r) => r.possession_pct)),
+    shotsTotal: avg(rows.map((r) => r.shots_total)),
+    shotsOnTarget: avg(rows.map((r) => r.shots_on_goal)),
+    corners: avg(rows.map((r) => r.corners)),
+    fouls: avg(rows.map((r) => r.fouls)),
+    passesAccuracyPct: avg(rows.map((r) => (r.passes_total ? ((r.passes_accurate ?? 0) / r.passes_total) * 100 : null))),
+    expectedGoals: avg(rows.map((r) => r.expected_goals)),
+    goalsPrevented: avg(rows.map((r) => r.goals_prevented)),
+  };
+}

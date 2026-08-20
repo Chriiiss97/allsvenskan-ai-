@@ -42,11 +42,12 @@ export function getPositionGroup(position: string | null | undefined): PositionG
 export const MIN_PEER_MINUTES = 450;
 
 /**
- * Om färre än så här många spelare klarar minutgränsen (litet underlag,
- * t.ex. bara 2 målvakter totalt i vår IFK/AIK-pool) används alla peers på
- * samma position oavsett minuter istället för att gränsen skulle göra
- * underlaget ännu mindre — men resultatet flaggas som lågt konfidensunderlag
- * i UI:t (peerGroup.isLowSample) istället för att presenteras som säkert.
+ * Om färre än så här många spelare klarar minutgränsen (ett tunt underlag —
+ * t.ex. en tidig säsong med få spelade matcher än, eller en position med
+ * naturligt få spelare som målvakt) används alla peers på samma position
+ * oavsett minuter istället för att gränsen skulle göra underlaget ännu
+ * mindre — men resultatet flaggas som lågt konfidensunderlag i UI:t
+ * (peerGroup.isLowSample) istället för att presenteras som säkert.
  */
 export const MIN_PEER_COUNT = 4;
 

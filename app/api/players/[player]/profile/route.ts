@@ -6,7 +6,7 @@ export const revalidate = 300;
 
 /**
  * GET /api/players/[player]/profile?season=2024
- * Bio + säsongsstatistik + ligasnitt (per-90, bara IFK/AIK-poolen).
+ * Bio + säsongsstatistik + positionssnitt (per-90, hela Allsvenskan-poolen den säsongen).
  */
 export async function GET(request: Request, { params }: { params: Promise<{ player: string }> }) {
   const { player: playerIdentifier } = await params;

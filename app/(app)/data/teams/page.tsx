@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getTeamProfile, FootballDataError } from "@/lib/football/tools";
+import { getTeamDNA } from "@/lib/football/team-dna";
 import { RecordBar } from "@/components/data/RecordBar";
 import { FormBadges } from "@/components/data/FormBadges";
 import { PlayerCard } from "@/components/data/PlayerCard";
 import { SectionTabs } from "@/components/data/SectionTabs";
+import { StatBar } from "@/components/data/StatBar";
 import { getTeamAccent } from "@/lib/data/team-colors";
 
 const TEAMS = ["IFK Göteborg", "AIK"] as const;
@@ -32,6 +34,8 @@ export default async function TeamProfilePage({
   }
 
   const accent = profile ? getTeamAccent(TEAMS.indexOf(selectedTeam as (typeof TEAMS)[number]) === 1 ? 377 : 366) : "#3987e5";
+
+  const teamDNA = profile?.season ? await getTeamDNA(supabase, { team: selectedTeam, season: profile.season }) : null;
 
   return (
     <div>
@@ -127,6 +131,43 @@ export default async function TeamProfilePage({
             <p className="text-xs text-[#898781]">Senaste 5:</p>
             <FormBadges form={profile.record.form} />
           </div>
+
+          {/* Lag-DNA — samma princip som Player DNA: aldrig påhittat, alltid
+              en ärlig "ej tillgängligt" om lagstatistik saknas för säsongen. */}
+          {teamDNA?.available && teamDNA.own && (
+            <div className="mt-10 rounded-xl border border-white/10 bg-[#1a1a19] p-5">
+              <h2 className="text-sm font-semibold">Lag-DNA — {profile.season}</h2>
+              <p className="mt-1 text-xs text-[#898781]">
+                Snitt över {teamDNA.own.matchesWithStats} matcher, jämfört med ligasnittet den säsongen.
+              </p>
+
+              {teamDNA.insights.length > 0 && (
+                <ul className="mt-3 space-y-1.5 border-b border-white/10 pb-3">
+                  {teamDNA.insights.map((text, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-[#c3c2b7]">
+                      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full" style={{ backgroundColor: accent }} aria-hidden />
+                      {text}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="mt-3">
+                <StatBar label="Bollinnehav" value={teamDNA.own.possessionPct} peerAverage={teamDNA.leagueAverage?.possessionPct ?? null} peerLabel="Ligasnitt" suffix="%" />
+                <StatBar label="Skott" value={teamDNA.own.shotsTotal} peerAverage={teamDNA.leagueAverage?.shotsTotal ?? null} peerLabel="Ligasnitt" />
+                <StatBar label="Skott på mål" value={teamDNA.own.shotsOnTarget} peerAverage={teamDNA.leagueAverage?.shotsOnTarget ?? null} peerLabel="Ligasnitt" />
+                <StatBar label="Hörnor" value={teamDNA.own.corners} peerAverage={teamDNA.leagueAverage?.corners ?? null} peerLabel="Ligasnitt" />
+                <StatBar label="Expected goals (xG)" value={teamDNA.own.expectedGoals} peerAverage={teamDNA.leagueAverage?.expectedGoals ?? null} peerLabel="Ligasnitt" />
+                <StatBar label="Passningssäkerhet" value={teamDNA.own.passesAccuracyPct} peerAverage={teamDNA.leagueAverage?.passesAccuracyPct ?? null} peerLabel="Ligasnitt" suffix="%" />
+              </div>
+
+              {teamDNA.mostCommonFormation && (
+                <p className="mt-3 border-t border-white/10 pt-3 text-xs text-[#898781]">
+                  Vanligaste formation: <span className="font-medium text-white">{teamDNA.mostCommonFormation}</span>
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Bästa målskytt / assist */}
           {(profile.topScorer || profile.topAssist) && (

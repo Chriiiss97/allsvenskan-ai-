@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getPlayerProfile, FootballDataError } from "@/lib/football/tools";
 import { computePlayerDNA } from "@/lib/football/player-dna";
+import { getPlayerLineupRoleProfile } from "@/lib/football/lineup-role";
 import { StatBar } from "@/components/data/StatBar";
 import { PlayerRadarChart } from "@/components/data/PlayerRadarChart";
 import { PlayerDNA } from "@/components/data/PlayerDNA";
@@ -45,6 +46,18 @@ export default async function PlayerProfilePage({
   const age = calculateAge(profile.player.birthDate);
   const teamIndex = profile.player.team?.external_id === 377 ? 1 : 0;
   const dna = profile.season ? await computePlayerDNA(supabase, { playerId: profile.player.id, season: profile.season }) : null;
+
+  // Steg 9: lineup-härledd rolldata (start/avbytarlistningar, formation) —
+  // egen från fixture_lineup_player, oberoende av Player DNA. season.id
+  // (inte året) krävs av lib/football/lineup-role.ts, samma uppslag som
+  // team-dna.ts redan gör.
+  let lineupRole: Awaited<ReturnType<typeof getPlayerLineupRoleProfile>> = null;
+  if (profile.season) {
+    const { data: seasonRow } = await supabase.from("season").select("id").eq("year", profile.season).maybeSingle();
+    if (seasonRow) {
+      lineupRole = await getPlayerLineupRoleProfile(supabase, { playerId: profile.player.id, seasonId: seasonRow.id });
+    }
+  }
   // Bara första meningen i hjälten — hela sammanfattningen visas redan i
   // Player DNA-kortet direkt nedanför, så en full dubblering här vore bara
   // repetition, inte en teaser.
@@ -126,6 +139,31 @@ export default async function PlayerProfilePage({
       {dna && (
         <div className="mt-4">
           <PlayerDNA dna={dna} />
+        </div>
+      )}
+
+      {/* Roll i laget — lineup-härledd (steg 9), oberoende av Player DNA:s
+          statistikbaserade analys. Visas bara om vi har minst en sparad
+          laguppställning för spelaren den säsongen. */}
+      {lineupRole && (
+        <div className="mt-4 rounded-xl border border-white/10 bg-[#1a1a19] p-5">
+          <h2 className="text-sm font-semibold">Roll i laget — {profile.season}</h2>
+          <div className="mt-3 flex flex-wrap justify-center gap-x-8 gap-y-3 text-center sm:justify-start sm:text-left">
+            <div>
+              <p className="text-lg font-semibold text-white">{lineupRole.starts}</p>
+              <p className="text-[10px] uppercase tracking-wide text-[#898781]">Startelva</p>
+            </div>
+            <div>
+              <p className="text-lg font-semibold text-white">{lineupRole.substituteListings}</p>
+              <p className="text-[10px] uppercase tracking-wide text-[#898781]">Avbytarlistad</p>
+            </div>
+            {lineupRole.mostCommonFormation && (
+              <div>
+                <p className="text-lg font-semibold text-white">{lineupRole.mostCommonFormation}</p>
+                <p className="text-[10px] uppercase tracking-wide text-[#898781]">Vanligaste formation</p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

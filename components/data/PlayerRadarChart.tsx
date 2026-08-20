@@ -42,8 +42,8 @@ interface PeerGroupInfo {
 /**
  * Två serier (kategoriska slot 1 blue = spelaren, slot 2 orange =
  * positionssnitt), värden uttryckta som % av snittet BLAND SAMMA POSITION
- * (100 = snittet bland andra {peerGroup.label} i IFK/AIK den här säsongen,
- * se lib/football/position-group.ts) — INTE ett påhittat "DNA"-index, bara
+ * (100 = snittet bland andra {peerGroup.label} i hela Allsvenskan den här
+ * säsongen, se lib/football/position-group.ts) — INTE ett påhittat "DNA"-index, bara
  * en normaliserad vy av redan uträknade per-90-tal så axlarna blir
  * jämförbara på samma skala. En axel som saknar data för spelaren tas bort
  * helt istället för att visas som 0.
@@ -87,7 +87,7 @@ export function PlayerRadarChart({
   return (
     <div>
       <p className="mb-2 text-xs text-[#898781]">
-        100 = snitt bland {peerGroup.count} andra {peerGroup.label} i IFK/AIK den här säsongen
+        100 = snitt bland {peerGroup.count} andra {peerGroup.label} i Allsvenskan den här säsongen
         {peerGroup.minMinutesApplied > 0 && ` (minst ${peerGroup.minMinutesApplied} spelade minuter)`}
       </p>
       {peerGroup.isLowSample && (
