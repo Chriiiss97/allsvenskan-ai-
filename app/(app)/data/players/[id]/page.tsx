@@ -87,7 +87,7 @@ export default async function PlayerProfilePage({
           size={72}
           photoUrl={profile.player.photoUrl}
         />
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <h1 className="text-xl font-semibold tracking-tight">{profile.player.name}</h1>
           <p className="mt-0.5 text-sm text-[#c3c2b7]">
             {profile.player.team?.name ?? "—"}{" "}
@@ -95,6 +95,12 @@ export default async function PlayerProfilePage({
             {age !== null && ` · ${age} år`}
             {profile.player.nationality && ` · ${profile.player.nationality}`}
           </p>
+          {/* Öppningsraden i "scoutingrapporten" — den starkaste regelbaserade
+              insikten från Player DNA, om vi har en. Ren återanvändning av
+              redan beräknad data, ingen egen logik här. */}
+          {dna?.available && dna.insights[0] && (
+            <p className="mt-1.5 text-sm italic text-[#898781]">&ldquo;{dna.insights[0].text}&rdquo;</p>
+          )}
         </div>
 
         {/* Säsongsväljare */}
@@ -112,6 +118,14 @@ export default async function PlayerProfilePage({
           ))}
         </div>
       </div>
+
+      {/* Player DNA — flyttad högst upp: det här är analysen, inte en
+          detalj längst ner på sidan. */}
+      {dna && (
+        <div className="mt-4">
+          <PlayerDNA dna={dna} />
+        </div>
+      )}
 
       {/* Hero-siffror */}
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -158,10 +172,13 @@ export default async function PlayerProfilePage({
         </div>
       </div>
 
-      {/* Per-90-statistik, grupperad i paneler à la analysverktyg — en panel
-          visas bara om den faktiskt har något mått att visa. */}
+      {/* Per-90-statistik, grupperad i paneler à la analysverktyg — stödjande
+          detalj under DNA-analysen, en panel visas bara om den faktiskt har
+          något mått att visa. */}
       {(hasAnfall || hasPassningsspel || hasDuellspel || hasForsvar) && (
-        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-8">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-[#7d7c76]">Detaljerad statistik</p>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {hasAnfall && (
             <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
               <h2 className="text-sm font-semibold">Anfall</h2>
@@ -247,12 +264,7 @@ export default async function PlayerProfilePage({
               />
             </div>
           )}
-        </div>
-      )}
-
-      {dna && (
-        <div className="mt-4">
-          <PlayerDNA dna={dna} />
+          </div>
         </div>
       )}
     </div>

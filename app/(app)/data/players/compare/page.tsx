@@ -198,11 +198,11 @@ export default async function ComparePlayersPage({
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div>
             <p className="mb-2 text-xs font-medium text-[#c3c2b7]">{comparison.playerA.player.name}</p>
-            <PlayerDNA dna={dnaA} />
+            <PlayerDNA dna={dnaA} compact />
           </div>
           <div>
             <p className="mb-2 text-xs font-medium text-[#c3c2b7]">{comparison.playerB.player.name}</p>
-            <PlayerDNA dna={dnaB} />
+            <PlayerDNA dna={dnaB} compact />
           </div>
         </div>
       )}
