@@ -30,20 +30,22 @@ import { computeEventsComplete } from "../../lib/football/match-completeness";
  *     kvalitetskontroll), så syftet här är synlighet över tid, inte att
  *     "fixa" en historisk lucka som inte går att fixa.
  *
- * Precis som steg 5/6 är det här tänkt att köras UPPREPAT (efter varje
- * match, eller på ett schema) av en extern schemaläggare som inte finns
- * konfigurerad i projektet än — den här filen bygger och verifierar SJÄLVA
- * LOGIKEN.
+ * Precis som steg 5/6 var det här tänkt att köras UPPREPAT (efter varje
+ * match, eller på ett schema) av en extern schemaläggare — sedan steg 10
+ * är det app/api/cron/finalize/route.ts (Vercel Cron).
+ *
+ * `supabase`-param: se import-events.ts — låter cron-routen skicka in en
+ * app-säker klient (lib/supabase/admin.ts) istället för scriptets egen,
+ * och samma klient återanvänds genom hela 7a+7b istället för att skapas om.
  */
-export async function finalizeMatches() {
+export async function finalizeMatches(supabase: ReturnType<typeof createAdminClient> = createAdminClient()) {
   console.log("--- Steg 7a: sista full-refresh för nyss avslutade matcher ---");
-  await importFixtureEvents();
-  await importLineups();
-  await importTeamStats();
-  await importPlayerStats();
+  await importFixtureEvents(undefined, supabase);
+  await importLineups(undefined, supabase);
+  await importTeamStats(undefined, supabase);
+  await importPlayerStats(undefined, supabase);
 
   console.log("\n--- Steg 7b: avstämning mål-events vs facit ---");
-  const supabase = createAdminClient();
 
   // Supabase begränsar ett osidat .select() till 1000 rader per default —
   // exakt buggen som gav en falsk 15%-siffra i steg 4:s verifiering (se

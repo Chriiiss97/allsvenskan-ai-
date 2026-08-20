@@ -41,6 +41,18 @@ interface RawResponse<T> {
 
 let lastCallAt = 0;
 
+// Steg 10: senast sedda dygnskvot-avläsning, från API:t egna
+// x-ratelimit-*-headrar (redan lästa nedan för att kasta fel proaktivt vid
+// nästan-slut-kvot) — INTE en egen räknad approximation. Bara i minnet, så
+// den lever bara inom EN process/körning (en cron-tick, ett scriptkörning),
+// men det räcker för att en cron-route ska kunna logga en färsk avläsning
+// till ingestion_log efter varje körning (se app/api/cron/*/route.ts).
+let lastRateLimitReading: { remaining: number; limit: number } | null = null;
+
+export function getLastRateLimitReading(): { remaining: number; limit: number } | null {
+  return lastRateLimitReading;
+}
+
 async function throttle() {
   const elapsed = Date.now() - lastCallAt;
   if (elapsed < MIN_MS_BETWEEN_CALLS) {
@@ -89,6 +101,9 @@ export async function apiFootballGet<T>(
   const dayLimit = response.headers.get("x-ratelimit-requests-limit");
   if (remaining !== null) {
     console.log(`  [api-football] ${path} — kvar idag: ${remaining}/${dayLimit ?? "?"}`);
+    if (dayLimit !== null) {
+      lastRateLimitReading = { remaining: Number(remaining), limit: Number(dayLimit) };
+    }
     if (Number(remaining) <= 3) {
       throw new ApiFootballError(
         `Dagskvoten är nästan slut (${remaining} kvar) — avbryter för att inte gå över.`

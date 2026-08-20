@@ -30,8 +30,8 @@ import { ALLSVENSKAN_LEAGUE_EXTERNAL_ID } from "./config";
  */
 const STATS_REFRESH_MINUTES = 3;
 
-export async function runLiveTick() {
-  const supabase = createAdminClient();
+// `supabase`-param (steg 10): se pre-match-pipeline.ts / import-events.ts.
+export async function runLiveTick(supabase: ReturnType<typeof createAdminClient> = createAdminClient()) {
   const teamCache = createTeamCache(supabase);
   const playerCache = createPlayerCache(supabase);
 

@@ -21,9 +21,17 @@ const DEFAULT_MAX_FIXTURES_PER_RUN = 3000;
  * Återupptagbar: hoppar över matcher som redan har events_synced_at satt
  * (se migration 0004), så en avbruten eller upprepad körning inte hämtar om
  * samma matcher.
+ *
+ * `supabase`-parametern (steg 10): valfri, defaultar till scriptets egna
+ * admin-klient (denna fil körs alltid via tsx, aldrig buntad av Next).
+ * Cron-routes under app/api/cron/* skickar istället in en klient byggd med
+ * lib/supabase/admin.ts (server-only-skyddad) — samma funktion återanvänds
+ * då av både CLI:t och produktionens schemaläggning, ingen kod dubbleras.
  */
-export async function importFixtureEvents(maxFixturesPerRun = DEFAULT_MAX_FIXTURES_PER_RUN) {
-  const supabase = createAdminClient();
+export async function importFixtureEvents(
+  maxFixturesPerRun = DEFAULT_MAX_FIXTURES_PER_RUN,
+  supabase: ReturnType<typeof createAdminClient> = createAdminClient()
+) {
   const teamCache = createTeamCache(supabase);
   const playerCache = createPlayerCache(supabase);
 

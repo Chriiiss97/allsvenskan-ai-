@@ -18,10 +18,12 @@ function toNumber(value: string | number | null): number | null {
  * Per-match spelarstatistik (ett anrop/match, returnerar båda lagen i ett
  * svep). Skiljer sig från säsongsaggregerade `statistics` — det här är EN
  * rad per spelare och match, grunden för consistency/form-analys i
- * analysmotorn (steg 8–9).
+ * analysmotorn (steg 8–9). `supabase`-param: se import-events.ts (steg 10, cron-routes).
  */
-export async function importPlayerStats(maxFixturesPerRun = DEFAULT_MAX_FIXTURES_PER_RUN) {
-  const supabase = createAdminClient();
+export async function importPlayerStats(
+  maxFixturesPerRun = DEFAULT_MAX_FIXTURES_PER_RUN,
+  supabase: ReturnType<typeof createAdminClient> = createAdminClient()
+) {
   const teamCache = createTeamCache(supabase);
   const playerCache = createPlayerCache(supabase);
 

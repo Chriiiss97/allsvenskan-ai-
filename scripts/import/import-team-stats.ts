@@ -44,8 +44,11 @@ function parseStatValue(column: string, raw: string | number | null): number | n
   return DECIMAL_FIELDS.has(column) || PERCENT_FIELDS.has(column) ? n : Math.round(n);
 }
 
-export async function importTeamStats(maxFixturesPerRun = DEFAULT_MAX_FIXTURES_PER_RUN) {
-  const supabase = createAdminClient();
+// `supabase`-param: se import-events.ts (steg 10, cron-routes).
+export async function importTeamStats(
+  maxFixturesPerRun = DEFAULT_MAX_FIXTURES_PER_RUN,
+  supabase: ReturnType<typeof createAdminClient> = createAdminClient()
+) {
   const teamCache = createTeamCache(supabase);
 
   const { data: fixtures, error } = await supabase

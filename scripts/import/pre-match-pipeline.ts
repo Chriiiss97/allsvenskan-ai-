@@ -38,8 +38,9 @@ interface UpcomingFixture {
   away_team: { external_id: number | null; name: string } | null;
 }
 
-export async function runPreMatchPipeline() {
-  const supabase = createAdminClient();
+// `supabase`-param (steg 10): se import-events.ts — låter app/api/cron/pre-match
+// skicka in en app-säker klient (lib/supabase/admin.ts) istället för scriptets egen.
+export async function runPreMatchPipeline(supabase: ReturnType<typeof createAdminClient> = createAdminClient()) {
   const teamCache = createTeamCache(supabase);
   const playerCache = createPlayerCache(supabase);
   const now = new Date();

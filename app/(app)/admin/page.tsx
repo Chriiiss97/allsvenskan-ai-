@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveUnansweredQuestion, toggleFeatureFlag } from "./actions";
 import { timeAgo, estimateCostUsd, formatUsd, startOfUtcDay } from "@/lib/admin/format";
 import { TOPICS, classifyTopics } from "@/lib/admin/topics";
@@ -133,6 +134,28 @@ export default async function AdminPage() {
     return { label: dayStart.toLocaleDateString("sv-SE", { weekday: "short" }), count };
   });
   const maxDayCount = Math.max(1, ...dayBuckets.map((d) => d.count));
+
+  // Steg 10: senaste kända dygnskvot-avläsning från API-Football (skriven av
+  // cron-routes efter varje körning, se lib/cron/rate-limit-snapshot.ts) —
+  // riktig data från API:ts egna headrar, aldrig en uppskattning. null tills
+  // minst ett cron-jobb faktiskt kört (kräver deploy).
+  //
+  // OBS: ingestion_log har medvetet INGEN publik RLS-läspolicy (den vanliga
+  // `supabase`-klienten ovan skulle alltid ge null här, tyst) — måste läsas
+  // med service-role-klienten. Säkert att göra HÄR eftersom sidan redan har
+  // verifierat profile.role === 'admin' ovanför.
+  const { data: rateLimitRow } = await createAdminClient()
+    .from("ingestion_log")
+    .select("params, finished_at")
+    .eq("endpoint", "rate-limit-snapshot")
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ params: { remaining?: number; limit?: number } | null; finished_at: string | null }>();
+  const apiCallsUsedToday =
+    rateLimitRow?.params?.limit !== undefined && rateLimitRow.params.remaining !== undefined
+      ? rateLimitRow.params.limit - rateLimitRow.params.remaining
+      : null;
+  const apiCallsLimitToday = rateLimitRow?.params?.limit ?? null;
 
   // Vad frågar användarna om — verktygsanrop, inte gissad fritext.
   const { data: toolCallsData } = await supabase
@@ -370,9 +393,42 @@ export default async function AdminPage() {
         {latestFixture && (
           <p className="mt-2 text-[11px] text-[#7d7c76]">
             Senaste importerade match: {new Date(latestFixture.kickoff_at).toLocaleDateString("sv-SE")}.
-            Ingen live-synk än — datan uppdateras via manuell import (se PROJEKT_BRIEF.md).
+            Schemalagd synk (pre-match/live/post-match) är byggd (steg 10) men aktiveras först när
+            appen är deployad till Vercel — fram tills dess uppdateras datan via manuell{" "}
+            <span className="font-mono">npm run import</span>.
           </p>
         )}
+      </div>
+
+      {/* API-budget (steg 10) */}
+      <div className="mt-8">
+        <SectionLabel>API-Football-budget</SectionLabel>
+        <div className="rounded-xl border border-white/10 bg-[#141418] p-4">
+          {apiCallsUsedToday !== null && apiCallsLimitToday !== null ? (
+            <>
+              <div className="flex items-baseline justify-between">
+                <p className="text-2xl font-bold text-white">
+                  {apiCallsUsedToday.toLocaleString("sv-SE")}{" "}
+                  <span className="text-sm font-normal text-[#898781]">/ {apiCallsLimitToday.toLocaleString("sv-SE")} anrop idag</span>
+                </p>
+              </div>
+              <div className="mt-2 h-1.5 rounded-full bg-white/5">
+                <div
+                  className="h-1.5 rounded-full bg-[#3987e5]"
+                  style={{ width: `${Math.min(100, (apiCallsUsedToday / apiCallsLimitToday) * 100)}%` }}
+                />
+              </div>
+              <p className="mt-2 text-[11px] text-[#7d7c76]">
+                Senaste avläsning från API-Football:s egna dygnskvot-header
+                {rateLimitRow?.finished_at && `, ${timeAgo(rateLimitRow.finished_at)}`} — ingen egen uppskattning.
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-[#898781]">
+              Ingen avläsning än — skrivs av cron-jobben (steg 10) efter första körningen, kräver deploy.
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Funktioner (feature flags) */}

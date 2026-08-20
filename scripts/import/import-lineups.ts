@@ -9,10 +9,12 @@ const DEFAULT_MAX_FIXTURES_PER_RUN = 3000; // komfortabel marginal över dagens 
 /**
  * Hämtar formation/startelva/avbytare per match (ett anrop/match).
  * Återupptagbar via fixture.lineups_synced_at, samma mönster som
- * import-events.ts.
+ * import-events.ts. `supabase`-param: se import-events.ts (steg 10, cron-routes).
  */
-export async function importLineups(maxFixturesPerRun = DEFAULT_MAX_FIXTURES_PER_RUN) {
-  const supabase = createAdminClient();
+export async function importLineups(
+  maxFixturesPerRun = DEFAULT_MAX_FIXTURES_PER_RUN,
+  supabase: ReturnType<typeof createAdminClient> = createAdminClient()
+) {
   const teamCache = createTeamCache(supabase);
   const playerCache = createPlayerCache(supabase);
 
