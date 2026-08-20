@@ -463,13 +463,21 @@ export async function getPlayerProfile(supabase: Supabase, params: PlayerProfile
     per90: {
       goals: per90(row.goals, row.minutes_played),
       assists: per90(row.assists, row.minutes_played),
+      shotsTotal: per90(row.shots_total, row.minutes_played),
+      shotsOnTarget: per90(row.shots_on_target, row.minutes_played),
       passesTotal: per90(row.passes_total, row.minutes_played),
       passesKey: per90(row.passes_key, row.minutes_played),
       tacklesTotal: per90(row.tackles_total, row.minutes_played),
+      tacklesBlocks: per90(row.tackles_blocks, row.minutes_played),
       tacklesInterceptions: per90(row.tackles_interceptions, row.minutes_played),
       duelsWon: per90(row.duels_won, row.minutes_played),
       dribblesSuccess: per90(row.dribbles_success, row.minutes_played),
     },
+    // Vinstprocent i dueller — en ren kvot, behöver ingen per-90-normalisering.
+    duelsWinRate:
+      row.duels_total && row.duels_total > 0 && row.duels_won !== null
+        ? Math.round(((row.duels_won / row.duels_total) * 100 + Number.EPSILON) * 10) / 10
+        : null,
     leagueAveragePer90,
   };
 }
@@ -875,6 +883,26 @@ export async function getMatchReport(supabase: Supabase, fixtureId: number) {
     events = data ?? [];
   }
 
+  // Räknar om mål-events (självmål krediterat MOTSTÅNDARLAGET, inte laget
+  // på event-raden) matchar det riktiga resultatet. API-Football:s
+  // historiska händelsedata saknar ibland mål helt för äldre matcher —
+  // en äkta lucka i källan (verifierad 2026-08-20: kort/byten är rikt
+  // täckta, mål inte), inte ett importfel. UI:t ska aldrig låtsas
+  // tidslinjen är komplett när den inte är det.
+  let eventsComplete = true;
+  if (fixture.status === "FT" && fixture.home_score !== null && fixture.away_score !== null) {
+    let homeGoals = 0;
+    let awayGoals = 0;
+    for (const e of events) {
+      if (e.type !== "goal" || !e.team?.id) continue;
+      const scoringIsHome = e.team.id === fixture.home?.id;
+      const creditHome = e.detail === "Own Goal" ? !scoringIsHome : scoringIsHome;
+      if (creditHome) homeGoals++;
+      else awayGoals++;
+    }
+    eventsComplete = homeGoals === fixture.home_score && awayGoals === fixture.away_score;
+  }
+
   return {
     id: fixture.id,
     date: fixture.kickoff_at,
@@ -887,6 +915,7 @@ export async function getMatchReport(supabase: Supabase, fixtureId: number) {
     homeScore: fixture.home_score,
     awayScore: fixture.away_score,
     eventsAvailable: !!fixture.events_synced_at,
+    eventsComplete,
     fullPlayerDetail,
     events: events.map((e) => ({
       type: e.type,
@@ -898,4 +927,60 @@ export async function getMatchReport(supabase: Supabase, fixtureId: number) {
       assist: e.assist?.full_name ?? null,
     })),
   };
+}
+
+// ---------------------------------------------------------------------------
+// get_match_report (chattverktyg) — löser lag(+motståndare, +säsong) till
+// den senaste avslutade matchen och återanvänder getMatchReport rakt av.
+// Samma matchup-filter i SQL:en som getFixtures (INTE ett JS-filter efter
+// .limit() — det var precis den buggen som gjorde att "senaste derbyt"
+// kunde ge tomt resultat trots att möten fanns, se tidigare fix).
+// ---------------------------------------------------------------------------
+export interface MatchReportForTeamsParams {
+  team: string;
+  opponent?: string;
+  season?: number;
+}
+
+export async function getMatchReportForTeams(supabase: Supabase, params: MatchReportForTeamsParams) {
+  const team = await resolveTeamOrThrow(supabase, params.team);
+
+  let opponentId: number | null = null;
+  if (params.opponent) {
+    const opponent = await resolveTeam(supabase, params.opponent);
+    if (!opponent) throw new FootballDataError(`Okänt motståndarlag: "${params.opponent}"`);
+    opponentId = opponent.id;
+  }
+
+  const matchupFilter = opponentId
+    ? `and(home_team_id.eq.${team.id},away_team_id.eq.${opponentId}),and(home_team_id.eq.${opponentId},away_team_id.eq.${team.id})`
+    : `home_team_id.eq.${team.id},away_team_id.eq.${team.id}`;
+
+  let query = supabase
+    .from("fixture")
+    .select("id")
+    .or(matchupFilter)
+    .eq("status", "FT")
+    .order("kickoff_at", { ascending: false })
+    .limit(1);
+
+  if (params.season) {
+    await assertSeasonExists(supabase, params.season);
+    const { data: seasonRow } = await supabase.from("season").select("id").eq("year", params.season).single();
+    query = query.eq("season_id", seasonRow!.id);
+  }
+
+  const { data, error } = await query.returns<{ id: number }[]>();
+  if (error) throw new FootballDataError(error.message);
+
+  const fixture = data?.[0];
+  if (!fixture) {
+    throw new FootballDataError(
+      opponentId
+        ? `Hittade ingen avslutad match mellan ${team.name} och ${params.opponent}.`
+        : `Hittade ingen avslutad match för ${team.name}${params.season ? ` säsongen ${params.season}` : ""}.`
+    );
+  }
+
+  return getMatchReport(supabase, fixture.id);
 }

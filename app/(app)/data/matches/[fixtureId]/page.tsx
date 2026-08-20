@@ -41,6 +41,13 @@ export default async function MatchReportPage({
         </p>
       )}
 
+      {report.eventsAvailable && !report.eventsComplete && (
+        <p className="mt-3 text-xs text-[#898781]">
+          Vi har inte fullständig händelsedata för den här matchen — resultatet ovan stämmer, men
+          tidslinjen kan sakna händelser (en känd lucka i källdatan för äldre matcher).
+        </p>
+      )}
+
       <div className="mt-4 rounded-xl border border-white/10 bg-[#1a1a19] p-5">
         <h2 className="text-sm font-semibold">Matchhändelser</h2>
         <div className="mt-3">

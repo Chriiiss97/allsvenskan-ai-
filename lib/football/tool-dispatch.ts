@@ -7,6 +7,7 @@ import {
   getTeamFacts,
   getFixtures,
   getLeagueFacts,
+  getMatchReportForTeams,
   FootballDataError,
 } from "./tools";
 
@@ -60,6 +61,14 @@ export async function dispatchTool(
           season: typeof input.season === "number" ? input.season : undefined,
           opponent: typeof input.opponent === "string" ? input.opponent : undefined,
           limit: typeof input.limit === "number" ? input.limit : undefined,
+        });
+        return { content: JSON.stringify(result), isError: false };
+      }
+      case "get_match_report": {
+        const result = await getMatchReportForTeams(context.supabase, {
+          team: String(input.team ?? ""),
+          opponent: typeof input.opponent === "string" ? input.opponent : undefined,
+          season: typeof input.season === "number" ? input.season : undefined,
         });
         return { content: JSON.stringify(result), isError: false };
       }

@@ -72,6 +72,22 @@ export const FOOTBALL_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "get_match_report",
+    description:
+      "Hämta vad som faktiskt hände i en specifik match: mål, kort, byten och resultat. Utan " +
+      "'opponent' ges lagets senaste avslutade match. Använd den här för frågor om VAD som hände " +
+      "i en match (mål-minuter, vilka fick kort, vem byttes in) — inte bara resultatet.",
+    input_schema: {
+      type: "object",
+      properties: {
+        team: { type: "string", enum: ["IFK Göteborg", "AIK"] },
+        opponent: { type: "string", description: "Motståndarlagets namn, t.ex. \"AIK\", för att hitta ett specifikt möte." },
+        season: { type: "integer", description: "Specifikt säsongsår, t.ex. 2024." },
+      },
+      required: ["team"],
+    },
+  },
+  {
     name: "get_league_facts",
     description: "Hämta fakta om Allsvenskan som liga: grundat år, format, historiska rekord.",
     input_schema: { type: "object", properties: {} },

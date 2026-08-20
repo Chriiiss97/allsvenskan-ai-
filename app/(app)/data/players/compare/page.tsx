@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { comparePlayers, FootballDataError } from "@/lib/football/tools";
+import { computePlayerDNA } from "@/lib/football/player-dna";
 import { PlayerCompareControls } from "@/components/data/PlayerCompareControls";
 import { PlayerCompareTable } from "@/components/data/PlayerCompareTable";
 import { PlayerCompareRadar } from "@/components/data/PlayerCompareRadar";
+import { PlayerDNA } from "@/components/data/PlayerDNA";
 import { SectionTabs } from "@/components/data/SectionTabs";
 
 interface PlayerOption {
@@ -13,6 +15,42 @@ interface PlayerOption {
 }
 
 const SEASONS = [2024, 2023, 2022];
+
+interface ComparableStats {
+  goals: number;
+  assists: number;
+  shotsTotal: number | null;
+  rating: number | null;
+}
+
+/**
+ * Faktabaserade jämförelserader — bara mellan mått där BÅDA spelarna har
+ * ett värde (aldrig en gissning om det som saknas), samma princip som
+ * insiktslistan på /data/teams/compare.
+ */
+function buildPlayerInsights(
+  a: { name: string; stats: ComparableStats },
+  b: { name: string; stats: ComparableStats }
+): string[] {
+  const insights: string[] = [];
+
+  function compareCount(label: string, va: number | null, vb: number | null) {
+    if (va === null || vb === null || va === vb) return;
+    const [leader, leaderVal, otherVal] = va > vb ? [a, va, vb] : [b, vb, va];
+    insights.push(`${leader.name} har fler ${label} (${leaderVal} mot ${otherVal}).`);
+  }
+
+  compareCount("mål", a.stats.goals, b.stats.goals);
+  compareCount("assist", a.stats.assists, b.stats.assists);
+  compareCount("skott", a.stats.shotsTotal, b.stats.shotsTotal);
+
+  if (a.stats.rating !== null && b.stats.rating !== null && a.stats.rating !== b.stats.rating) {
+    const leader = a.stats.rating > b.stats.rating ? a : b;
+    insights.push(`${leader.name} har högst snittbetyg den här säsongen.`);
+  }
+
+  return insights;
+}
 
 export default async function ComparePlayersPage({
   searchParams,
@@ -35,6 +73,9 @@ export default async function ComparePlayersPage({
 
   let comparison: Awaited<ReturnType<typeof comparePlayers>> | null = null;
   let error: string | null = null;
+  let insights: string[] = [];
+  let dnaA: Awaited<ReturnType<typeof computePlayerDNA>> | null = null;
+  let dnaB: Awaited<ReturnType<typeof computePlayerDNA>> | null = null;
 
   if (idA && idB) {
     try {
@@ -43,6 +84,18 @@ export default async function ComparePlayersPage({
         playerB: String(idB),
         season: seasonYear,
       });
+      insights = buildPlayerInsights(
+        { name: comparison.playerA.player.name, stats: comparison.playerA.stats },
+        { name: comparison.playerB.player.name, stats: comparison.playerB.stats }
+      );
+      [dnaA, dnaB] = await Promise.all([
+        comparison.playerA.season
+          ? computePlayerDNA(supabase, { playerId: comparison.playerA.player.id, season: comparison.playerA.season })
+          : Promise.resolve(null),
+        comparison.playerB.season
+          ? computePlayerDNA(supabase, { playerId: comparison.playerB.player.id, season: comparison.playerB.season })
+          : Promise.resolve(null),
+      ]);
     } catch (err) {
       error = err instanceof FootballDataError ? err.message : "Kunde inte jämföra spelarna.";
     }
@@ -91,6 +144,20 @@ export default async function ComparePlayersPage({
 
       {error && <p className="mt-6 text-sm text-[#e66767]">{error}</p>}
 
+      {insights.length > 0 && (
+        <div className="mt-6 rounded-xl border border-white/10 bg-[#141418] p-5">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-[#7d7c76]">Skillnader</p>
+          <ul className="space-y-1.5">
+            {insights.map((line, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-[#c3c2b7]">
+                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[#3987e5]" aria-hidden />
+                {line}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {comparison && (
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
@@ -123,6 +190,19 @@ export default async function ComparePlayersPage({
                 per90B={comparison.playerB.per90}
               />
             </div>
+          </div>
+        </div>
+      )}
+
+      {comparison && dnaA && dnaB && (
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div>
+            <p className="mb-2 text-xs font-medium text-[#c3c2b7]">{comparison.playerA.player.name}</p>
+            <PlayerDNA dna={dnaA} />
+          </div>
+          <div>
+            <p className="mb-2 text-xs font-medium text-[#c3c2b7]">{comparison.playerB.player.name}</p>
+            <PlayerDNA dna={dnaB} />
           </div>
         </div>
       )}

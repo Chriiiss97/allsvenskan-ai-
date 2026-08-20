@@ -2,8 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getPlayerProfile, FootballDataError } from "@/lib/football/tools";
+import { computePlayerDNA } from "@/lib/football/player-dna";
 import { StatBar } from "@/components/data/StatBar";
 import { PlayerRadarChart } from "@/components/data/PlayerRadarChart";
+import { PlayerDNA } from "@/components/data/PlayerDNA";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
 import { BackButton } from "@/components/nav/BackButton";
 import { translatePosition } from "@/lib/i18n/sv";
@@ -42,6 +44,7 @@ export default async function PlayerProfilePage({
 
   const age = calculateAge(profile.player.birthDate);
   const teamIndex = profile.player.team?.external_id === 377 ? 1 : 0;
+  const dna = profile.season ? await computePlayerDNA(supabase, { playerId: profile.player.id, season: profile.season }) : null;
 
   const grundstatistikRows = (
     [
@@ -56,15 +59,18 @@ export default async function PlayerProfilePage({
 
   // Paneler döljs helt om alla deras mått saknas — en panel med bara en
   // rubrik och tomma rader ser trasigare ut än att den inte fanns alls.
-  const hasAnfall = [profile.per90.goals, profile.per90.assists, profile.per90.passesKey].some(
-    (v) => v !== null
-  );
-  const hasPassningsspel = profile.per90.passesTotal !== null || profile.stats.passesAccuracy !== null;
-  const hasDuellspel = [
-    profile.per90.duelsWon,
-    profile.per90.tacklesTotal,
+  const hasAnfall = [
+    profile.per90.goals,
+    profile.per90.assists,
+    profile.per90.passesKey,
+    profile.per90.shotsTotal,
     profile.per90.dribblesSuccess,
   ].some((v) => v !== null);
+  const hasPassningsspel = profile.per90.passesTotal !== null || profile.stats.passesAccuracy !== null;
+  const hasDuellspel = profile.per90.duelsWon !== null || profile.duelsWinRate !== null;
+  const hasForsvar = [profile.per90.tacklesTotal, profile.per90.tacklesBlocks, profile.per90.tacklesInterceptions].some(
+    (v) => v !== null
+  );
 
   return (
     <div>
@@ -147,8 +153,8 @@ export default async function PlayerProfilePage({
 
       {/* Per-90-statistik, grupperad i paneler à la analysverktyg — en panel
           visas bara om den faktiskt har något mått att visa. */}
-      {(hasAnfall || hasPassningsspel || hasDuellspel) && (
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
+      {(hasAnfall || hasPassningsspel || hasDuellspel || hasForsvar) && (
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {hasAnfall && (
             <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
               <h2 className="text-sm font-semibold">Anfall</h2>
@@ -163,6 +169,13 @@ export default async function PlayerProfilePage({
                 label="Nyckelpassningar"
                 value={profile.per90.passesKey}
                 leagueAverage={profile.leagueAveragePer90.passesKey}
+              />
+              <StatBar label="Skott" value={profile.per90.shotsTotal} leagueAverage={null} />
+              <StatBar label="Skott på mål" value={profile.per90.shotsOnTarget} leagueAverage={null} />
+              <StatBar
+                label="Lyckade dribblingar"
+                value={profile.per90.dribblesSuccess}
+                leagueAverage={profile.leagueAveragePer90.dribblesSuccess}
               />
             </div>
           )}
@@ -187,25 +200,40 @@ export default async function PlayerProfilePage({
 
           {hasDuellspel && (
             <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
-              <h2 className="text-sm font-semibold">Duellspel &amp; försvar</h2>
+              <h2 className="text-sm font-semibold">Duellspel</h2>
               <p className="mb-2 text-[11px] text-[#898781]">Per 90 min · orange = ligasnitt</p>
               <StatBar
                 label="Vunna dueller"
                 value={profile.per90.duelsWon}
                 leagueAverage={profile.leagueAveragePer90.duelsWon}
               />
+              <StatBar label="Vinstprocent" value={profile.duelsWinRate} leagueAverage={null} suffix="%" />
+            </div>
+          )}
+
+          {hasForsvar && (
+            <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
+              <h2 className="text-sm font-semibold">Försvar</h2>
+              <p className="mb-2 text-[11px] text-[#898781]">Per 90 min · orange = ligasnitt</p>
               <StatBar
                 label="Tacklingar"
                 value={profile.per90.tacklesTotal}
                 leagueAverage={profile.leagueAveragePer90.tacklesTotal}
               />
+              <StatBar label="Blockeringar" value={profile.per90.tacklesBlocks} leagueAverage={null} />
               <StatBar
-                label="Lyckade dribblingar"
-                value={profile.per90.dribblesSuccess}
-                leagueAverage={profile.leagueAveragePer90.dribblesSuccess}
+                label="Interceptions"
+                value={profile.per90.tacklesInterceptions}
+                leagueAverage={profile.leagueAveragePer90.tacklesInterceptions}
               />
             </div>
           )}
+        </div>
+      )}
+
+      {dna && (
+        <div className="mt-4">
+          <PlayerDNA dna={dna} />
         </div>
       )}
     </div>
