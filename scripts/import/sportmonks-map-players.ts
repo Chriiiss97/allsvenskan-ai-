@@ -1,6 +1,6 @@
 import { sportmonksGet } from "../../lib/sportmonks/client";
 import { normalize } from "../../lib/football/resolve-team";
-import { nameSimilarity } from "../../lib/football/fuzzy-name";
+import { playerNameSimilarity } from "../../lib/football/fuzzy-name";
 import { createAdminClient } from "./admin-client";
 import { SPORTMONKS_SEASON_IDS, SPORTMONKS_SEASONS } from "./sportmonks-config";
 
@@ -53,7 +53,7 @@ const BASIS_TO_CONFIDENCE: Record<MatchBasis, Confidence> = {
 function classify(sm: SportmonksSquadPlayer, ours: OurPlayerCandidate): { basis: MatchBasis; score: number } | null {
   const nameExact = normalize(sm.name) === normalize(ours.full_name);
   const dobMatch = !!sm.date_of_birth && !!ours.birth_date && sm.date_of_birth === ours.birth_date;
-  const sim = nameSimilarity(sm.name, ours.full_name);
+  const sim = playerNameSimilarity(ours.full_name, sm);
 
   if (nameExact && dobMatch) return { basis: "name_and_dob", score: 1 };
   if (nameExact) return { basis: "name_only", score: 0.9 };
@@ -70,6 +70,20 @@ export async function mapSportmonksPlayers() {
 
   const { data: seasons } = await supabase.from("season").select("id, year").in("year", [2024, 2025, 2026]);
   const seasonIds = (seasons ?? []).map((s) => s.id);
+
+  // BUG UPPTÄCKT vid skarp körning (Fas 5-verifiering, 2026-08-21): ett
+  // omkört map-players skrev tidigare BLINT över redan avgjorda rader
+  // (approved/rejected) med status='pending' via upsert — 64 tidigare
+  // godkända granskningsrader återgick till 'pending' (ingen faktisk
+  // player.sportmonks_id skadades, den skrivvägen är oberoende, men
+  // GRANSKNINGSHISTORIKEN gick förlorad). Skydd: hämta redan BESLUTADE par
+  // en gång i förväg, hoppa över dem helt — en människa har redan avgjort,
+  // rör aldrig den raden igen.
+  const { data: decidedRows } = await supabase
+    .from("sportmonks_player_mapping_candidate")
+    .select("player_id, sportmonks_player_id")
+    .in("status", ["approved", "rejected"]);
+  const decidedPairs = new Set((decidedRows ?? []).map((r) => `${r.player_id}:${r.sportmonks_player_id}`));
 
   let totalAutoApproved = 0;
   let totalPending = 0;
@@ -133,6 +147,8 @@ export async function mapSportmonksPlayers() {
       const autoApprove = bestBasis === "name_and_dob" && topMatches.length === 1;
 
       for (const m of topMatches) {
+        if (decidedPairs.has(`${m.candidate.id}:${sm.id}`)) continue; // redan avgjort av en manniska, rör inte
+
         if (m.candidate.sportmonks_id !== null && m.candidate.sportmonks_id !== sm.id) {
           console.log(
             `    ⚠ KONFLIKT: ${m.candidate.full_name} (player.id=${m.candidate.id}) har redan sportmonks_id=${m.candidate.sportmonks_id}, kan inte mappa till ${sm.id} (${sm.name}).`
