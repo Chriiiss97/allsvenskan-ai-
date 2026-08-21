@@ -1,8 +1,14 @@
 /**
- * Tunn klient mot Sportmonks Football API v3
- * (https://api.sportmonks.com/v3/football/ — INTE /api/v3/, testat empiriskt
- * med curl-statuskoder över flera path-permutationer, se Sportmonks-
- * research-sessionen).
+ * Tunn klient mot Sportmonks API v3 (https://api.sportmonks.com/v3/ — INTE
+ * /api/v3/, testat empiriskt med curl-statuskoder över flera path-
+ * permutationer, se Sportmonks-research-sessionen).
+ *
+ * OBS: fotbollsspecifika endpoints (fixtures/leagues/lineups/...) ligger
+ * under /v3/football/, men REFERENSDATA (t.ex. /v3/core/types) ligger under
+ * en SYSKON-namespace /v3/core/ — INTE under /v3/football/core/. Bekräftat
+ * genom att 404-testa den felaktiga sammansättningen innan denna kommentar
+ * skrevs. sportmonksGet() tar därför en fullständig path RELATIV /v3/ (t.ex.
+ * "football/fixtures/123" eller "core/types"), inte relativ /v3/football/.
  *
  * Autentisering: `api_token`-query-param (bekräftat fungerande, inte header).
  *
@@ -22,7 +28,7 @@
  * import-körningen, exakt samma disciplin som redan finns där.
  */
 
-const BASE_URL = "https://api.sportmonks.com/v3/football/";
+const BASE_URL = "https://api.sportmonks.com/v3/";
 const MIN_MS_BETWEEN_CALLS = 250;
 const MAX_429_RETRIES = 3;
 const RETRY_BACKOFF_MS = 15000;
@@ -55,7 +61,11 @@ export function getLastSportmonksRateLimitReading(entity: string): { remaining: 
 }
 
 function entityFromPath(path: string): string {
-  return path.replace(/^\/+/, "").split("/")[0] ?? path;
+  const segments = path.replace(/^\/+/, "").split("/");
+  // "football/fixtures/123" -> "fixtures" (den faktiska Sportmonks-entiteten);
+  // "core/types" -> "core/types" (core-namespacet har sin egen samlade budget).
+  if (segments[0] === "football" && segments[1]) return segments[1];
+  return segments.slice(0, 2).join("/") || path;
 }
 
 async function throttle() {
