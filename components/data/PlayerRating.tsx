@@ -143,7 +143,16 @@ const OUTFIELD_CATEGORY_ORDER: RatingCategoryKey[] = ["shooting", "passing", "dr
  * siffra utan sitt underlag synligt. Varje kategori/mått går att fälla ut
  * till råvärde → percentil → vikt → bidrag, spårbart hela vägen.
  */
-export function PlayerRating({ data, season }: { data: AnyPlayerRating; season: number }) {
+export function PlayerRating({
+  data,
+  season,
+  compact = false,
+}: {
+  data: AnyPlayerRating;
+  season: number;
+  /** Döljer kategori/mått-nedbrytningen — används av jämförelsesidan, samma princip som PlayerDNA:s compact-läge. */
+  compact?: boolean;
+}) {
   const { rating } = data;
 
   if (!rating.available) {
@@ -187,18 +196,20 @@ export function PlayerRating({ data, season }: { data: AnyPlayerRating; season: 
         </span>
       </div>
 
-      <div className="mt-4 space-y-0.5 border-t border-white/10 pt-3">
-        {data.kind === "outfield"
-          ? OUTFIELD_CATEGORY_ORDER.map((key) => (
-              <OutfieldCategoryDetail
-                key={key}
-                categoryKey={key}
-                category={data.rating.categories![key]}
-                contribution={data.rating.contributions.find((c) => c.category === key)}
-              />
-            ))
-          : data.rating.metrics.map((m) => <GoalkeeperMetricRow key={m.key} metric={m} />)}
-      </div>
+      {!compact && (
+        <div className="mt-4 space-y-0.5 border-t border-white/10 pt-3">
+          {data.kind === "outfield"
+            ? OUTFIELD_CATEGORY_ORDER.map((key) => (
+                <OutfieldCategoryDetail
+                  key={key}
+                  categoryKey={key}
+                  category={data.rating.categories![key]}
+                  contribution={data.rating.contributions.find((c) => c.category === key)}
+                />
+              ))
+            : data.rating.metrics.map((m) => <GoalkeeperMetricRow key={m.key} metric={m} />)}
+        </div>
+      )}
     </div>
   );
 }

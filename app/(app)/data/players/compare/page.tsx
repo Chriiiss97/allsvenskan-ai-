@@ -2,10 +2,12 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { comparePlayers, FootballDataError } from "@/lib/football/tools";
 import { computePlayerDNA } from "@/lib/football/player-dna";
+import { computeRatingForPlayer } from "@/lib/football/rating/compute-rating";
 import { PlayerCompareControls } from "@/components/data/PlayerCompareControls";
 import { PlayerCompareTable } from "@/components/data/PlayerCompareTable";
 import { PlayerCompareRadar } from "@/components/data/PlayerCompareRadar";
 import { PlayerDNA } from "@/components/data/PlayerDNA";
+import { PlayerRating } from "@/components/data/PlayerRating";
 import { SectionTabs } from "@/components/data/SectionTabs";
 import { getAvailableSeasons } from "@/lib/football/catalog";
 
@@ -28,8 +30,8 @@ interface ComparableStats {
  * insiktslistan på /data/teams/compare.
  */
 function buildPlayerInsights(
-  a: { name: string; stats: ComparableStats },
-  b: { name: string; stats: ComparableStats }
+  a: { name: string; stats: ComparableStats; ovr: number | null },
+  b: { name: string; stats: ComparableStats; ovr: number | null }
 ): string[] {
   const insights: string[] = [];
 
@@ -46,6 +48,14 @@ function buildPlayerInsights(
   if (a.stats.rating !== null && b.stats.rating !== null && a.stats.rating !== b.stats.rating) {
     const leader = a.stats.rating > b.stats.rating ? a : b;
     insights.push(`${leader.name} har högst snittbetyg den här säsongen.`);
+  }
+
+  // Player Rating-OVR — ETT ANNAT tal än snittbetyget ovan, se
+  // components/data/PlayerRating.tsx. Bara med när båda faktiskt har en
+  // beräknad OVR den här säsongen (aldrig en gissning om det som saknas).
+  if (a.ovr !== null && b.ovr !== null && a.ovr !== b.ovr) {
+    const leader = a.ovr > b.ovr ? a : b;
+    insights.push(`${leader.name} har högst Player Rating-OVR (${leader.ovr}).`);
   }
 
   return insights;
@@ -77,6 +87,8 @@ export default async function ComparePlayersPage({
   let insights: string[] = [];
   let dnaA: Awaited<ReturnType<typeof computePlayerDNA>> | null = null;
   let dnaB: Awaited<ReturnType<typeof computePlayerDNA>> | null = null;
+  let ratingA: Awaited<ReturnType<typeof computeRatingForPlayer>> | null = null;
+  let ratingB: Awaited<ReturnType<typeof computeRatingForPlayer>> | null = null;
 
   if (idA && idB) {
     try {
@@ -85,18 +97,32 @@ export default async function ComparePlayersPage({
         playerB: String(idB),
         season: seasonYear,
       });
-      insights = buildPlayerInsights(
-        { name: comparison.playerA.player.name, stats: comparison.playerA.stats },
-        { name: comparison.playerB.player.name, stats: comparison.playerB.stats }
-      );
-      [dnaA, dnaB] = await Promise.all([
+      [dnaA, dnaB, ratingA, ratingB] = await Promise.all([
         comparison.playerA.season
           ? computePlayerDNA(supabase, { playerId: comparison.playerA.player.id, season: comparison.playerA.season })
           : Promise.resolve(null),
         comparison.playerB.season
           ? computePlayerDNA(supabase, { playerId: comparison.playerB.player.id, season: comparison.playerB.season })
           : Promise.resolve(null),
+        comparison.playerA.season
+          ? computeRatingForPlayer(supabase, {
+              playerId: comparison.playerA.player.id,
+              position: comparison.playerA.player.position,
+              season: comparison.playerA.season,
+            })
+          : Promise.resolve(null),
+        comparison.playerB.season
+          ? computeRatingForPlayer(supabase, {
+              playerId: comparison.playerB.player.id,
+              position: comparison.playerB.player.position,
+              season: comparison.playerB.season,
+            })
+          : Promise.resolve(null),
       ]);
+      insights = buildPlayerInsights(
+        { name: comparison.playerA.player.name, stats: comparison.playerA.stats, ovr: ratingA?.rating.ovr ?? null },
+        { name: comparison.playerB.player.name, stats: comparison.playerB.stats, ovr: ratingB?.rating.ovr ?? null }
+      );
     } catch (err) {
       error = err instanceof FootballDataError ? err.message : "Kunde inte jämföra spelarna.";
     }
@@ -192,6 +218,19 @@ export default async function ComparePlayersPage({
                 per90B={comparison.playerB.per90}
               />
             </div>
+          </div>
+        </div>
+      )}
+
+      {comparison && ratingA && ratingB && comparison.playerA.season && comparison.playerB.season && (
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div>
+            <p className="mb-2 text-xs font-medium text-[#c3c2b7]">{comparison.playerA.player.name}</p>
+            <PlayerRating data={ratingA} season={comparison.playerA.season} compact />
+          </div>
+          <div>
+            <p className="mb-2 text-xs font-medium text-[#c3c2b7]">{comparison.playerB.player.name}</p>
+            <PlayerRating data={ratingB} season={comparison.playerB.season} compact />
           </div>
         </div>
       )}
