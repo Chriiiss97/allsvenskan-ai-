@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { getPositionGroup, selectPeers } from "../position-group";
 import { tierFromThresholds, worseTier, type ConfidenceTier } from "../confidence";
-import { percentile } from "../percentile";
+import { percentile, invertedPercentile } from "../percentile";
 import { aggregatePlayerSeasonStats, type PlayerSeasonAggregate } from "./rating-aggregates";
 
 type Supabase = SupabaseClient<Database>;
@@ -23,9 +23,9 @@ type Supabase = SupabaseClient<Database>;
  *    andel av motståndarens skott på mål som stoppades. Standardmåttet i
  *    branschen (samma definition som t.ex. FBref/Opta använder).
  * 2. Insläppta mål/90 = goals_conceded / minutes_played × 90 — LÄGRE är
- *    bättre, så percentilen INVERTERAS (se invertedPercentile nedan) i
- *    motsats till alla andra mått i hela Rating-systemet där högre alltid
- *    är bättre.
+ *    bättre, så percentilen INVERTERAS (se lib/football/percentile.ts:s
+ *    invertedPercentile) i motsats till alla andra mått i hela
+ *    Rating-systemet där högre alltid är bättre.
  * 3. Clean sheet-andel = matcher med goals_conceded=0 OCH minutes_played≥60
  *    (en etablerad branschkonvention för att kreditera en clean sheet —
  *    inte ett påhittat tal) / matcher med minutes_played≥60 × 100.
@@ -99,17 +99,6 @@ function goalsConcededPer90(agg: PlayerSeasonAggregate): number | null {
 function cleanSheetPct(agg: PlayerSeasonAggregate): number | null {
   if (agg.matchesWithMin60 === 0) return null;
   return Math.round(((agg.cleanSheetMatches / agg.matchesWithMin60) * 100 + Number.EPSILON) * 10) / 10;
-}
-
-/**
- * Percentil för ett mått där LÄGRE värde är bättre (insläppta mål/90) —
- * andelen peers med LIKA HÖGT ELLER HÖGRE (alltså sämre eller lika) värde.
- * Negerar båda sidor och återanvänder samma percentile()-formel istället
- * för att duplicera logiken — "andel peers med -peerValue ≤ -spelarens" är
- * matematiskt identiskt med "andel peers med peerValue ≥ spelarens".
- */
-function invertedPercentile(value: number, peerValues: number[]): number {
-  return percentile(-value, peerValues.map((v) => -v));
 }
 
 function rateGoalkeeper(player: PlayerSeasonAggregate, peers: PlayerSeasonAggregate[]): GoalkeeperMetricDetail[] {

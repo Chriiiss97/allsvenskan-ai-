@@ -1,16 +1,28 @@
 import { createAdminClient } from "./admin-client";
 import { computeSeasonRatings } from "../../lib/football/rating/compute-rating";
 import { computeSeasonGoalkeeperRatings } from "../../lib/football/rating/goalkeeper-rating";
+import { aggregatePlayerSeasonStats, type PlayerSeasonAggregate } from "../../lib/football/rating/rating-aggregates";
+import { getPositionGroup, selectPeers } from "../../lib/football/position-group";
+import { computeScoutOnlyMetrics } from "../../lib/football/rating/scout-metrics";
 
 type Supabase = ReturnType<typeof createAdminClient>;
 
 /**
  * Facit-skrivaren till player_season_rating (se migration
- * 20260821120000_player_season_rating.sql) — INTE ny beräkningslogik.
- * Återanvänder computeSeasonRatings/computeSeasonGoalkeeperRatings rakt av
- * (samma redan hand-verifierade funktioner Scout/Topplistan/profilsidan
- * använder) och skriver bara resultatet till en tabell istället för att
- * bara returnera det till en enskild sidladdning.
+ * 20260821120000_player_season_rating.sql + 20260821130000_..._metrics.sql)
+ * — INTE ny beräkningslogik för OVR/kategorier. Återanvänder
+ * computeSeasonRatings/computeSeasonGoalkeeperRatings rakt av (samma redan
+ * hand-verifierade funktioner Scout/Topplistan/profilsidan använder) och
+ * SPARAR nu även de mellansteg (kategori-poäng, per-mått percentil+råvärde)
+ * de redan räknar ut internt men tidigare kastade bort. Scout Engine
+ * (2026-08-21, Fas 2): gör detta så Scout/arketyper/percentilfilter kan
+ * LÄSA istället för att räkna om hela ligan vid varje förfrågan.
+ *
+ * dribblesPastPer90 (scout-metrics.ts) räknas HÄR, separat från
+ * computeSeasonRatings — den påverkar INTE OVR, så peer-poolen byggs en
+ * gång till lokalt (samma getPositionGroup/selectPeers-mönster som
+ * compute-rating.ts redan använder internt) istället för att ändra
+ * OVR-beräkningens egna, redan verifierade kod.
  *
  * Två anropssätt:
  * - refreshRatingsForSeason: EN säsong, snabbt (~5-10s) — det som ska köras
@@ -21,11 +33,28 @@ type Supabase = ReturnType<typeof createAdminClient>;
  *   manuellt lokalt via `npm run import ratings`, inte tidsbegränsad av en
  *   serverless-timeout som cronen är).
  */
+function toPeerShape(agg: PlayerSeasonAggregate): PlayerSeasonAggregate & { minutes_played: number } {
+  return { ...agg, minutes_played: agg.minutesPlayed };
+}
+
 export async function refreshRatingsForSeason(supabase: Supabase, params: { seasonId: number; seasonYear: number }): Promise<number> {
-  const [outfield, goalkeepers] = await Promise.all([
+  const [outfield, goalkeepers, aggregates] = await Promise.all([
     computeSeasonRatings(supabase, { season: params.seasonYear }),
     computeSeasonGoalkeeperRatings(supabase, { season: params.seasonYear }),
+    aggregatePlayerSeasonStats(supabase, { seasonId: params.seasonId }),
   ]);
+  const allPlayers = [...aggregates.values()];
+
+  /** Fristående Scout-mått (t.ex. dribblesPastPer90) — samma peer-urval som Rating, men beräknat separat så OVR aldrig rörs. */
+  function scoutMetricsFor(agg: PlayerSeasonAggregate): Record<string, { value: number; percentile: number }> {
+    const positionGroupInfo = getPositionGroup(agg.position);
+    if (!positionGroupInfo) return {};
+    const samePositionOthers = allPlayers.filter(
+      (p) => p.playerId !== agg.playerId && getPositionGroup(p.position)?.group === positionGroupInfo.group
+    );
+    const { peers } = selectPeers(samePositionOthers.map(toPeerShape), positionGroupInfo.label, agg.minutesPlayed);
+    return computeScoutOnlyMetrics(agg, peers);
+  }
 
   type UpsertRow = {
     player_id: number;
@@ -35,12 +64,23 @@ export async function refreshRatingsForSeason(supabase: Supabase, params: { seas
     confidence_tier: "hög" | "medel" | "låg" | null;
     own_minutes: number;
     computed_at: string;
+    category_scores: Record<string, number> | null;
+    metric_values: Record<string, { value: number; percentile: number }> | null;
   };
   const now = new Date().toISOString();
   const rows: UpsertRow[] = [];
 
   for (const [playerId, r] of outfield) {
-    if (!r.available || !r.positionGroup) continue; // t.ex. okänd position — inget rimligt facit att skriva
+    if (!r.available || !r.positionGroup || !r.categories) continue; // t.ex. okänd position — inget rimligt facit att skriva
+    const categoryScores: Record<string, number> = {};
+    const metricValues: Record<string, { value: number; percentile: number }> = {};
+    for (const [categoryKey, category] of Object.entries(r.categories)) {
+      if (category.score !== null) categoryScores[categoryKey] = category.score;
+      for (const m of category.metrics) metricValues[m.key] = { value: m.playerValue, percentile: m.percentile };
+    }
+    const agg = aggregates.get(playerId);
+    if (agg) Object.assign(metricValues, scoutMetricsFor(agg));
+
     rows.push({
       player_id: playerId,
       season_id: params.seasonId,
@@ -49,10 +89,17 @@ export async function refreshRatingsForSeason(supabase: Supabase, params: { seas
       confidence_tier: r.confidence?.tier ?? null,
       own_minutes: r.confidence?.ownMinutes ?? 0,
       computed_at: now,
+      category_scores: categoryScores,
+      metric_values: metricValues,
     });
   }
   for (const [playerId, r] of goalkeepers) {
     if (!r.available) continue;
+    const metricValues: Record<string, { value: number; percentile: number }> = {};
+    for (const m of r.metrics) metricValues[m.key] = { value: m.playerValue, percentile: m.percentile };
+    const agg = aggregates.get(playerId);
+    if (agg) Object.assign(metricValues, scoutMetricsFor(agg));
+
     rows.push({
       player_id: playerId,
       season_id: params.seasonId,
@@ -61,6 +108,8 @@ export async function refreshRatingsForSeason(supabase: Supabase, params: { seas
       confidence_tier: r.confidence?.tier ?? null,
       own_minutes: r.confidence?.ownMinutes ?? 0,
       computed_at: now,
+      category_scores: null,
+      metric_values: metricValues,
     });
   }
 

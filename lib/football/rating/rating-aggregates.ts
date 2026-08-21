@@ -51,6 +51,8 @@ interface FixturePlayerStatsRow {
   duels_won: number | null;
   dribbles_attempts: number | null;
   dribbles_success: number | null;
+  /** Scout Engine (2026-08-21): fristående mått, INTE en del av OVR (se lib/football/rating/scout-metrics.ts) — hur ofta spelaren blir dribblad förbi. */
+  dribbles_past: number | null;
   fouls_drawn: number | null;
   fouls_committed: number | null;
   player: { position: string | null; current_team_id: number | null; full_name: string; photo_url: string | null; birth_date: string | null } | null;
@@ -79,6 +81,17 @@ export interface PlayerSeasonAggregate {
   duelsWon: number;
   dribblesAttempts: number;
   dribblesSuccess: number;
+  /**
+   * Scout Engine (2026-08-21): fristående mått, INTE en del av OVR. `null`
+   * om INGEN rad för spelaren hade fältet satt hela säsongen — skiljer
+   * "genuint 0 gånger dribblad förbi" från "aldrig mätt för den här
+   * spelaren" (samma princip som passesAccuracyPct). Verifierat nödvändigt:
+   * fältet har bara 34 % radtäckning 2024, mot 55–92 % för de mått som
+   * redan bygger OVR — utan den här skillnaden hade t.ex. målvakter (som
+   * i praktiken aldrig får fältet satt) visats som "0, bäst i ligan"
+   * istället för "ingen data".
+   */
+  dribblesPast: number | null;
   foulsDrawn: number;
   foulsCommitted: number;
   saves: number;
@@ -114,7 +127,7 @@ export async function aggregatePlayerSeasonStats(
     const { data: page, error } = await supabase
       .from("fixture_player_stats")
       .select(
-        "player_id, team_id, minutes_played, shots_total, shots_on_target, goals, goals_conceded, assists, saves, passes_total, passes_key, passes_accuracy, tackles_total, tackles_interceptions, duels_total, duels_won, dribbles_attempts, dribbles_success, fouls_drawn, fouls_committed, player:player_id(position, current_team_id, full_name, photo_url, birth_date)"
+        "player_id, team_id, minutes_played, shots_total, shots_on_target, goals, goals_conceded, assists, saves, passes_total, passes_key, passes_accuracy, tackles_total, tackles_interceptions, duels_total, duels_won, dribbles_attempts, dribbles_success, dribbles_past, fouls_drawn, fouls_committed, player:player_id(position, current_team_id, full_name, photo_url, birth_date)"
       )
       .in("fixture_id", fixtureIds)
       .gt("minutes_played", 0)
@@ -126,7 +139,7 @@ export async function aggregatePlayerSeasonStats(
     if (page.length < PAGE) break;
   }
 
-  const byPlayer = new Map<number, PlayerSeasonAggregate & { passesAccurateSum: number }>();
+  const byPlayer = new Map<number, PlayerSeasonAggregate & { passesAccurateSum: number; dribblesPastSum: number; hasDribblesPastData: boolean }>();
 
   for (const row of rows) {
     if (!row.player_id || !row.player) continue;
@@ -156,6 +169,7 @@ export async function aggregatePlayerSeasonStats(
         duelsWon: 0,
         dribblesAttempts: 0,
         dribblesSuccess: 0,
+        dribblesPast: null,
         foulsDrawn: 0,
         foulsCommitted: 0,
         saves: 0,
@@ -163,6 +177,8 @@ export async function aggregatePlayerSeasonStats(
         cleanSheetMatches: 0,
         matchesWithMin60: 0,
         passesAccurateSum: 0,
+        dribblesPastSum: 0,
+        hasDribblesPastData: false,
       };
       byPlayer.set(row.player_id, agg);
     }
@@ -191,6 +207,10 @@ export async function aggregatePlayerSeasonStats(
     agg.duelsWon += row.duels_won ?? 0;
     agg.dribblesAttempts += row.dribbles_attempts ?? 0;
     agg.dribblesSuccess += row.dribbles_success ?? 0;
+    if (row.dribbles_past !== null) {
+      agg.dribblesPastSum += row.dribbles_past;
+      agg.hasDribblesPastData = true;
+    }
     agg.foulsDrawn += row.fouls_drawn ?? 0;
     agg.foulsCommitted += row.fouls_committed ?? 0;
     agg.saves += row.saves ?? 0;
@@ -203,12 +223,13 @@ export async function aggregatePlayerSeasonStats(
 
   const result = new Map<number, PlayerSeasonAggregate>();
   for (const [playerId, agg] of byPlayer) {
-    const { passesAccurateSum, ...rest } = agg;
+    const { passesAccurateSum, dribblesPastSum, hasDribblesPastData, ...rest } = agg;
     result.set(playerId, {
       ...rest,
       // Volymviktat medel — INTE ett medel av procentsatser (skulle
       // snedvrida mot lågvolymmatcher, se filbeskrivningen).
       passesAccuracyPct: rest.passesTotal > 0 ? Math.round((passesAccurateSum / rest.passesTotal) * 1000) / 10 : null,
+      dribblesPast: hasDribblesPastData ? dribblesPastSum : null,
     });
   }
   return result;

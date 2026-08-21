@@ -648,6 +648,10 @@ export interface Database {
           confidence_tier: "hög" | "medel" | "låg" | null;
           own_minutes: number;
           computed_at: string;
+          /** shooting/passing/dribbling/defending — bara utespelare, null för målvakter. Se position-rating-config.ts. */
+          category_scores: Record<string, number> | null;
+          /** Per mått: {value, percentile}. Täcker både OVR-mått och fristående Scout-mått (t.ex. dribblesPastPer90) — se lib/football/rating/scout-metrics.ts. */
+          metric_values: Record<string, { value: number; percentile: number }> | null;
         };
         Insert: Partial<Database["public"]["Tables"]["player_season_rating"]["Row"]> & {
           player_id: number;
