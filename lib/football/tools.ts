@@ -717,8 +717,8 @@ export async function getTeamComparison(supabase: Supabase, params: TeamComparis
 
   return {
     season: seasonYear,
-    teamA: { name: teamA.name, ...computeFormRecord(scopedFixturesA, teamA.id) },
-    teamB: { name: teamB.name, ...computeFormRecord(scopedFixturesB, teamB.id) },
+    teamA: { name: teamA.name, externalId: teamA.external_id, ...computeFormRecord(scopedFixturesA, teamA.id) },
+    teamB: { name: teamB.name, externalId: teamB.external_id, ...computeFormRecord(scopedFixturesB, teamB.id) },
     headToHead: {
       record: h2hRecord,
       matches: h2hFixtures.map((f) => ({

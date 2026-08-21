@@ -1,11 +1,7 @@
 "use client";
 
 import { useState } from "react";
-
-// Kategorisk slot 1 (blå) / slot 2 (orange) från dataviz-skillens palett —
-// samma konvention som PlayerCompareRadar/RecordBar, inte hårdkodade
-// klubbfärger, så komponenten håller om fler lag läggs till senare.
-const ACCENTS = ["#3987e5", "#d95926"] as const;
+import { getTeamAccent } from "@/lib/data/team-colors";
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -22,12 +18,12 @@ function initials(name: string): string {
  */
 export function PlayerAvatar({
   name,
-  teamIndex = 0,
+  teamExternalId,
   size = 40,
   photoUrl,
 }: {
   name: string;
-  teamIndex?: 0 | 1;
+  teamExternalId?: number | null;
   size?: number;
   photoUrl?: string | null;
 }) {
@@ -52,7 +48,7 @@ export function PlayerAvatar({
       style={{
         width: size,
         height: size,
-        backgroundColor: ACCENTS[teamIndex],
+        backgroundColor: getTeamAccent(teamExternalId),
         fontSize: size * 0.36,
       }}
       aria-hidden

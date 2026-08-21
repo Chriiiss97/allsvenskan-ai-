@@ -1,8 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { getTeamComparison, FootballDataError } from "@/lib/football/tools";
+import { listTeams } from "@/lib/football/catalog";
 import { FormBadges } from "@/components/data/FormBadges";
 import { RecordBar } from "@/components/data/RecordBar";
 import { TeamCompareBars } from "@/components/data/TeamCompareBars";
+import { TeamCompareControls } from "@/components/data/TeamCompareControls";
 import { SectionTabs } from "@/components/data/SectionTabs";
 import { BackButton } from "@/components/nav/BackButton";
 
@@ -53,6 +55,7 @@ export default async function TeamsComparePage({
 }) {
   const { a, b, season } = await searchParams;
   const supabase = await createClient();
+  const teams = await listTeams(supabase);
 
   let comparison: Comparison | null = null;
   let error: string | null = null;
@@ -83,11 +86,23 @@ export default async function TeamsComparePage({
     <div>
       <SectionTabs
         tabs={[
-          { label: "Ett lag", href: "/data/teams" },
+          { label: "Alla lag", href: "/data/teams" },
           { label: "Lag vs lag", href: "/data/teams/compare" },
         ]}
       />
-      <BackButton href="/data/teams" label="Ett lag" />
+      <BackButton href="/data/teams" label="Alla lag" />
+
+      <div className="mt-6">
+        <TeamCompareControls
+          teams={teams.filter((t): t is typeof t & { external_id: number } => t.external_id !== null).map((t) => ({
+            externalId: t.external_id,
+            name: t.name,
+            logoUrl: t.logoUrl,
+          }))}
+          externalIdA={comparison?.teamA.externalId ?? null}
+          externalIdB={comparison?.teamB.externalId ?? null}
+        />
+      </div>
 
       {error && <p className="mt-6 text-sm text-[#e66767]">{error}</p>}
 

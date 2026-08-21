@@ -39,7 +39,6 @@ export default async function PlayerProfilePage({
   }
 
   const age = calculateAge(profile.player.birthDate);
-  const teamIndex = profile.player.team?.external_id === 377 ? 1 : 0;
   const dna = profile.season ? await computePlayerDNA(supabase, { playerId: profile.player.id, season: profile.season }) : null;
 
   // Steg 9: lineup-härledd rolldata (start/avbytarlistningar, formation) —
@@ -95,7 +94,7 @@ export default async function PlayerProfilePage({
       <div className="mt-4 flex flex-wrap items-center gap-4 rounded-xl border border-white/10 bg-[#1a1a19] p-5">
         <PlayerAvatar
           name={profile.player.name}
-          teamIndex={teamIndex}
+          teamExternalId={profile.player.team?.external_id}
           size={72}
           photoUrl={profile.player.photoUrl}
         />

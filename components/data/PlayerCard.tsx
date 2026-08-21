@@ -19,7 +19,6 @@ export interface PlayerCardData {
   position: string | null;
   photoUrl: string | null;
   teamName: string | null;
-  teamIndex: 0 | 1;
   teamExternalId: number | null;
   stat: PlayerCardStat | null;
 }
@@ -71,7 +70,7 @@ export function PlayerCard({ player, sort = "name" }: { player: PlayerCardData; 
       className="flex items-center gap-3 rounded-xl border border-white/10 border-l-2 bg-[#1a1a19] p-3 transition-colors hover:border-white/25 hover:bg-white/[.03]"
       style={{ borderLeftColor: accent }}
     >
-      <PlayerAvatar name={player.full_name} teamIndex={player.teamIndex} photoUrl={player.photoUrl} />
+      <PlayerAvatar name={player.full_name} teamExternalId={player.teamExternalId} photoUrl={player.photoUrl} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{player.full_name}</p>
         <div className="mt-0.5 flex items-center gap-1.5">
