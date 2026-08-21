@@ -19,6 +19,7 @@ import { seedLeagueFacts } from "./seed-league-facts";
 import { refreshAllSeasonRatings } from "./refresh-ratings";
 import { importSportmonksTypes } from "./import-sportmonks-types";
 import { mapSportmonksTeams } from "./sportmonks-map-teams";
+import { mapSportmonksFixtures } from "./sportmonks-map-fixtures";
 
 config({ path: path.resolve(process.cwd(), ".env.local") });
 
@@ -56,6 +57,10 @@ const STEPS: Record<string, () => Promise<void>> = {
   // Fas 1: lag-mappning (team.sportmonks_id). Skriver bara entydiga traffar.
   "sportmonks-map-teams": async () => {
     await mapSportmonksTeams();
+  },
+  // Fas 2: fixture-mappning (fixture.sportmonks_id). Kraver Fas 1 kord forst.
+  "sportmonks-map-fixtures": async () => {
+    await mapSportmonksFixtures();
   },
   // 'all' kör de billiga stegen (~25 anrop totalt för 2 lag x 3 säsonger).
   // 'events' kör INTE med här — den kostar ett anrop per match och kan
