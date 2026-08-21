@@ -6,8 +6,14 @@ import { getAvailableSeasons, listTeams } from "@/lib/football/catalog";
 import { listPlayers, type PlayerListParams } from "@/lib/football/player-catalog";
 import { translatePosition } from "@/lib/i18n/sv";
 
+// Player Rating-batchberäkningen (computeSeasonOvrMap) kostar två
+// paginerade fixture_player_stats-läsningar av hela säsongen — samma
+// etablerade mönster som league/facts-routen använder för att hålla den
+// kostnaden borta från varje enskild sidladdning.
+export const revalidate = 3600;
+
 const PAGE_SIZE = 30;
-const VALID_SORTS: PlayerListParams["sort"][] = ["name", "goals", "assists", "appearances", "minutes", "goalsPer90", "age"];
+const VALID_SORTS: PlayerListParams["sort"][] = ["name", "goals", "assists", "appearances", "minutes", "goalsPer90", "age", "rating"];
 const POSITIONS: NonNullable<PlayerListParams["position"]>[] = ["Goalkeeper", "Defender", "Midfielder", "Attacker"];
 
 /**
@@ -30,6 +36,8 @@ export default async function PlayersIndexPage({
     ageMin?: string;
     ageMax?: string;
     goalsMin?: string;
+    ratingMin?: string;
+    ratingMax?: string;
     q?: string;
     page?: string;
   }>;
@@ -58,6 +66,8 @@ export default async function PlayersIndexPage({
       ageMin: sp.ageMin ? Number(sp.ageMin) : undefined,
       ageMax: sp.ageMax ? Number(sp.ageMax) : undefined,
       goalsMin: sp.goalsMin ? Number(sp.goalsMin) : undefined,
+      ratingMin: sp.ratingMin ? Number(sp.ratingMin) : undefined,
+      ratingMax: sp.ratingMax ? Number(sp.ratingMax) : undefined,
       query: sp.q,
       sort,
       sortDir,
@@ -76,6 +86,7 @@ export default async function PlayersIndexPage({
       teamName: team?.name ?? null,
       teamExternalId: team?.external_id ?? null,
       stat: { goals: p.goals, assists: p.assists, appearances: p.appearances, minutesPlayed: p.minutesPlayed, year: seasonYear ?? "all" },
+      rating: p.rating,
     };
   });
 
@@ -86,7 +97,8 @@ export default async function PlayersIndexPage({
     const params = new URLSearchParams();
     const next: Record<string, string | undefined> = {
       season: sp.season, team: sp.team, position: sp.position, ageMin: sp.ageMin, ageMax: sp.ageMax,
-      goalsMin: sp.goalsMin, q: sp.q, sort: sp.sort, dir: sp.dir, page: sp.page,
+      goalsMin: sp.goalsMin, ratingMin: sp.ratingMin, ratingMax: sp.ratingMax,
+      q: sp.q, sort: sp.sort, dir: sp.dir, page: sp.page,
       ...overrides,
     };
     for (const [key, value] of Object.entries(next)) {
@@ -179,11 +191,19 @@ export default async function PlayersIndexPage({
           Min. mål
           <input type="number" name="goalsMin" defaultValue={sp.goalsMin ?? ""} min={0} className="w-16 rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-sm text-white" />
         </label>
+        <label className="flex flex-col gap-1 text-xs text-[#898781]">
+          OVR min
+          <input type="number" name="ratingMin" defaultValue={sp.ratingMin ?? ""} min={0} max={99} title="Player Rating — statistisk 0–99-OVR" className="w-16 rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-sm text-white" />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-[#898781]">
+          OVR max
+          <input type="number" name="ratingMax" defaultValue={sp.ratingMax ?? ""} min={0} max={99} title="Player Rating — statistisk 0–99-OVR" className="w-16 rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-sm text-white" />
+        </label>
         <button type="submit" className="rounded-md bg-[#3987e5] px-3 py-1.5 text-sm font-medium text-white">
           Filtrera
         </button>
-        {(sp.team || sp.position || sp.ageMin || sp.ageMax || sp.goalsMin || sp.q) && (
-          <Link href={buildHref({ team: undefined, position: undefined, ageMin: undefined, ageMax: undefined, goalsMin: undefined, q: undefined, page: undefined })} className="text-xs text-[#898781] hover:text-white">
+        {(sp.team || sp.position || sp.ageMin || sp.ageMax || sp.goalsMin || sp.ratingMin || sp.ratingMax || sp.q) && (
+          <Link href={buildHref({ team: undefined, position: undefined, ageMin: undefined, ageMax: undefined, goalsMin: undefined, ratingMin: undefined, ratingMax: undefined, q: undefined, page: undefined })} className="text-xs text-[#898781] hover:text-white">
             Rensa filter
           </Link>
         )}
@@ -196,7 +216,7 @@ export default async function PlayersIndexPage({
           {(
             [
               ["name", "Namn"], ["goals", "Mål"], ["assists", "Assist"], ["appearances", "Matcher"],
-              ["minutes", "Minuter"], ["goalsPer90", "Mål/90"], ["age", "Ålder"],
+              ["minutes", "Minuter"], ["goalsPer90", "Mål/90"], ["age", "Ålder"], ["rating", "OVR"],
             ] as const
           ).map(([key, label]) => (
             <Link
@@ -214,7 +234,7 @@ export default async function PlayersIndexPage({
 
       <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map((p) => (
-          <PlayerCard key={p.id} player={p} sort={sort === "goalsPer90" || sort === "age" ? "goals" : (sort as PlayerSortKey)} />
+          <PlayerCard key={p.id} player={p} sort={sort === "goalsPer90" || sort === "age" || sort === "rating" ? "goals" : (sort as PlayerSortKey)} />
         ))}
       </div>
       {cards.length === 0 && <p className="mt-8 text-center text-sm text-[#898781]">Ingen spelare matchade filtret.</p>}

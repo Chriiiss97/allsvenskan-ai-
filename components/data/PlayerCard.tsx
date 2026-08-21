@@ -2,6 +2,7 @@ import Link from "next/link";
 import { PlayerAvatar } from "./PlayerAvatar";
 import { translatePosition } from "@/lib/i18n/sv";
 import { getTeamAccent } from "@/lib/data/team-colors";
+import { ovrColor } from "@/lib/football/rating/ovr-color";
 
 export interface PlayerCardStat {
   goals: number;
@@ -21,6 +22,8 @@ export interface PlayerCardData {
   teamName: string | null;
   teamExternalId: number | null;
   stat: PlayerCardStat | null;
+  /** Player Rating OVR (0–99) — odefinierad/null döljer badgen helt (t.ex. lagtruppens vy som inte alltid har en säsong att räkna mot). */
+  rating?: number | null;
 }
 
 export type PlayerSortKey = "name" | "goals" | "assists" | "appearances" | "minutes";
@@ -85,6 +88,18 @@ export function PlayerCard({ player, sort = "name" }: { player: PlayerCardData; 
           )}
         </div>
       </div>
+      {player.rating != null && (
+        <div
+          className="shrink-0 rounded-lg px-2 py-1 text-center"
+          style={{ backgroundColor: `${ovrColor(player.rating)}1a` }}
+          title="Player Rating — statistisk 0–99-OVR"
+        >
+          <p className="text-sm font-bold leading-none tabular-nums" style={{ color: ovrColor(player.rating) }}>
+            {player.rating}
+          </p>
+          <p className="mt-0.5 text-[9px] leading-none text-[#898781]">OVR</p>
+        </div>
+      )}
       {primaryStat && (
         <div className="shrink-0 rounded-lg bg-white/5 px-2 py-1 text-right">
           <p className="text-sm font-semibold leading-none">{primaryStat.value}</p>

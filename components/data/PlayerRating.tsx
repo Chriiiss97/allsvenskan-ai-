@@ -6,6 +6,7 @@ import type { RatingCategory } from "@/lib/football/rating/categories";
 import type { GoalkeeperMetricDetail } from "@/lib/football/rating/goalkeeper-rating";
 import type { OvrContribution } from "@/lib/football/rating/position-rating-config";
 import type { ConfidenceTier } from "@/lib/football/confidence";
+import { ovrColor } from "@/lib/football/rating/ovr-color";
 
 const CONFIDENCE_COLOR: Record<ConfidenceTier, string> = {
   hög: "#22c55e",
@@ -18,14 +19,6 @@ const CONFIDENCE_LABEL: Record<ConfidenceTier, string> = {
   medel: "Medelsäkert underlag",
   låg: "Begränsat underlag",
 };
-
-/** Fyra breda band, samma andor som EA:s egna kort — men aldrig 100, aldrig FIFA-brandat. */
-function ovrColor(ovr: number): string {
-  if (ovr >= 80) return "#22c55e";
-  if (ovr >= 65) return "#3987e5";
-  if (ovr >= 50) return "#d9a526";
-  return "#e66767";
-}
 
 function OvrBadge({ ovr, label }: { ovr: number | null; label: string }) {
   const color = ovr !== null ? ovrColor(ovr) : "#5f5e59";
