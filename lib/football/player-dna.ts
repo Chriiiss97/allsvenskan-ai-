@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { hasPlayedSeason } from "./active-player";
 import { getPositionGroup, selectPeers, type PositionGroupKey } from "./position-group";
+import { percentile } from "./percentile";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -175,12 +176,6 @@ function mean(values: number[]): number {
 function duelsWinRate(row: { duels_total: number | null; duels_won: number | null }): number | null {
   if (!row.duels_total || row.duels_total <= 0 || row.duels_won === null) return null;
   return (row.duels_won / row.duels_total) * 100;
-}
-
-/** Percentil = andel peers med lägre-eller-lika värde. Robust mot skeva små samples (inget normalfördelningsantagande, till skillnad från en z-score). */
-function percentile(value: number, peerValues: number[]): number {
-  const countLessOrEqual = peerValues.filter((v) => v <= value).length;
-  return Math.round((countLessOrEqual / peerValues.length) * 100);
 }
 
 function buildMetric(
