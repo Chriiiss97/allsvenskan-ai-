@@ -1,11 +1,18 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PlayerCard, type PlayerCardData, type PlayerSortKey } from "@/components/data/PlayerCard";
+import { ScoutDetailPanel } from "@/components/data/ScoutDetailPanel";
 import { SectionTabs } from "@/components/data/SectionTabs";
 import { getAvailableSeasons, listTeams } from "@/lib/football/catalog";
 import { listPlayers, type PlayerListParams } from "@/lib/football/player-catalog";
-import { ARCHETYPES } from "@/lib/football/rating/archetypes";
+import { ARCHETYPES, computePlayerArchetypes } from "@/lib/football/rating/archetypes";
 import { computeScoutMatch } from "@/lib/football/rating/scout-match";
+import { getPlayerProfile, FootballDataError } from "@/lib/football/tools";
+import { computeRatingForPlayer } from "@/lib/football/rating/compute-rating";
+import { computePlayerDNA } from "@/lib/football/player-dna";
+import { getPlayerRatingHistory, getStoredSeasonRatings } from "@/lib/football/rating/rating-store";
+import { buildRatingTrendSummary } from "@/lib/football/rating/rating-trend";
+import { calculateAge } from "@/lib/football/age";
 import { translatePosition } from "@/lib/i18n/sv";
 
 // Samma motivering som /data/players/rankings: listPlayers kör
@@ -65,6 +72,7 @@ export default async function ScoutPage({
     consistencyMinSeasons?: string;
     q?: string;
     page?: string;
+    selected?: string;
   }>;
 }) {
   const sp = await searchParams;
@@ -131,6 +139,75 @@ export default async function ScoutPage({
     };
   });
 
+  // Scout Engine Fas 7 — detaljpanelen. Byggd på EXAKT samma funktioner som
+  // den fulla profilsidan (getPlayerProfile/computeRatingForPlayer/
+  // computePlayerDNA/getPlayerRatingHistory) — inget parallellt datalager,
+  // bara ett annat ställe att visa dem. Arketyper/matchning återanvänds
+  // direkt från result.items (spelaren klickades ju precis FRÅN den listan)
+  // istället för att räknas om.
+  const selectedPlayerId = sp.selected ? Number(sp.selected) : undefined;
+  let selectedDetail: {
+    player: { id: number; name: string; photoUrl: string | null; position: string | null; teamName: string | null; teamExternalId: number | null; age: number | null; nationality: string | null };
+    rating: Awaited<ReturnType<typeof computeRatingForPlayer>> | null;
+    dna: Awaited<ReturnType<typeof computePlayerDNA>> | null;
+    ratingHistory: Awaited<ReturnType<typeof getPlayerRatingHistory>>;
+    ratingTrend: ReturnType<typeof buildRatingTrendSummary> | null;
+    archetypes: ReturnType<typeof computePlayerArchetypes>;
+    scoutMatch: ReturnType<typeof computeScoutMatch>;
+    unavailableReason: string | null;
+  } | null = null;
+
+  if (selectedPlayerId) {
+    try {
+      const profile = await getPlayerProfile(supabase, { player: String(selectedPlayerId), season: seasonYear });
+      const listItem = result.items.find((p) => p.id === selectedPlayerId);
+      const [rating, dna, ratingHistory] = await Promise.all([
+        profile.season
+          ? computeRatingForPlayer(supabase, { playerId: profile.player.id, position: profile.player.position, season: profile.season })
+          : Promise.resolve(null),
+        profile.season ? computePlayerDNA(supabase, { playerId: profile.player.id, season: profile.season }) : Promise.resolve(null),
+        getPlayerRatingHistory(supabase, profile.player.id),
+      ]);
+      // Arketyper: återanvänd redan om spelaren fanns i den aktuella
+      // resultatlistan (vanliga fallet — man klickar ju därifrån). Annars
+      // (t.ex. en delad länk) räknas de fram separat, samma väg som
+      // player-catalog.ts redan gör, ingen ny logik.
+      let archetypes = listItem?.archetypes ?? [];
+      if (!listItem && profile.season) {
+        const { data: seasonRow } = await supabase.from("season").select("id").eq("year", profile.season).maybeSingle();
+        if (seasonRow) {
+          const stored = await getStoredSeasonRatings(supabase, seasonRow.id);
+          const own = stored?.find((r) => r.playerId === selectedPlayerId);
+          if (own) archetypes = computePlayerArchetypes({ positionGroup: own.positionGroup, categoryScores: own.categoryScores, metricValues: own.metricValues }, own.confidenceTier);
+        }
+      }
+      selectedDetail = {
+        player: {
+          id: profile.player.id,
+          name: profile.player.name,
+          photoUrl: profile.player.photoUrl,
+          position: profile.player.position,
+          teamName: profile.player.team?.name ?? null,
+          teamExternalId: profile.player.team?.external_id ?? null,
+          age: calculateAge(profile.player.birthDate),
+          nationality: profile.player.nationality,
+        },
+        rating,
+        dna,
+        ratingHistory,
+        ratingTrend: buildRatingTrendSummary(ratingHistory),
+        archetypes,
+        scoutMatch: listItem ? computeScoutMatch(listItem, listParams) : null,
+        unavailableReason: !profile.season ? "Spelaren har ingen registrerad speltid den här säsongen." : null,
+      };
+    } catch (err) {
+      if (!(err instanceof FootballDataError)) throw err;
+      // Ogiltigt/okänt spelar-id (t.ex. en trasig delad länk) — visa en
+      // ärlig "hittades inte" i panelen, krascha aldrig hela Scout-sidan.
+      selectedDetail = null;
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(result.total / PAGE_SIZE));
   const currentPage = page + 1;
 
@@ -142,6 +219,10 @@ export default async function ScoutPage({
       ratingMin: sp.ratingMin, ratingMax: sp.ratingMax, ovrDeltaMin: sp.ovrDeltaMin, ovrDeltaMax: sp.ovrDeltaMax,
       consistencyMinSeasons: sp.consistencyMinSeasons,
       q: sp.q, sort: sp.sort, dir: sp.dir, page: sp.page,
+      // Medvetet UTELÄMNAD: "selected". Varje annan länk (säsong/sort/
+      // filter/sida) ska stänga detaljpanelen automatiskt — resultatmängden
+      // den byggde på har ändrats, panelen skulle annars visa en spelare
+      // som inte längre är en del av sökningen.
       ...overrides,
     };
     for (const [key, value] of Object.entries(next)) {
@@ -150,6 +231,29 @@ export default async function ScoutPage({
     for (const key of archetypeOverride ?? selectedArchetypes) params.append("archetype", key);
     const qs = params.toString();
     return qs ? `/data/scout?${qs}` : "/data/scout";
+  }
+
+  /**
+   * Scout Engine Fas 7 — öppnar detaljpanelen för EN spelare, ovanpå exakt
+   * de filter/sortering/sida som redan är aktiva (till skillnad från
+   * buildHref som avsiktligt släpper "selected", behåller den här ALLT
+   * annat + lägger till den).
+   */
+  function playerDetailHref(playerId: number) {
+    const params = new URLSearchParams();
+    const next: Record<string, string | undefined> = {
+      season: sp.season, compareSeason: sp.compareSeason, team: sp.team, position: sp.position,
+      ageMin: sp.ageMin, ageMax: sp.ageMax, goalsMin: sp.goalsMin, assistsMin: sp.assistsMin, minutesMin: sp.minutesMin,
+      ratingMin: sp.ratingMin, ratingMax: sp.ratingMax, ovrDeltaMin: sp.ovrDeltaMin, ovrDeltaMax: sp.ovrDeltaMax,
+      consistencyMinSeasons: sp.consistencyMinSeasons,
+      q: sp.q, sort: sp.sort, dir: sp.dir, page: sp.page,
+      selected: String(playerId),
+    };
+    for (const [key, value] of Object.entries(next)) {
+      if (value) params.set(key, value);
+    }
+    for (const key of selectedArchetypes) params.append("archetype", key);
+    return `/data/scout?${params.toString()}`;
   }
 
   /** Bygger URL:en för att lägga till/ta bort EN arketyp från urvalet, samma "klicka för att växla"-mönster som resten av Scout:s filter. */
@@ -358,33 +462,75 @@ export default async function ScoutPage({
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        {cards.map((p) => (
-          <PlayerCard key={p.id} player={p} sort={(["goals", "assists", "appearances", "minutes"] as PlayerSortKey[]).includes(sort as PlayerSortKey) ? (sort as PlayerSortKey) : "goals"} />
-        ))}
-      </div>
-      {cards.length === 0 && <p className="mt-8 text-center text-sm text-[#898781]">Ingen spelare matchade filtret.</p>}
+      {/* Scout Engine Fas 7 — split-vy: resultatlistan till vänster, en
+          detaljpanel till höger när en spelare är vald. Klicka på en
+          spelare navigerar ALDRIG bort från Scout (jämför med
+          /data/players/[id]) — URL:en pekar fortfarande på /data/scout,
+          bara med ?selected=<id> tillagt ovanpå alla aktiva filter. */}
+      <div className={selectedPlayerId ? "mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[1fr_380px]" : "mt-4"}>
+        <div>
+          <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 ${selectedPlayerId ? "" : "lg:grid-cols-3"}`}>
+            {cards.map((p) => (
+              <PlayerCard
+                key={p.id}
+                player={p}
+                href={playerDetailHref(p.id)}
+                active={p.id === selectedPlayerId}
+                sort={(["goals", "assists", "appearances", "minutes"] as PlayerSortKey[]).includes(sort as PlayerSortKey) ? (sort as PlayerSortKey) : "goals"}
+              />
+            ))}
+          </div>
+          {cards.length === 0 && <p className="mt-8 text-center text-sm text-[#898781]">Ingen spelare matchade filtret.</p>}
 
-      {/* Paginering */}
-      {totalPages > 1 && (
-        <div className="mt-6 flex items-center justify-center gap-3 text-sm">
-          <Link
-            href={buildHref({ page: String(Math.max(1, currentPage - 1)) })}
-            className={`rounded-md border border-white/10 px-3 py-1.5 ${currentPage <= 1 ? "pointer-events-none opacity-30" : "hover:bg-white/5"}`}
-          >
-            ← Föregående
-          </Link>
-          <span className="text-xs text-[#898781]">
-            Sida {currentPage} av {totalPages}
-          </span>
-          <Link
-            href={buildHref({ page: String(Math.min(totalPages, currentPage + 1)) })}
-            className={`rounded-md border border-white/10 px-3 py-1.5 ${currentPage >= totalPages ? "pointer-events-none opacity-30" : "hover:bg-white/5"}`}
-          >
-            Nästa →
-          </Link>
+          {/* Paginering */}
+          {totalPages > 1 && (
+            <div className="mt-6 flex items-center justify-center gap-3 text-sm">
+              <Link
+                href={buildHref({ page: String(Math.max(1, currentPage - 1)) })}
+                className={`rounded-md border border-white/10 px-3 py-1.5 ${currentPage <= 1 ? "pointer-events-none opacity-30" : "hover:bg-white/5"}`}
+              >
+                ← Föregående
+              </Link>
+              <span className="text-xs text-[#898781]">
+                Sida {currentPage} av {totalPages}
+              </span>
+              <Link
+                href={buildHref({ page: String(Math.min(totalPages, currentPage + 1)) })}
+                className={`rounded-md border border-white/10 px-3 py-1.5 ${currentPage >= totalPages ? "pointer-events-none opacity-30" : "hover:bg-white/5"}`}
+              >
+                Nästa →
+              </Link>
+            </div>
+          )}
         </div>
-      )}
+
+        {selectedPlayerId && (
+          <div className="xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:self-start xl:overflow-y-auto">
+            {selectedDetail ? (
+              <ScoutDetailPanel
+                player={selectedDetail.player}
+                season={seasonYear ?? null}
+                closeHref={buildHref({})}
+                fullProfileHref={`/data/players/${selectedDetail.player.id}${seasonYear ? `?season=${seasonYear}` : ""}`}
+                rating={selectedDetail.rating}
+                dna={selectedDetail.dna}
+                ratingHistory={selectedDetail.ratingHistory}
+                ratingTrend={selectedDetail.ratingTrend}
+                archetypes={selectedDetail.archetypes}
+                scoutMatch={selectedDetail.scoutMatch}
+                unavailableReason={selectedDetail.unavailableReason}
+              />
+            ) : (
+              <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
+                <p className="text-sm text-[#898781]">Kunde inte hitta spelaren.</p>
+                <Link href={buildHref({})} className="mt-2 inline-block text-xs text-[#3987e5] hover:underline">
+                  Stäng
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -70,7 +70,19 @@ function primaryStatFor(stat: PlayerCardStat, sort: PlayerSortKey): { value: num
  * annars enformiga "identisk box"-känslan utan att göra varje kort till
  * ett eget litet konstverk.
  */
-export function PlayerCard({ player, sort = "name" }: { player: PlayerCardData; sort?: PlayerSortKey }) {
+export function PlayerCard({
+  player,
+  sort = "name",
+  href,
+  active = false,
+}: {
+  player: PlayerCardData;
+  sort?: PlayerSortKey;
+  /** Scout Engine Fas 7 — override av standardmålet (`/data/players/{id}`), t.ex. Scout:s "stanna kvar, öppna detaljpanel"-länk. Odefinierad = oförändrat beteende för alla befintliga anropare. */
+  href?: string;
+  /** Scout Engine Fas 7 — visuellt markerad som den just nu öppna detaljpanelens spelare. */
+  active?: boolean;
+}) {
   const accent = getTeamAccent(player.teamExternalId);
   const positionColor = player.position ? POSITION_COLORS[player.position] : undefined;
   const primaryStat = player.stat ? primaryStatFor(player.stat, sort) : null;
@@ -80,8 +92,10 @@ export function PlayerCard({ player, sort = "name" }: { player: PlayerCardData; 
 
   return (
     <Link
-      href={`/data/players/${player.id}`}
-      className="flex items-center gap-3 rounded-xl border border-white/10 border-l-2 bg-[#1a1a19] p-3 transition-colors hover:border-white/25 hover:bg-white/[.03]"
+      href={href ?? `/data/players/${player.id}`}
+      className={`flex items-center gap-3 rounded-xl border border-l-2 bg-[#1a1a19] p-3 transition-colors hover:border-white/25 hover:bg-white/[.03] ${
+        active ? "border-[#3987e5]/50 bg-white/[.03]" : "border-white/10"
+      }`}
       style={{ borderLeftColor: accent }}
     >
       <PlayerAvatar name={player.full_name} teamExternalId={player.teamExternalId} photoUrl={player.photoUrl} />
