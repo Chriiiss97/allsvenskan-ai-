@@ -19,12 +19,21 @@ type Supabase = SupabaseClient<Database>;
  * computeSeasonOvrMap i compute-rating.ts) — aldrig en tyst tom lista.
  */
 
+export interface StoredMetricValue {
+  value: number;
+  percentile: number;
+}
+
 export interface StoredSeasonRating {
   playerId: number;
   positionGroup: PositionGroupKey;
   ovr: number | null;
   confidenceTier: ConfidenceTier | null;
   ownMinutes: number;
+  /** Scout Engine Fas 2 — shooting/passing/dribbling/defending, null för målvakter. */
+  categoryScores: Record<string, number> | null;
+  /** Scout Engine Fas 2 — per mått: {value, percentile}. Grunden för arketyper/percentilfilter. */
+  metricValues: Record<string, StoredMetricValue> | null;
 }
 
 /**
@@ -35,7 +44,7 @@ export interface StoredSeasonRating {
 export async function getStoredSeasonRatings(supabase: Supabase, seasonId: number): Promise<StoredSeasonRating[] | null> {
   const { data, error } = await supabase
     .from("player_season_rating")
-    .select("player_id, position_group, ovr, confidence_tier, own_minutes")
+    .select("player_id, position_group, ovr, confidence_tier, own_minutes, category_scores, metric_values")
     .eq("season_id", seasonId);
   if (error) throw error;
   if (!data || data.length === 0) return null;
@@ -45,6 +54,8 @@ export async function getStoredSeasonRatings(supabase: Supabase, seasonId: numbe
     ovr: r.ovr,
     confidenceTier: r.confidence_tier,
     ownMinutes: r.own_minutes,
+    categoryScores: r.category_scores,
+    metricValues: r.metric_values,
   }));
 }
 
