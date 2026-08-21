@@ -25,6 +25,7 @@ import { reviewSportmonksPlayers } from "./sportmonks-review-players";
 import { importSportmonksXg } from "./sportmonks-import-xg";
 import { importSportmonksPlayerAdvancedStats } from "./sportmonks-import-player-advanced-stats";
 import { importSportmonksMatchDataBackfill, pollSportmonksLiveMatchData } from "./sportmonks-import-match-data";
+import { importSportmonksPressure } from "./sportmonks-import-pressure";
 
 config({ path: path.resolve(process.cwd(), ".env.local") });
 
@@ -90,6 +91,10 @@ const STEPS: Record<string, () => Promise<void>> = {
   // sportmonks-import-match-data.ts:s kommentar.
   "sportmonks-live-poll": async () => {
     await pollSportmonksLiveMatchData();
+  },
+  // Fas 6: Pressure Index.
+  "sportmonks-pressure": async () => {
+    await importSportmonksPressure();
   },
   // 'all' kör de billiga stegen (~25 anrop totalt för 2 lag x 3 säsonger).
   // 'events' kör INTE med här — den kostar ett anrop per match och kan
