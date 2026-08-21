@@ -1,0 +1,43 @@
+name: Pipeline poll (pre-match + live)
+
+# Kringgår Vercel Hobby-planens cron-begränsning (max en körning/dygn, se
+# DEPLOYMENT.md) genom att låta GitHub Actions vara "väckarklockan" istället
+# — anropar bara de befintliga, redan CRON_SECRET-skyddade routorna
+# (app/api/cron/pre-match, app/api/cron/live). Ingen ny pipeline-logik här;
+# de routorna avgör redan själva, från riktiga kickoff_at-tider i databasen,
+# om det faktiskt finns något att göra — de flesta körningar blir en snabb,
+# billig "inget att göra just nu"-koll.
+#
+# Kräver två saker satta i GitHub-repots Settings → Secrets and variables →
+# Actions (se DEPLOYMENT.md för fullständiga steg):
+#   - secrets.CRON_SECRET   samma värde som Vercel-projektets CRON_SECRET
+#   - vars.APP_URL          appens publika URL, t.ex. https://din-app.vercel.app
+
+on:
+  schedule:
+    # GitHub Actions kortaste tillåtna intervall är 5 minuter. Förskjuten 2
+    # minuter in i varje 5-minutersfönster (02, 07, 12, ...) istället för
+    # exakt heltimme/hel-5-minut — GitHubs egen dokumentation varnar för att
+    # schemalagda körningar kan droppas vid hög belastning, och den
+    # belastningen är som högst kring de "runda" klockslagen.
+    - cron: "2-59/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pre-match (skador + laguppställning)
+        run: |
+          curl -sf -o /dev/null -w "pre-match: HTTP %{http_code}\n" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ vars.APP_URL }}/api/cron/pre-match"
+
+      # if: always() — körs oavsett om steget ovan misslyckades, så ett
+      # tillfälligt fel i pre-match aldrig hindrar live-pollningen.
+      - name: Live (pågående matcher)
+        if: always()
+        run: |
+          curl -sf -o /dev/null -w "live: HTTP %{http_code}\n" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ vars.APP_URL }}/api/cron/live"

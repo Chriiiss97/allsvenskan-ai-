@@ -29,10 +29,19 @@ inget jag kan göra åt dig).
   "production"`, inlineat av `next build`), fungerar fortfarande i
   `next dev`. Verifierat med en riktig `next build && next start` lokalt
   (se nedan) innan detta ansågs klart.
+- **`.github/workflows/pipeline-poll.yml`** (ny): anropar `pre-match` och
+  `live` var 5:e minut via GitHub Actions istället för Vercel Cron — se
+  "Schema" nedan för varför.
 
 ## Steg för att aktivera
 
-1. **Skapa ett GitHub-repo och pusha dit** (repot har ingen remote idag):
+1. **Skapa ett GitHub-repo (publikt) och pusha dit** (repot har ingen remote
+   idag). Publikt valt medvetet 2026-08-20 för att få obegränsade gratis
+   GitHub Actions-minuter (se "Schema" nedan) — **verifierat innan detta
+   beslut** att inga hemligheter någonsin committats: `git log --all` för
+   `.env*`-filer och en grep över hela historiken för nyckelmönster
+   (`sk-ant-`, JWT-liknande strängar, hårdkodade `API_FOOTBALL_KEY`-värden)
+   gav noll träffar, och `.gitignore` har haft `.env*` med sedan start.
    ```bash
    git remote add origin <din-github-url>
    git push -u origin master
@@ -40,39 +49,59 @@ inget jag kan göra åt dig).
 2. **Koppla repot till ett Vercel-projekt** (vercel.com → New Project → importera GitHub-repot).
 3. **Sätt miljövariablerna** i Vercel-projektets Settings → Environment Variables — samma som i din lokala `.env.local`:
    `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `API_FOOTBALL_KEY`, `ANTHROPIC_API_KEY` (och övriga chatten redan använder).
-4. **Sätt en `CRON_SECRET`** — en slumpad sträng, minst 16 tecken (t.ex. en lösenordsgenerator). Vercel skickar den automatiskt som `Authorization: Bearer <CRON_SECRET>` på varje cron-anrop; route-handlern jämför den mot miljövariabeln.
-5. **Deploya.** Cron-jobben aktiveras automatiskt från `vercel.json` vid deploy.
+4. **Sätt en `CRON_SECRET`** i Vercel — en slumpad sträng, minst 16 tecken (t.ex. en lösenordsgenerator).
+5. **Deploya.** `finalize`-cronet aktiveras automatiskt från `vercel.json`.
+6. **Sätt samma `CRON_SECRET` i GitHub** (repots Settings → Secrets and
+   variables → Actions → New repository secret → `CRON_SECRET`, samma
+   värde som i steg 4 — måste matcha exakt).
+7. **Lägg till en repository variable `APP_URL`** (samma meny, fliken
+   "Variables") — din deployade Vercel-URL, t.ex.
+   `https://din-app.vercel.app` (ingen avslutande `/`).
+8. `.github/workflows/pipeline-poll.yml` börjar köra automatiskt så fort
+   den finns på default-branchen (kräver inget separat aktiveringssteg).
 
-## Schema — Hobby-anpassat (2026-08-20)
+## Schema (2026-08-20)
 
 Användarens beslut: vänta med Vercel Pro tills produkten är mogen för
 riktig drift/betalande användare, deploya till gratisplanen (Hobby) under
-tiden. `vercel.json` är därför medvetet Hobby-säkert redan nu, inte satt
-till planens ursprungliga Pro-granularitet:
+tiden. Vercel Hobby tillåter bara EN cron-körning/dygn (verifierat mot
+Vercels egen dokumentation, inte gissat — ett tätare schema i
+`vercel.json` gör att HELA deployen misslyckas, inte bara att det jobbet
+degraderas). Lösningen: låt GitHub Actions vara väckarklockan för allt som
+behöver köras oftare, Vercel Cron sköter bara det som verkligen räcker med
+en gång/dygn.
 
-| Route | Schema i `vercel.json` | Fungerar på Hobby? |
-|---|---|---|
-| `/api/cron/finalize` | `0 3 * * *` (en gång/dygn, 03:00 UTC) | ✅ Ja — matchar planens egen naturliga takt (ett efterhandspass räcker) |
-| `/api/cron/pre-match` | `0 8 * * *` (en gång/dygn, 08:00 UTC) | ✅ Ja, men degraderat — skador/laguppställning fångas bara en gång/dygn, inte kontinuerligt nära avspark |
-| `/api/cron/live` | **inte med i `vercel.json` just nu** | Utelämnad medvetet — en gång/dygn hade varit meningslöst för minut-för-minut-livespårning (matchen hade oftast redan hunnit sluta) |
+| Route | Körs av | Schema | Varför |
+|---|---|---|---|
+| `/api/cron/finalize` | Vercel Cron (`vercel.json`) | `0 3 * * *` (en gång/dygn) | Matchar planens egen naturliga takt — ett efterhandspass räcker, Hobby-kompatibelt som det är. |
+| `/api/cron/pre-match` | GitHub Actions (`.github/workflows/pipeline-poll.yml`) | Var 5:e minut | Skador/laguppställning ska fångas nära avspark, inte en gång/dygn. |
+| `/api/cron/live` | GitHub Actions (samma workflow) | Var 5:e minut | Grövre än planens ursprungliga ~45–60s-mål, men oändligt mycket bättre än Hobbys 1x/dygn-tak — och gratis. |
 
-Verifierat mot Vercels egen dokumentation (2026-08-20, inte gissat):
-**Hobby-konton tillåter bara cron-jobb en gång/dygn** — ett tätare schema
-(`*/30 * * * *`, `* * * * *`) gör att HELA deploy:en misslyckas, inte bara
-att det jobbet degraderas. Därför är `pre-match` satt till en gång/dygn och
-`live` helt borttagen ur schemat ovan.
+**Varför GitHub Actions och inte bara vänta på Pro:** GitHub Actions kortaste
+tillåtna intervall är 5 minuter (verifierat mot GitHubs dokumentation).
+Minutkvoten skiljer sig radikalt mellan publikt och privat repo: **privat**
+ger 2 000 gratis minuter/månad (räcker till ungefär `*/30`, inte tätare
+utan att bli faktureringspliktig), **publikt** är helt obegränsat gratis —
+därför valdes publikt repo, med säkerhetsgranskningen i steg 1 ovan som
+förutsättning.
 
-`app/api/cron/live/route.ts` finns fortfarande kvar och deployas — den går
-att anropa manuellt (t.ex. `curl` med rätt `CRON_SECRET`) för att testa
-mot en riktig match, den körs bara inte på ett schema än.
-
-**Vid uppgradering till Pro**, lägg tillbaka en rad i `vercel.json`:
-```json
-{ "path": "/api/cron/live", "schedule": "* * * * *" }
+**Om repot flyttas till privat senare** (planerat, efter att produkten är
+mogen) ändras INGEN arkitektur — bara cron-uttrycket i
+`pipeline-poll.yml` behöver bli glesare, t.ex.:
+```yaml
+- cron: "*/30 * * * *"
 ```
-och byt gärna `pre-match` till `*/30 * * * *` för tätare
-laguppställnings-pollning nära avspark. Ingen kodändring behövs, bara
-schemat.
+En annan känd GitHub-detalj värd att komma ihåg: schemalagda workflows i
+publika repon **stängs av automatiskt efter 60 dagars total inaktivitet**
+i repot (går att slå på igen manuellt) — inte en risk så länge ni
+fortsätter committa, men värt att veta om projektet pausas länge.
+
+**Vid uppgradering till Vercel Pro** går det att flytta `pre-match`/`live`
+tillbaka till `vercel.json` (`*/30 * * * *` respektive `* * * * *`) och ta
+bort GitHub Actions-workflowen helt, eller bara låta båda vara aktiva
+samtidigt (routorna är idempotenta — se live-pipeline.ts/pre-match-
+pipeline.ts, ett extra anrop är ofarligt, bara en billig "inget att göra"-
+koll).
 
 ## Vad som INTE byggdes i steg 10
 
