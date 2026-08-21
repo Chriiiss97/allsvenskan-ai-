@@ -22,6 +22,7 @@ import { mapSportmonksTeams } from "./sportmonks-map-teams";
 import { mapSportmonksFixtures } from "./sportmonks-map-fixtures";
 import { mapSportmonksPlayers } from "./sportmonks-map-players";
 import { reviewSportmonksPlayers } from "./sportmonks-review-players";
+import { importSportmonksXg } from "./sportmonks-import-xg";
 
 config({ path: path.resolve(process.cwd(), ".env.local") });
 
@@ -70,6 +71,10 @@ const STEPS: Record<string, () => Promise<void>> = {
   },
   "sportmonks-review-players": async () => {
     await reviewSportmonksPlayers();
+  },
+  // Fas 4: xG-familjen, lagniva. Kraver Fas 1+2 korda forst.
+  "sportmonks-xg": async () => {
+    await importSportmonksXg();
   },
   // 'all' kör de billiga stegen (~25 anrop totalt för 2 lag x 3 säsonger).
   // 'events' kör INTE med här — den kostar ett anrop per match och kan
