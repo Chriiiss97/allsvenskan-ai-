@@ -40,6 +40,15 @@ export interface PlayerListParams {
   ageMin?: number;
   ageMax?: number;
   goalsMin?: number;
+  /**
+   * Namnsök — filtreras i JS på den redan säsongsavgränsade mängden (se
+   * filbeskrivningen), INTE en DB-fråga. player.full_name saknar index
+   * (bekräftat, ingen trigram/GIN), men ~200–400 rader/säsong gör en
+   * sekventiell JS-substrängsökning trivialt billig — riktig sökning över
+   * HELA säsongen, inte bara sidan som visas (till skillnad från den
+   * tidigare klient-lokala sökningen som bara såg redan hämtade rader).
+   */
+  query?: string;
   sort: "name" | "goals" | "assists" | "appearances" | "minutes" | "goalsPer90" | "age";
   sortDir: "asc" | "desc";
   page: number;
@@ -132,6 +141,10 @@ export async function listPlayers(supabase: Supabase, params: PlayerListParams):
   if (params.position) items = items.filter((p) => p.position === params.position);
   if (params.ageMin !== undefined) items = items.filter((p) => p.age !== null && p.age >= params.ageMin!);
   if (params.ageMax !== undefined) items = items.filter((p) => p.age !== null && p.age <= params.ageMax!);
+  if (params.query) {
+    const needle = params.query.trim().toLowerCase();
+    if (needle) items = items.filter((p) => p.fullName.toLowerCase().includes(needle));
+  }
 
   const dir = params.sortDir === "asc" ? 1 : -1;
   items.sort((a, b) => {

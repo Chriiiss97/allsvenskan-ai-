@@ -7,14 +7,13 @@ import { PlayerCompareTable } from "@/components/data/PlayerCompareTable";
 import { PlayerCompareRadar } from "@/components/data/PlayerCompareRadar";
 import { PlayerDNA } from "@/components/data/PlayerDNA";
 import { SectionTabs } from "@/components/data/SectionTabs";
+import { getAvailableSeasons } from "@/lib/football/catalog";
 
 interface PlayerOption {
   id: number;
   full_name: string;
   current_team: { name: string } | null;
 }
-
-const SEASONS = [2024, 2023, 2022];
 
 interface ComparableStats {
   goals: number;
@@ -59,6 +58,8 @@ export default async function ComparePlayersPage({
 }) {
   const { a, b, season } = await searchParams;
   const supabase = await createClient();
+
+  const seasons = await getAvailableSeasons(supabase);
 
   const { data: playersData } = await supabase
     .from("player")
@@ -127,15 +128,15 @@ export default async function ComparePlayersPage({
             >
               Senaste var för sig
             </Link>
-            {SEASONS.map((y) => (
+            {seasons.map((s) => (
               <Link
-                key={y}
-                href={`/data/players/compare?a=${idA}&b=${idB}&season=${y}`}
+                key={s.year}
+                href={`/data/players/compare?a=${idA}&b=${idB}&season=${s.year}`}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                  seasonYear === y ? "bg-white/10 text-white" : "text-[#898781] hover:text-white"
+                  seasonYear === s.year ? "bg-white/10 text-white" : "text-[#898781] hover:text-white"
                 }`}
               >
-                {y}
+                {s.year}
               </Link>
             ))}
           </div>

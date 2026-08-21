@@ -53,7 +53,7 @@ function primaryStatFor(stat: PlayerCardStat, sort: PlayerSortKey): { value: num
 }
 
 /**
- * Ett spelarkort — återanvänds av både PlayerSearchList (huvudlistan) och
+ * Ett spelarkort — återanvänds av både spelarlistan (/data/players) och
  * lagprofilens truppsektion, så det bara finns EN kortstil att hålla
  * konsekvent. Positionsbadge + tunn klubbfärgad vänsterkant bryter den
  * annars enformiga "identisk box"-känslan utan att göra varje kort till
