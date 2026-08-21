@@ -3,6 +3,7 @@ import type { Database } from "@/lib/supabase/database.types";
 import { hasPlayedSeason } from "./active-player";
 import { getPositionGroup, selectPeers, type PositionGroupKey } from "./position-group";
 import { percentile } from "./percentile";
+import { tierFromThresholds, worseTier, type ConfidenceTier } from "./confidence";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -95,7 +96,11 @@ export interface PlayerDNACategory {
   metrics: PlayerDNAMetricDetail[]; // tomt om score är null — "visa min beräkning"-underlaget
 }
 
-export type ConfidenceTier = "hög" | "medel" | "låg";
+// Re-exporterad från ./confidence (Player Rating-projektet, 2026-08-21) —
+// samma tier-typ delas nu mellan Player DNA och Player Rating. Behålls som
+// re-export här så befintliga importer (t.ex. components/data/PlayerDNA.tsx)
+// inte behöver ändras.
+export type { ConfidenceTier };
 
 export interface DNAConfidence {
   tier: ConfidenceTier;
@@ -199,17 +204,6 @@ function buildCategory(tier: "primary" | "secondary", metrics: (PlayerDNAMetricD
   if (usable.length === 0) return { score: null, tier, metrics: [] };
   const score = Math.round(usable.reduce((a, m) => a + m.percentile, 0) / usable.length);
   return { score, tier, metrics: usable };
-}
-
-function tierFromThresholds(value: number, high: number, medium: number): ConfidenceTier {
-  if (value >= high) return "hög";
-  if (value >= medium) return "medel";
-  return "låg";
-}
-
-const TIER_ORDER: ConfidenceTier[] = ["låg", "medel", "hög"];
-function worseTier(a: ConfidenceTier, b: ConfidenceTier): ConfidenceTier {
-  return TIER_ORDER[Math.min(TIER_ORDER.indexOf(a), TIER_ORDER.indexOf(b))];
 }
 
 function emptyCategories(): Record<DNACategoryKey, PlayerDNACategory> {
