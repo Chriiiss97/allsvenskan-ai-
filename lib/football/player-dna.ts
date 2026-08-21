@@ -477,15 +477,33 @@ export async function computePlayerDNA(
   // filbeskrivningen. Filtrerar bara på league_id, ingen lagbegränsning —
   // sedan steg 3/4:s breddning till 33 lag är det här hela Allsvenskan,
   // inte bara IFK/AIK (verifierat i steg 8, se tools.ts:s motsvarande kommentar).
-  const { data: rows } = await supabase
-    .from("statistics")
-    .select(
-      "player_id, minutes_played, appearances, goals, assists, shots_total, shots_on_target, passes_key, passes_total, dribbles_attempts, dribbles_success, duels_won, duels_total, fouls_drawn, fouls_committed, tackles_total, tackles_interceptions, player:player_id(position), season:season_id(year)"
-    )
-    .eq("league_id", seasonRow.league_id)
-    .returns<StatRow[]>();
+  //
+  // Sidnumrerad explicit (steg 8:s regressionspass, data-sektionens
+  // breddning 2026-08-20): den här frågan var obegränsad och träffade
+  // tyst Supabases 1000-radstak — statistics har nu 6 377 rader totalt
+  // (över hela ligans 11 säsonger), så ett osidat .select() kunde ge en
+  // ofullständig pool och felaktigt rapportera "ingen registrerad speltid"
+  // för spelare som faktiskt hade det (upptäckt via ett regressionstest på
+  // I. Kiese Thelin, en bekräftad 2023-toppmålskytt). Samma disciplin som
+  // redan etablerad i team-rollup.ts/finalize-match.ts.
+  const rows: StatRow[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data: page, error } = await supabase
+      .from("statistics")
+      .select(
+        "player_id, minutes_played, appearances, goals, assists, shots_total, shots_on_target, passes_key, passes_total, dribbles_attempts, dribbles_success, duels_won, duels_total, fouls_drawn, fouls_committed, tackles_total, tackles_interceptions, player:player_id(position), season:season_id(year)"
+      )
+      .eq("league_id", seasonRow.league_id)
+      .range(from, from + PAGE - 1)
+      .returns<StatRow[]>();
+    if (error) throw error;
+    if (!page || page.length === 0) break;
+    rows.push(...page);
+    if (page.length < PAGE) break;
+  }
 
-  const allRows = (rows ?? []).filter((r) => hasPlayedSeason(r.appearances));
+  const allRows = rows.filter((r) => hasPlayedSeason(r.appearances));
   const player = allRows.find((r) => r.player_id === params.playerId && r.season?.year === params.season);
   if (!player) return unavailable("Spelaren har ingen registrerad speltid den här säsongen.");
 
