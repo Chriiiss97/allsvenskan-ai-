@@ -288,6 +288,18 @@ export default async function AdminPage() {
         </div>
       </div>
 
+      {/* Fas 13 (Sportmonks-integrationen): rent beslutsunderlag, ingen live-ändring. */}
+      <Link
+        href="/admin/ovr-proposal"
+        className="mt-4 flex items-center justify-between rounded-xl border border-[#d9a526]/30 bg-[#d9a526]/5 p-4 text-sm hover:bg-[#d9a526]/10"
+      >
+        <span>
+          <span className="font-medium text-white">Player Rating — jämförelseförslag</span>
+          <span className="ml-2 text-xs text-[#898781]">Sportmonks-mått vs. nuvarande OVR-formel (inte live)</span>
+        </span>
+        <span className="text-[#d9a526]">→</span>
+      </Link>
+
       {/* Analytics */}
       <div className="mt-6">
         <SectionLabel>Översikt</SectionLabel>
