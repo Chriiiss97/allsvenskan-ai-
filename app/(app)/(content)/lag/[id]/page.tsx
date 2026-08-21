@@ -13,7 +13,8 @@ import Link from "next/link";
 /**
  * Data-sektionens breddning (2026-08-20): flyttad hit från /data/teams
  * (som nu är en lagöversikt-grid över alla 33 lag, se page.tsx i
- * föräldramappen). `id` i routen är lagets `external_id` (API-Football:s
+ * föräldramappen; Fas 14.1 döpte om hela grenen till /lag). `id` i routen
+ * är lagets `external_id` (API-Football:s
  * numeriska id) — matchar direkt mot resolveTeam:s redan existerande
  * numeriska matchningsväg (lib/football/resolve-team.ts), ingen ny
  * uppslagslogik behövdes.
@@ -47,7 +48,7 @@ export default async function TeamProfilePage({
 
   return (
     <div>
-      <BackButton href="/data/teams" label="Alla lag" />
+      <BackButton href="/lag" label="Alla lag" />
 
       {error && <p className="mt-6 text-sm text-[#e66767]">{error}</p>}
 
@@ -72,7 +73,7 @@ export default async function TeamProfilePage({
             {seasons.map((s) => (
               <Link
                 key={s.year}
-                href={`/data/teams/${id}?season=${s.year}`}
+                href={`/lag/${id}?season=${s.year}`}
                 className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                   profile.season === s.year ? "text-white" : "text-[#898781] hover:text-white"
                 }`}

@@ -16,7 +16,7 @@ import { buildRatingTrendSummary } from "@/lib/football/rating/rating-trend";
 import { calculateAge } from "@/lib/football/age";
 import { translatePosition } from "@/lib/i18n/sv";
 
-// Samma motivering som /data/players/rankings: listPlayers kör
+// Samma motivering som /spelare/rankings: listPlayers kör
 // computeSeasonOvrMap/getRatingTrendComparison, båda i första hand lästa ur
 // det persisterade player_season_rating-facit (se rating-store.ts) — snabbt,
 // men fortfarande värt sidnivåcache.
@@ -36,7 +36,7 @@ const CONSISTENCY_OVR_THRESHOLD = 70;
 
 /**
  * Scout — egen huvudsektion i navbaren (2026-08-21), medvetet skild från
- * "Spelare" (den enklare översikten, /data/players). Det här är det stora,
+ * "Spelare" (den enklare översikten, /spelare). Det här är det stora,
  * kombinerbara sök-/filterverktyget: klubb + position + ålder + OVR +
  * statistik (mål/assist/minuter) + utveckling (OVR-förändring mot en
  * tidigare säsong) i EN vy, byggt för att hitta olika typer av spelare —
@@ -47,7 +47,7 @@ const CONSISTENCY_OVR_THRESHOLD = 70;
  * respektive profil.
  *
  * Byggd ovanpå EXAKT samma lib/football/player-catalog.ts:s listPlayers
- * som /data/players — inget separat datalager, bara fler filter/mått
+ * som /spelare — inget separat datalager, bara fler filter/mått
  * exponerade i UI:t (assistsMin/minutesMin/ovrDelta, nya i denna omgång).
  */
 export default async function ScoutPage({
@@ -247,7 +247,7 @@ export default async function ScoutPage({
     }
     for (const key of archetypeOverride ?? selectedArchetypes) params.append("archetype", key);
     const qs = params.toString();
-    return qs ? `/data/scout?${qs}` : "/data/scout";
+    return qs ? `/scout/spelare?${qs}` : "/scout/spelare";
   }
 
   /**
@@ -270,7 +270,7 @@ export default async function ScoutPage({
       if (value) params.set(key, value);
     }
     for (const key of selectedArchetypes) params.append("archetype", key);
-    return `/data/scout?${params.toString()}`;
+    return `/scout/spelare?${params.toString()}`;
   }
 
   /** Bygger URL:en för att lägga till/ta bort EN arketyp från urvalet, samma "klicka för att växla"-mönster som resten av Scout:s filter. */
@@ -288,10 +288,10 @@ export default async function ScoutPage({
     <div>
       <SectionTabs
         tabs={[
-          { label: "Scout", href: "/data/scout" },
-          { label: "Spelare", href: "/data/players" },
-          { label: "Jämför spelare", href: "/data/players/compare" },
-          { label: "Topplista", href: "/data/players/rankings" },
+          { label: "Scout", href: "/scout/spelare" },
+          { label: "Spelare", href: "/spelare" },
+          { label: "Jämför spelare", href: "/spelare/compare" },
+          { label: "Topplista", href: "/spelare/rankings" },
         ]}
       />
 
@@ -482,7 +482,7 @@ export default async function ScoutPage({
       {/* Scout Engine Fas 7 — split-vy: resultatlistan till vänster, en
           detaljpanel till höger när en spelare är vald. Klicka på en
           spelare navigerar ALDRIG bort från Scout (jämför med
-          /data/players/[id]) — URL:en pekar fortfarande på /data/scout,
+          /spelare/[id]) — URL:en pekar fortfarande på /scout/spelare,
           bara med ?selected=<id> tillagt ovanpå alla aktiva filter. */}
       <div className={selectedPlayerId ? "mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[1fr_380px]" : "mt-4"}>
         <div>
@@ -528,7 +528,7 @@ export default async function ScoutPage({
                 player={selectedDetail.player}
                 season={seasonYear ?? null}
                 closeHref={buildHref({})}
-                fullProfileHref={`/data/players/${selectedDetail.player.id}${seasonYear ? `?season=${seasonYear}` : ""}`}
+                fullProfileHref={`/spelare/${selectedDetail.player.id}${seasonYear ? `?season=${seasonYear}` : ""}`}
                 rating={selectedDetail.rating}
                 dna={selectedDetail.dna}
                 ratingHistory={selectedDetail.ratingHistory}

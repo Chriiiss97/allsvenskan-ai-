@@ -105,17 +105,17 @@ export default async function PlayersIndexPage({
       if (value) params.set(key, value);
     }
     const qs = params.toString();
-    return qs ? `/data/players?${qs}` : "/data/players";
+    return qs ? `/spelare?${qs}` : "/spelare";
   }
 
   return (
     <div>
       <SectionTabs
         tabs={[
-          { label: "Scout", href: "/data/scout" },
-          { label: "Spelare", href: "/data/players" },
-          { label: "Jämför spelare", href: "/data/players/compare" },
-          { label: "Topplista", href: "/data/players/rankings" },
+          { label: "Scout", href: "/scout/spelare" },
+          { label: "Spelare", href: "/spelare" },
+          { label: "Jämför spelare", href: "/spelare/compare" },
+          { label: "Topplista", href: "/spelare/rankings" },
         ]}
       />
 
@@ -128,7 +128,7 @@ export default async function PlayersIndexPage({
           </p>
         </div>
         <Link
-          href="/data/players/compare"
+          href="/spelare/compare"
           className="shrink-0 rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-[#c3c2b7] transition-colors hover:bg-white/5 hover:text-white"
         >
           ⚖️ Jämför två spelare

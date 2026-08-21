@@ -1,5 +1,6 @@
 /**
- * Delad laddningsvy för hela /data/**-sektionen. Next.js visar den här
+ * Delad laddningsvy för hela "Fotboll"-sektionen (matcher/lag/spelare).
+ * Next.js visar den här
  * automatiskt (Suspense-gräns) medan en ny sidas server-komponent hämtar
  * sin data vid navigering — utan den kan en långsammare sida (t.ex. den
  * nya lagprofilen, som gör fem parallella frågor) i vissa lägen kännas

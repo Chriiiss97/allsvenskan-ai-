@@ -132,10 +132,10 @@ export default async function ComparePlayersPage({
     <div>
       <SectionTabs
         tabs={[
-          { label: "Scout", href: "/data/scout" },
-          { label: "Spelare", href: "/data/players" },
-          { label: "Jämför spelare", href: "/data/players/compare" },
-          { label: "Topplista", href: "/data/players/rankings" },
+          { label: "Scout", href: "/scout/spelare" },
+          { label: "Spelare", href: "/spelare" },
+          { label: "Jämför spelare", href: "/spelare/compare" },
+          { label: "Topplista", href: "/spelare/rankings" },
         ]}
       />
       <h1 className="text-3xl font-bold tracking-tight">Jämför spelare</h1>
@@ -149,7 +149,7 @@ export default async function ComparePlayersPage({
           <span className="text-xs text-[#898781]">Säsong:</span>
           <div className="flex gap-1 rounded-lg border border-white/10 bg-[#1a1a19] p-1">
             <Link
-              href={`/data/players/compare?a=${idA}&b=${idB}`}
+              href={`/spelare/compare?a=${idA}&b=${idB}`}
               className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                 !seasonYear ? "bg-white/10 text-white" : "text-[#898781] hover:text-white"
               }`}
@@ -159,7 +159,7 @@ export default async function ComparePlayersPage({
             {seasons.map((s) => (
               <Link
                 key={s.year}
-                href={`/data/players/compare?a=${idA}&b=${idB}&season=${s.year}`}
+                href={`/spelare/compare?a=${idA}&b=${idB}&season=${s.year}`}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                   seasonYear === s.year ? "bg-white/10 text-white" : "text-[#898781] hover:text-white"
                 }`}

@@ -25,7 +25,7 @@ export function TeamCompareControls({
     const params = new URLSearchParams();
     params.set("a", key === "a" ? String(externalId) : externalIdA ? String(externalIdA) : "");
     params.set("b", key === "b" ? String(externalId) : externalIdB ? String(externalIdB) : "");
-    router.push(`/data/teams/compare?${params.toString()}`);
+    router.push(`/lag/compare?${params.toString()}`);
   }
 
   return (

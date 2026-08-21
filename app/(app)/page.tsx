@@ -230,7 +230,7 @@ export default async function Home() {
         </Link>
 
         <Link
-          href="/data/players"
+          href="/spelare"
           className="group relative overflow-hidden rounded-3xl border border-white/10 bg-[#15171c] p-6 transition-all hover:border-white/20 hover:bg-white/[0.03] sm:p-7"
         >
           <div className="flex items-start justify-between gap-4">

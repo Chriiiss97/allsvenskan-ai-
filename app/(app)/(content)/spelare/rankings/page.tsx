@@ -115,17 +115,17 @@ export default async function PlayerRankingsPage({
       if (value) params.set(key, value);
     }
     const qs = params.toString();
-    return qs ? `/data/players/rankings?${qs}` : "/data/players/rankings";
+    return qs ? `/spelare/rankings?${qs}` : "/spelare/rankings";
   }
 
   return (
     <div>
       <SectionTabs
         tabs={[
-          { label: "Scout", href: "/data/scout" },
-          { label: "Spelare", href: "/data/players" },
-          { label: "Jämför spelare", href: "/data/players/compare" },
-          { label: "Topplista", href: "/data/players/rankings" },
+          { label: "Scout", href: "/scout/spelare" },
+          { label: "Spelare", href: "/spelare" },
+          { label: "Jämför spelare", href: "/spelare/compare" },
+          { label: "Topplista", href: "/spelare/rankings" },
         ]}
       />
 
@@ -268,7 +268,7 @@ export default async function PlayerRankingsPage({
             return (
               <Link
                 key={e.playerId}
-                href={`/data/players/${e.playerId}?season=${seasonYear}`}
+                href={`/spelare/${e.playerId}?season=${seasonYear}`}
                 className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#1a1a19] p-3 transition-colors hover:border-white/25 hover:bg-white/[.03]"
               >
                 <span className="w-6 shrink-0 text-right text-sm font-semibold text-[#7d7c76] tabular-nums">{i + 1}</span>
@@ -317,7 +317,7 @@ export default async function PlayerRankingsPage({
               return (
                 <Link
                   key={e.playerId}
-                  href={`/data/players/${e.playerId}?season=${seasonYear}`}
+                  href={`/spelare/${e.playerId}?season=${seasonYear}`}
                   className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#1a1a19] p-3 transition-colors hover:border-white/25 hover:bg-white/[.03]"
                 >
                   <span className="w-6 shrink-0 text-right text-sm font-semibold text-[#7d7c76] tabular-nums">{i + 1}</span>

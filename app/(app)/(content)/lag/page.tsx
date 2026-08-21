@@ -7,7 +7,8 @@ import { getTeamAccent } from "@/lib/data/team-colors";
 /**
  * Data-sektionens breddning (2026-08-20): lagöversikt över alla 33 lag
  * (tidigare en toggle mellan bara IFK Göteborg/AIK). Enskilt-lag-vyn (record,
- * DNA, trupp, historik) flyttad till /data/teams/[id].
+ * DNA, trupp, historik) flyttad till /lag/[id] (tidigare /data/teams/[id],
+ * Fas 14.1 — ren URL-flytt, se plans/humble-giggling-biscuit.md).
  */
 export default async function TeamsOverviewPage({
   searchParams,
@@ -25,8 +26,8 @@ export default async function TeamsOverviewPage({
     <div>
       <SectionTabs
         tabs={[
-          { label: "Alla lag", href: "/data/teams" },
-          { label: "Lag vs lag", href: "/data/teams/compare" },
+          { label: "Alla lag", href: "/lag" },
+          { label: "Lag vs lag", href: "/lag/compare" },
         ]}
       />
 
@@ -41,7 +42,7 @@ export default async function TeamsOverviewPage({
         {seasons.map((s) => (
           <Link
             key={s.year}
-            href={`/data/teams?season=${s.year}`}
+            href={`/lag?season=${s.year}`}
             className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               selectedSeason === s.year ? "bg-white/10 text-white" : "text-[#898781] hover:text-white"
             }`}
@@ -57,7 +58,7 @@ export default async function TeamsOverviewPage({
           return (
             <Link
               key={t.id}
-              href={`/data/teams/${t.external_id ?? t.id}${selectedSeason ? `?season=${selectedSeason}` : ""}`}
+              href={`/lag/${t.external_id ?? t.id}${selectedSeason ? `?season=${selectedSeason}` : ""}`}
               className="flex items-center gap-3 rounded-xl border border-white/10 border-l-2 bg-[#1a1a19] p-3 transition-colors hover:border-white/25 hover:bg-white/[.03]"
               style={{ borderLeftColor: accent }}
             >

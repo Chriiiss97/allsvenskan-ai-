@@ -96,7 +96,7 @@ export default async function MatchesPage({
         {seasons.map((s) => (
           <Link
             key={s.year}
-            href={`/data/matches?season=${s.year}`}
+            href={`/matcher?season=${s.year}`}
             className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               seasonYear === s.year ? "bg-white/10 text-white" : "text-[#898781] hover:text-white"
             }`}
@@ -157,7 +157,7 @@ export default async function MatchesPage({
           Filtrera
         </button>
         {(home || away || team || result || status) && (
-          <Link href={`/data/matches?season=${seasonYear ?? ""}`} className="text-xs text-[#898781] hover:text-white">
+          <Link href={`/matcher?season=${seasonYear ?? ""}`} className="text-xs text-[#898781] hover:text-white">
             Rensa filter
           </Link>
         )}
@@ -172,7 +172,7 @@ export default async function MatchesPage({
               {roundFixtures.map((f) => (
                 <li key={f.id}>
                   <Link
-                    href={`/data/matches/${f.id}`}
+                    href={`/matcher/${f.id}`}
                     className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-[#1a1a19] px-4 py-2.5 text-sm transition-colors hover:border-white/25 hover:bg-white/[.03]"
                   >
                     <span>

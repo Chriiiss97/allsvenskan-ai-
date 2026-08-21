@@ -86,11 +86,11 @@ export default async function TeamsComparePage({
     <div>
       <SectionTabs
         tabs={[
-          { label: "Alla lag", href: "/data/teams" },
-          { label: "Lag vs lag", href: "/data/teams/compare" },
+          { label: "Alla lag", href: "/lag" },
+          { label: "Lag vs lag", href: "/lag/compare" },
         ]}
       />
-      <BackButton href="/data/teams" label="Alla lag" />
+      <BackButton href="/lag" label="Alla lag" />
 
       <div className="mt-6">
         <TeamCompareControls

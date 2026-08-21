@@ -123,7 +123,7 @@ export default async function PlayerProfilePage({
 
   return (
     <div>
-      <BackButton href="/data/players" label="Alla spelare" />
+      <BackButton href="/spelare" label="Alla spelare" />
 
       {/* Bio-kort */}
       <div className="mt-4 flex flex-wrap items-center gap-4 rounded-xl border border-white/10 bg-[#1a1a19] p-5">
@@ -152,7 +152,7 @@ export default async function PlayerProfilePage({
           {profile.availableSeasons.map((y) => (
             <Link
               key={y}
-              href={`/data/players/${id}?season=${y}`}
+              href={`/spelare/${id}?season=${y}`}
               className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                 y === profile.season ? "bg-white/10 text-white" : "text-[#898781] hover:text-white"
               }`}

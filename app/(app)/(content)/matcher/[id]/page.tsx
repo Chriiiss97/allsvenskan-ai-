@@ -34,9 +34,9 @@ interface LineupRow {
 export default async function MatchReportPage({
   params,
 }: {
-  params: Promise<{ fixtureId: string }>;
+  params: Promise<{ id: string }>;
 }) {
-  const { fixtureId } = await params;
+  const { id: fixtureId } = await params;
   const supabase = await createClient();
 
   let report;
@@ -62,7 +62,7 @@ export default async function MatchReportPage({
 
   return (
     <div>
-      <BackButton href="/data/matches" label="Alla matcher" />
+      <BackButton href="/matcher" label="Alla matcher" />
 
       <div className="mt-4 rounded-xl border border-white/10 bg-[#1a1a19] p-6 text-center">
         <p className="text-xs text-[#898781]">
@@ -110,7 +110,7 @@ export default async function MatchReportPage({
                           <li key={i} className="flex items-center gap-2 text-xs text-[#c3c2b7]">
                             {p.shirt_number !== null && <span className="w-4 text-[#7d7c76]">{p.shirt_number}</span>}
                             {p.player ? (
-                              <Link href={`/data/players/${p.player.id}`} className="hover:text-white hover:underline">
+                              <Link href={`/spelare/${p.player.id}`} className="hover:text-white hover:underline">
                                 {p.player.full_name}
                               </Link>
                             ) : (
@@ -129,7 +129,7 @@ export default async function MatchReportPage({
                               <li key={i} className="flex items-center gap-2 text-xs text-[#898781]">
                                 {p.shirt_number !== null && <span className="w-4 text-[#7d7c76]">{p.shirt_number}</span>}
                                 {p.player ? (
-                                  <Link href={`/data/players/${p.player.id}`} className="hover:text-white hover:underline">
+                                  <Link href={`/spelare/${p.player.id}`} className="hover:text-white hover:underline">
                                     {p.player.full_name}
                                   </Link>
                                 ) : (
