@@ -7,6 +7,7 @@ import { buildRatingCategories, type RatingCategory } from "./categories";
 import type { RatingCategoryKey } from "./metric-registry";
 import { computeOvr, type OvrContribution } from "./position-rating-config";
 import { computeGoalkeeperRating, computeSeasonGoalkeeperRatings, type GoalkeeperRating } from "./goalkeeper-rating";
+import { getStoredSeasonOvrMap } from "./rating-store";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -210,13 +211,22 @@ export async function computeRatingForPlayer(
 
 /**
  * Ren OVR-slagkarta för hela ligans säsong — Scout-filter/sortering och
- * topplistan (planens steg 6/7) behöver bara talet, inte hela
- * spårbarhetsstrukturen. Anropar de två batch-funktionerna (utespelare +
- * målvakter) en gång var — en känd, medveten kostnad (två separata
- * paginerade fixture_player_stats-läsningar av samma säsong) som hålls
- * billig av sidnivåns `revalidate = 3600`, inte optimerad bort i förtid.
+ * topplistan behöver bara talet, inte hela spårbarhetsstrukturen.
+ *
+ * Läser FÖRST det persisterade facit i player_season_rating (2026-08-21,
+ * se rating-store.ts/refresh-ratings.ts) — en enda indexerad fråga, ingen
+ * beräkning. Faller bara tillbaka på den dyra live-beräkningen (två
+ * paginerade fixture_player_stats-läsningar av hela säsongen) om tabellen
+ * saknar rader för säsongen helt, t.ex. innan `npm run import ratings`
+ * körts första gången — en självläkande övergång, inte ett hårt beroende.
  */
 export async function computeSeasonOvrMap(supabase: Supabase, params: { season: number }): Promise<Map<number, number | null>> {
+  const seasonId = await resolveSeasonId(supabase, params.season);
+  if (seasonId !== null) {
+    const stored = await getStoredSeasonOvrMap(supabase, seasonId);
+    if (stored !== null) return stored;
+  }
+
   const [outfield, goalkeepers] = await Promise.all([
     computeSeasonRatings(supabase, params),
     computeSeasonGoalkeeperRatings(supabase, params),

@@ -16,6 +16,7 @@ import { runLiveTick } from "./live-pipeline";
 import { finalizeMatches } from "./finalize-match";
 import { seedTeamFacts } from "./seed-team-facts";
 import { seedLeagueFacts } from "./seed-league-facts";
+import { refreshAllSeasonRatings } from "./refresh-ratings";
 
 config({ path: path.resolve(process.cwd(), ".env.local") });
 
@@ -33,6 +34,13 @@ const STEPS: Record<string, () => Promise<void>> = {
   "pre-match": runPreMatchPipeline,
   live: runLiveTick,
   finalize: finalizeMatches,
+  // Engångs-backfill av ALLA säsongers player_season_rating (se migration
+  // 20260821120000). Ingen API-Football-koppling (räknar bara om redan
+  // importerad fixture_player_stats), kostar 0 av dagskvoten. Efter denna
+  // körning håller finalize-cronen den aktuella säsongen fräsch automatiskt.
+  ratings: async () => {
+    await refreshAllSeasonRatings();
+  },
   // ingen API-Football-koppling, kostar inget av dagskvoten
   facts: async () => {
     await seedTeamFacts();

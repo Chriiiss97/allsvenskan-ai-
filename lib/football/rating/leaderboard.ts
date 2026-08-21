@@ -4,6 +4,7 @@ import { getPositionGroup, MIN_PEER_MINUTES, type PositionGroupKey } from "../po
 import { calculateAge } from "../age";
 import { aggregatePlayerSeasonStats } from "./rating-aggregates";
 import { computeSeasonOvrMap } from "./compute-rating";
+import { getRatingTrendComparison } from "./rating-store";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -93,5 +94,91 @@ export async function getRatingLeaderboard(supabase: Supabase, params: RatingLea
   if (!params.includeLowSample) entries = entries.filter((e) => !e.belowMinutesFloor);
 
   entries.sort((a, b) => b.ovr - a.ovr);
+  return entries;
+}
+
+export interface RatingTrendLeaderboardEntry {
+  playerId: number;
+  fullName: string;
+  photoUrl: string | null;
+  position: string | null;
+  positionGroup: PositionGroupKey;
+  teamId: number;
+  age: number | null;
+  /** Tidigare säsongens OVR. */
+  ovrA: number;
+  /** Senare (target-)säsongens OVR. */
+  ovrB: number;
+  delta: number;
+  belowMinutesFloor: boolean;
+}
+
+export interface RatingTrendLeaderboardParams {
+  /** Tidigare säsong (jämförelsepunkt). */
+  seasonYearA: number;
+  /** Senare säsong (target — identitet/lag/ålder hämtas från den här säsongen). */
+  seasonYearB: number;
+  positionGroup?: PositionGroupKey;
+  teamId?: number;
+  ageMin?: number;
+  ageMax?: number;
+  includeLowSample?: boolean;
+}
+
+/**
+ * "Mest förbättrad/försämrad" — säsong-mot-säsong-delta över hela ligan.
+ * Byggd på EXAKT samma persisterade facit (rating-store.ts) som
+ * getRatingLeaderboard och profilsidans utvecklingssektion — inget nytt
+ * beräkningssystem. Returnerar `null` om NÅGON av de två säsongerna saknar
+ * facit i player_season_rating (backfill inte klar än) — anroparen visar då
+ * en ärlig "inte tillgängligt" istället för en tom eller felaktig lista.
+ *
+ * Sorterad fallande på delta (mest förbättrad först) — anroparen vänder
+ * listan för "mest försämrad".
+ */
+export async function getRatingTrendLeaderboard(
+  supabase: Supabase,
+  params: RatingTrendLeaderboardParams
+): Promise<RatingTrendLeaderboardEntry[] | null> {
+  const [seasonIdA, seasonIdB] = await Promise.all([
+    resolveSeasonId(supabase, params.seasonYearA),
+    resolveSeasonId(supabase, params.seasonYearB),
+  ]);
+  if (seasonIdA === null || seasonIdB === null) return null;
+
+  const [trendRows, aggregatesB] = await Promise.all([
+    getRatingTrendComparison(supabase, { seasonIdA, seasonIdB }),
+    aggregatePlayerSeasonStats(supabase, { seasonId: seasonIdB }),
+  ]);
+  if (trendRows === null) return null;
+
+  let entries: RatingTrendLeaderboardEntry[] = [];
+  for (const t of trendRows) {
+    // Identitet (namn/lag/ålder/position) hämtas från MÅL-säsongen — vem
+    // spelaren ÄR just nu, inte vem de var i jämförelsesäsongen.
+    const agg = aggregatesB.get(t.playerId);
+    if (!agg) continue;
+    entries.push({
+      playerId: t.playerId,
+      fullName: agg.fullName,
+      photoUrl: agg.photoUrl,
+      position: agg.position,
+      positionGroup: t.positionGroup,
+      teamId: agg.teamId,
+      age: calculateAge(agg.birthDate),
+      ovrA: t.ovrA,
+      ovrB: t.ovrB,
+      delta: t.delta,
+      belowMinutesFloor: agg.minutesPlayed < MIN_PEER_MINUTES,
+    });
+  }
+
+  if (params.positionGroup) entries = entries.filter((e) => e.positionGroup === params.positionGroup);
+  if (params.teamId) entries = entries.filter((e) => e.teamId === params.teamId);
+  if (params.ageMin !== undefined) entries = entries.filter((e) => e.age !== null && e.age >= params.ageMin!);
+  if (params.ageMax !== undefined) entries = entries.filter((e) => e.age !== null && e.age <= params.ageMax!);
+  if (!params.includeLowSample) entries = entries.filter((e) => !e.belowMinutesFloor);
+
+  entries.sort((a, b) => b.delta - a.delta);
   return entries;
 }

@@ -638,6 +638,25 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["feature_flag"]["Row"]>;
         Relationships: [];
       };
+      player_season_rating: {
+        Row: {
+          id: number;
+          player_id: number;
+          season_id: number;
+          position_group: "goalkeeper" | "defender" | "midfielder" | "attacker";
+          ovr: number | null;
+          confidence_tier: "hög" | "medel" | "låg" | null;
+          own_minutes: number;
+          computed_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["player_season_rating"]["Row"]> & {
+          player_id: number;
+          season_id: number;
+          position_group: "goalkeeper" | "defender" | "midfielder" | "attacker";
+        };
+        Update: Partial<Database["public"]["Tables"]["player_season_rating"]["Row"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {

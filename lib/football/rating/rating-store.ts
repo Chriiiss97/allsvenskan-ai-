@@ -1,0 +1,156 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/supabase/database.types";
+import type { ConfidenceTier } from "../confidence";
+import type { PositionGroupKey } from "../position-group";
+
+type Supabase = SupabaseClient<Database>;
+
+/**
+ * Läsvägen mot player_season_rating (se migration
+ * 20260821120000_player_season_rating.sql) — facit skrivet av
+ * scripts/import/refresh-ratings.ts, inte beräknat här. Delad av BÅDA de
+ * nya funktionerna (spelarens OVR-historik och den ligabreda "mest
+ * förbättrad/försämrad"-jämförelsen) enligt uttrycklig instruktion: ett
+ * system, inte två.
+ *
+ * Skriver INTE hit — bara läser. Om tabellen är tom för en säsong (t.ex.
+ * innan `npm run import ratings` körts första gången) faller anroparna
+ * tillbaka på den redan verifierade live-beräkningen (se
+ * computeSeasonOvrMap i compute-rating.ts) — aldrig en tyst tom lista.
+ */
+
+export interface StoredSeasonRating {
+  playerId: number;
+  positionGroup: PositionGroupKey;
+  ovr: number | null;
+  confidenceTier: ConfidenceTier | null;
+  ownMinutes: number;
+}
+
+/**
+ * En säsongs facit, en enda indexerad fråga. Returnerar `null` (inte en tom
+ * Map) om tabellen inte har NÅGON rad för säsongen — skiljer "inte
+ * backfillad än" från "backfillad men ingen spelare kvalificerade sig".
+ */
+export async function getStoredSeasonRatings(supabase: Supabase, seasonId: number): Promise<StoredSeasonRating[] | null> {
+  const { data, error } = await supabase
+    .from("player_season_rating")
+    .select("player_id, position_group, ovr, confidence_tier, own_minutes")
+    .eq("season_id", seasonId);
+  if (error) throw error;
+  if (!data || data.length === 0) return null;
+  return data.map((r) => ({
+    playerId: r.player_id,
+    positionGroup: r.position_group,
+    ovr: r.ovr,
+    confidenceTier: r.confidence_tier,
+    ownMinutes: r.own_minutes,
+  }));
+}
+
+/** Samma data som ovan, formad som den enkla OVR-slagkarta computeSeasonOvrMap redan returnerar. */
+export async function getStoredSeasonOvrMap(supabase: Supabase, seasonId: number): Promise<Map<number, number | null> | null> {
+  const rows = await getStoredSeasonRatings(supabase, seasonId);
+  if (rows === null) return null;
+  return new Map(rows.map((r) => [r.playerId, r.ovr]));
+}
+
+export interface SeasonRatingPoint {
+  seasonId: number;
+  seasonYear: number;
+  positionGroup: PositionGroupKey;
+  ovr: number | null;
+  confidenceTier: ConfidenceTier | null;
+  ownMinutes: number;
+}
+
+/**
+ * En spelares hela sparade OVR-historik, en enda indexerad fråga (ingen
+ * live-beräkning) — stigande årsordning för direkt användning i en
+ * utvecklingskurva. Kräver att player_season_rating faktiskt är backfillad
+ * för de säsonger spelaren var aktiv i, annars returneras bara de säsonger
+ * som finns skrivna (tomt = "ännu ej backfillat", inte "ingen historik finns").
+ */
+export async function getPlayerRatingHistory(supabase: Supabase, playerId: number): Promise<SeasonRatingPoint[]> {
+  const { data, error } = await supabase
+    .from("player_season_rating")
+    .select("position_group, ovr, confidence_tier, own_minutes, season:season_id(id, year)")
+    .eq("player_id", playerId)
+    .returns<
+      {
+        position_group: PositionGroupKey;
+        ovr: number | null;
+        confidence_tier: ConfidenceTier | null;
+        own_minutes: number;
+        season: { id: number; year: number } | null;
+      }[]
+    >();
+  if (error) throw error;
+
+  return (data ?? [])
+    .filter((r): r is typeof r & { season: { id: number; year: number } } => r.season !== null)
+    .map((r) => ({
+      seasonId: r.season.id,
+      seasonYear: r.season.year,
+      positionGroup: r.position_group,
+      ovr: r.ovr,
+      confidenceTier: r.confidence_tier,
+      ownMinutes: r.own_minutes,
+    }))
+    .sort((a, b) => a.seasonYear - b.seasonYear);
+}
+
+export interface RatingTrendEntry {
+  playerId: number;
+  positionGroup: PositionGroupKey;
+  ovrA: number;
+  ovrB: number;
+  delta: number;
+  confidenceTierA: ConfidenceTier | null;
+  confidenceTierB: ConfidenceTier | null;
+  ownMinutesA: number;
+  ownMinutesB: number;
+}
+
+/**
+ * Ligabred jämförelse mellan två säsonger (A=tidigare, B=senare) — grunden
+ * för "mest förbättrad/försämrad". Två indexerade frågor + en join i JS,
+ * INGEN live-beräkning. Bara spelare med ett GILTIGT OVR i BÅDA säsongerna
+ * räknas med — annars vore "förbättring" en gissning om en spelare som
+ * bytte position eller inte hade tillräckligt underlag ena säsongen.
+ * Returnerar `null` om NÅGON av de två säsongerna helt saknar facit.
+ */
+export async function getRatingTrendComparison(
+  supabase: Supabase,
+  params: { seasonIdA: number; seasonIdB: number }
+): Promise<RatingTrendEntry[] | null> {
+  const [rowsA, rowsB] = await Promise.all([
+    getStoredSeasonRatings(supabase, params.seasonIdA),
+    getStoredSeasonRatings(supabase, params.seasonIdB),
+  ]);
+  if (rowsA === null || rowsB === null) return null;
+
+  const byPlayerA = new Map(rowsA.map((r) => [r.playerId, r]));
+  const entries: RatingTrendEntry[] = [];
+  for (const b of rowsB) {
+    if (b.ovr === null) continue;
+    const a = byPlayerA.get(b.playerId);
+    if (!a || a.ovr === null) continue;
+    // Samma positionsgrupp i båda säsongerna — en spelare som gått från
+    // mittfältare till anfallare jämförs mot olika viktkonfigurationer
+    // (se position-rating-config.ts) och deltat vore inte meningsfullt.
+    if (a.positionGroup !== b.positionGroup) continue;
+    entries.push({
+      playerId: b.playerId,
+      positionGroup: b.positionGroup,
+      ovrA: a.ovr,
+      ovrB: b.ovr,
+      delta: b.ovr - a.ovr,
+      confidenceTierA: a.confidenceTier,
+      confidenceTierB: b.confidenceTier,
+      ownMinutesA: a.ownMinutes,
+      ownMinutesB: b.ownMinutes,
+    });
+  }
+  return entries;
+}

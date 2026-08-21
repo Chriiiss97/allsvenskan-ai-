@@ -4,6 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { getPlayerProfile, FootballDataError } from "@/lib/football/tools";
 import { computePlayerDNA } from "@/lib/football/player-dna";
 import { computeRatingForPlayer } from "@/lib/football/rating/compute-rating";
+import { getPlayerRatingHistory } from "@/lib/football/rating/rating-store";
+import { buildRatingTrendSummary } from "@/lib/football/rating/rating-trend";
+import { PlayerRatingHistory } from "@/components/data/PlayerRatingHistory";
 import { getPlayerLineupRoleProfile } from "@/lib/football/lineup-role";
 import { calculateAge } from "@/lib/football/age";
 import { StatBar } from "@/components/data/StatBar";
@@ -52,6 +55,11 @@ export default async function PlayerProfilePage({
         season: profile.season,
       })
     : null;
+  // Utveckling (2026-08-21): historik ur player_season_rating-facit, INTE
+  // live-beräknat — komplement till (aldrig ersättning för) OVR-kortet ovan
+  // som visar spelarens NUVARANDE valda säsong.
+  const ratingHistory = await getPlayerRatingHistory(supabase, profile.player.id);
+  const ratingTrend = buildRatingTrendSummary(ratingHistory);
 
   // Steg 9: lineup-härledd rolldata (start/avbytarlistningar, formation) —
   // egen från fixture_lineup_player, oberoende av Player DNA. season.id
@@ -148,6 +156,12 @@ export default async function PlayerProfilePage({
           <PlayerRating data={rating} season={profile.season} />
         </div>
       )}
+
+      {/* Utveckling — historisk OVR/trend/toppsäsong, komplement till
+          nuvarande-säsong-kortet ovan, aldrig en ersättning för det. */}
+      <div className="mt-4">
+        <PlayerRatingHistory history={ratingHistory} trend={ratingTrend} />
+      </div>
 
       {/* Player DNA — flyttad högst upp: det här är analysen, inte en
           detalj längst ner på sidan. */}
