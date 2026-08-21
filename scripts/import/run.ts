@@ -20,6 +20,8 @@ import { refreshAllSeasonRatings } from "./refresh-ratings";
 import { importSportmonksTypes } from "./import-sportmonks-types";
 import { mapSportmonksTeams } from "./sportmonks-map-teams";
 import { mapSportmonksFixtures } from "./sportmonks-map-fixtures";
+import { mapSportmonksPlayers } from "./sportmonks-map-players";
+import { reviewSportmonksPlayers } from "./sportmonks-review-players";
 
 config({ path: path.resolve(process.cwd(), ".env.local") });
 
@@ -61,6 +63,13 @@ const STEPS: Record<string, () => Promise<void>> = {
   // Fas 2: fixture-mappning (fixture.sportmonks_id). Kraver Fas 1 kord forst.
   "sportmonks-map-fixtures": async () => {
     await mapSportmonksFixtures();
+  },
+  // Fas 3: spelarmappning (player.sportmonks_id). Kraver Fas 1 kord forst.
+  "sportmonks-map-players": async () => {
+    await mapSportmonksPlayers();
+  },
+  "sportmonks-review-players": async () => {
+    await reviewSportmonksPlayers();
   },
   // 'all' kör de billiga stegen (~25 anrop totalt för 2 lag x 3 säsonger).
   // 'events' kör INTE med här — den kostar ett anrop per match och kan
