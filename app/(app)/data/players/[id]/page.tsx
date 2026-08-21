@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getPlayerProfile, FootballDataError } from "@/lib/football/tools";
 import { computePlayerDNA } from "@/lib/football/player-dna";
+import { computeAdvancedPlayerDNA } from "@/lib/football/advanced-dna";
 import { computeRatingForPlayer } from "@/lib/football/rating/compute-rating";
 import { getPlayerRatingHistory } from "@/lib/football/rating/rating-store";
 import { buildRatingTrendSummary } from "@/lib/football/rating/rating-trend";
@@ -12,6 +13,7 @@ import { calculateAge } from "@/lib/football/age";
 import { StatBar } from "@/components/data/StatBar";
 import { PlayerRadarChart } from "@/components/data/PlayerRadarChart";
 import { PlayerDNA } from "@/components/data/PlayerDNA";
+import { AdvancedDNA } from "@/components/data/AdvancedDNA";
 import { PlayerRating } from "@/components/data/PlayerRating";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
 import { BackButton } from "@/components/nav/BackButton";
@@ -45,6 +47,13 @@ export default async function PlayerProfilePage({
 
   const age = calculateAge(profile.player.birthDate);
   const dna = profile.season ? await computePlayerDNA(supabase, { playerId: profile.player.id, season: profile.season }) : null;
+  // Fas 9 (Sportmonks-integrationen): separat avancerat DNA-lager, bara
+  // 2024-2026 — se lib/football/advanced-dna.ts. Komponenten döljer sig
+  // själv helt (returnerar null) om spelaren/säsongen saknar täckning.
+  const advancedDna =
+    profile.season && [2024, 2025, 2026].includes(profile.season)
+      ? await computeAdvancedPlayerDNA(supabase, { playerId: profile.player.id, season: profile.season })
+      : null;
   // Player Rating (2026-08-21): separat statistisk 0-99-OVR, INTE samma sak
   // som Player DNA (DNA = vilken typ av spelare, Rating = hur bra
   // presterade den här säsongen) — se lib/football/rating/compute-rating.ts.
@@ -168,6 +177,14 @@ export default async function PlayerProfilePage({
       {dna && (
         <div className="mt-4">
           <PlayerDNA dna={dna} />
+        </div>
+      )}
+
+      {/* Avancerad DNA (Fas 9, Sportmonks 2024+) — döljer sig själv helt om
+          spelaren/säsongen saknar täckning, inget villkor behövs här. */}
+      {advancedDna && (
+        <div className="mt-4">
+          <AdvancedDNA dna={advancedDna} />
         </div>
       )}
 

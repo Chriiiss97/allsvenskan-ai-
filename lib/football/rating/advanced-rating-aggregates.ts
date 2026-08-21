@@ -74,29 +74,26 @@ export interface AdvancedPlayerSeasonAggregate {
   xgot: number;
 }
 
-/**
- * Hämtar och summerar en hel ligasäsongs avancerade Sportmonks-statistik i
- * ett fåtal batch-frågor — samma princip som aggregatePlayerSeasonStats
- * (ingen N+1 per spelare). Returnerar BARA spelare som redan finns i
- * bas-aggregatet (dvs. har riktig speltid den säsongen) — en spelare utan
- * fixture_player_stats-rader kan per definition inte få ett minutantal att
- * dela med, och skulle ge en meningslös per-90-siffra.
- */
-export async function aggregateAdvancedPlayerSeasonStats(
-  supabase: Supabase,
-  params: { seasonId: number }
-): Promise<Map<number, AdvancedPlayerSeasonAggregate>> {
-  const baseAggregates = await aggregatePlayerSeasonStats(supabase, { seasonId: params.seasonId });
-  if (baseAggregates.size === 0) return new Map();
+/** Minimal bas-info per spelare — samma form levereras av både en enskild-säsongs aggregatePlayerSeasonStats och den poolade summan Fas 9 (advanced-dna.ts) bygger. */
+interface BasePlayerInfo {
+  minutesPlayed: number;
+  position: string | null;
+}
 
-  const { data: fixtures, error: fixtureError } = await supabase
-    .from("fixture")
-    .select("id")
-    .eq("season_id", params.seasonId)
-    .eq("status", "FT");
-  if (fixtureError) throw fixtureError;
-  const fixtureIds = (fixtures ?? []).map((f) => f.id);
-  if (fixtureIds.length === 0) return new Map();
+/**
+ * Delad kärna: summerar fixture_player_advanced_stats för en given mängd
+ * fixture-id:n mot en redan känd bas-info-karta (minuter/position).
+ * Används av BÅDE den enskilda-säsongens Fas 8-funktion (nedan) och den
+ * POOLADE flersäsongsfunktionen Fas 9 (advanced-dna.ts) behöver — samma
+ * summeringslogik oavsett om det är en eller flera säsonger, ingen risk
+ * att de två vägarna tyst driver isär.
+ */
+async function aggregateAdvancedStatsForFixtures(
+  supabase: Supabase,
+  fixtureIds: number[],
+  baseInfo: Map<number, BasePlayerInfo>
+): Promise<Map<number, AdvancedPlayerSeasonAggregate>> {
+  if (fixtureIds.length === 0 || baseInfo.size === 0) return new Map();
 
   const rows: FixturePlayerAdvancedStatsRow[] = [];
   const PAGE = 1000;
@@ -118,8 +115,8 @@ export async function aggregateAdvancedPlayerSeasonStats(
   const byPlayer = new Map<number, AdvancedPlayerSeasonAggregate>();
   for (const row of rows) {
     if (!row.player_id) continue;
-    const base = baseAggregates.get(row.player_id);
-    if (!base) continue; // ingen speltid registrerad den här säsongen i bas-tabellen — hoppa över
+    const base = baseInfo.get(row.player_id);
+    if (!base) continue; // ingen speltid registrerad i bas-tabellen för den här mängden fixtures — hoppa över
 
     let agg = byPlayer.get(row.player_id);
     if (!agg) {
@@ -166,6 +163,77 @@ export async function aggregateAdvancedPlayerSeasonStats(
   }
 
   return byPlayer;
+}
+
+/**
+ * Hämtar och summerar en hel ligasäsongs avancerade Sportmonks-statistik —
+ * samma princip som aggregatePlayerSeasonStats (ingen N+1 per spelare).
+ * Returnerar BARA spelare som redan finns i bas-aggregatet (dvs. har
+ * riktig speltid den säsongen) — en spelare utan fixture_player_stats-rader
+ * kan per definition inte få ett minutantal att dela med.
+ */
+export async function aggregateAdvancedPlayerSeasonStats(
+  supabase: Supabase,
+  params: { seasonId: number }
+): Promise<Map<number, AdvancedPlayerSeasonAggregate>> {
+  const baseAggregates = await aggregatePlayerSeasonStats(supabase, { seasonId: params.seasonId });
+  if (baseAggregates.size === 0) return new Map();
+
+  const { data: fixtures, error: fixtureError } = await supabase
+    .from("fixture")
+    .select("id")
+    .eq("season_id", params.seasonId)
+    .eq("status", "FT");
+  if (fixtureError) throw fixtureError;
+  const fixtureIds = (fixtures ?? []).map((f) => f.id);
+
+  const baseInfo = new Map<number, BasePlayerInfo>(
+    [...baseAggregates.entries()].map(([id, a]) => [id, { minutesPlayed: a.minutesPlayed, position: a.position }])
+  );
+  return aggregateAdvancedStatsForFixtures(supabase, fixtureIds, baseInfo);
+}
+
+/**
+ * Fas 9 (advanced-dna.ts) — POOLAD summa över FLERA säsonger (typiskt
+ * 2024+2025+2026, hela Sportmonks-täckningen) i EN gemensam summa per
+ * spelare, samma "DNA pooling"-princip som player-dna.ts redan använder
+ * för sin 2016–2026-pool. Minuter/position summeras/hämtas per säsong via
+ * aggregatePlayerSeasonStats och slås ihop INNAN den avancerade summan
+ * byggs, så en spelare som bytt lag mellan säsongerna ändå får korrekt
+ * totalt minutantal att dela per-90-talen med.
+ */
+export async function aggregateAdvancedPlayerStatsAcrossSeasons(
+  supabase: Supabase,
+  params: { seasonIds: number[] }
+): Promise<Map<number, AdvancedPlayerSeasonAggregate>> {
+  if (params.seasonIds.length === 0) return new Map();
+
+  const baseInfo = new Map<number, BasePlayerInfo>();
+  const allFixtureIds: number[] = [];
+
+  for (const seasonId of params.seasonIds) {
+    const seasonBase = await aggregatePlayerSeasonStats(supabase, { seasonId });
+    for (const [playerId, agg] of seasonBase) {
+      const existing = baseInfo.get(playerId);
+      if (existing) {
+        existing.minutesPlayed += agg.minutesPlayed;
+        // Position kan i teorin skifta (extremt sällsynt) — senaste säsongens vinner, samma "senaste vinner"-princip som redan etablerad i import-teams.ts.
+        existing.position = agg.position;
+      } else {
+        baseInfo.set(playerId, { minutesPlayed: agg.minutesPlayed, position: agg.position });
+      }
+    }
+
+    const { data: fixtures, error: fixtureError } = await supabase
+      .from("fixture")
+      .select("id")
+      .eq("season_id", seasonId)
+      .eq("status", "FT");
+    if (fixtureError) throw fixtureError;
+    allFixtureIds.push(...(fixtures ?? []).map((f) => f.id));
+  }
+
+  return aggregateAdvancedStatsForFixtures(supabase, allFixtureIds, baseInfo);
 }
 
 /** Återexporterad för bekvämlighet — anroparen behöver ofta båda aggregaten samtidigt. */
