@@ -28,6 +28,8 @@ export interface PlayerCardData {
   age?: number | null;
   /** OVR-förändring mot en jämförelsesäsong (t.ex. Scout:s utvecklingsfilter) — odefinierad/null döljer chippen helt. */
   ovrDelta?: number | null;
+  /** Scout Engine Fas 4 — regelbaserade spelartyper (t.ex. "Målskytt"). Odefinierad/tom döljer raden helt. */
+  archetypes?: { label: string; definition: string }[];
 }
 
 export type PlayerSortKey = "name" | "goals" | "assists" | "appearances" | "minutes";
@@ -92,6 +94,19 @@ export function PlayerCard({ player, sort = "name" }: { player: PlayerCardData; 
           )}
           {player.age != null && <span className="shrink-0 text-xs text-[#898781]">{player.age} år</span>}
         </div>
+        {player.archetypes && player.archetypes.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {player.archetypes.map((a) => (
+              <span
+                key={a.label}
+                title={a.definition}
+                className="rounded bg-[#3987e5]/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-[#3987e5]"
+              >
+                {a.label}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       {player.ovrDelta != null && (
         <div

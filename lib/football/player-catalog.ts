@@ -3,7 +3,8 @@ import type { Database } from "@/lib/supabase/database.types";
 import { hasPlayedSeason } from "./active-player";
 import { calculateAge } from "./age";
 import { computeSeasonOvrMap } from "./rating/compute-rating";
-import { getRatingTrendComparison, type RatingTrendEntry } from "./rating/rating-store";
+import { getRatingTrendComparison, getStoredSeasonRatings, type RatingTrendEntry } from "./rating/rating-store";
+import { computePlayerArchetypes, type MatchedArchetype } from "./rating/archetypes";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -58,6 +59,14 @@ export interface PlayerListParams {
   ovrDeltaMin?: number;
   ovrDeltaMax?: number;
   /**
+   * Scout Engine Fas 4 (2026-08-21) — arketyp-filter (se rating/archetypes.ts).
+   * Matchar en spelare som har MINST EN av de angivna arketyperna (OR, inte
+   * AND — samma "hitta kandidater", inte "kräv allt samtidigt"-princip som
+   * resten av Scout:s filter). Läser samma persisterade lager som Fas 2/3,
+   * ingen ny beräkning.
+   */
+  archetypeKeys?: string[];
+  /**
    * Namnsök — filtreras i JS på den redan säsongsavgränsade mängden (se
    * filbeskrivningen), INTE en DB-fråga. player.full_name saknar index
    * (bekräftat, ingen trigram/GIN), men ~200–400 rader/säsong gör en
@@ -88,6 +97,8 @@ export interface PlayerListItem {
   rating: number | null;
   /** rating minus OVR i params.compareSeason — null om compareSeason inte angavs ELLER spelaren saknar giltig OVR i någon av de två säsongerna. */
   ovrDelta: number | null;
+  /** Scout Engine Fas 3/4 — regelbaserade spelartyper, alltid en (ev. tom) array. */
+  archetypes: MatchedArchetype[];
 }
 
 export interface PlayerListResult {
@@ -130,13 +141,20 @@ export async function listPlayers(supabase: Supabase, params: PlayerListParams):
   // Parallellt med statistics-frågan ovan — oberoende datakällor
   // (fixture_player_stats via computeSeasonOvrMap/getRatingTrendComparison),
   // ingen anledning att vänta på den ena innan den andra startar.
-  const [{ data, error }, ovrMap, trendEntries] = await Promise.all([
+  const [{ data, error }, ovrMap, trendEntries, storedRatings] = await Promise.all([
     query.returns<StatRow[]>(),
     computeSeasonOvrMap(supabase, { season: params.season }),
     resolveTrendComparison(supabase, params),
+    getStoredSeasonRatings(supabase, seasonRow.id),
   ]);
   if (error) throw error;
   const deltaByPlayer = new Map(trendEntries?.map((e) => [e.playerId, e.delta]) ?? []);
+  const archetypesByPlayer = new Map<number, MatchedArchetype[]>(
+    (storedRatings ?? []).map((r) => [
+      r.playerId,
+      computePlayerArchetypes({ positionGroup: r.positionGroup, categoryScores: r.categoryScores, metricValues: r.metricValues }, r.confidenceTier),
+    ])
+  );
 
   // En spelare kan ha flera rader samma säsong (t.ex. olika league_id för
   // cup/liga) — summera per spelare, samma reduceringslogik som redan
@@ -181,6 +199,7 @@ export async function listPlayers(supabase: Supabase, params: PlayerListParams):
       goalsPer90: per90(r.goals, r.minutesPlayed),
       rating: ovrMap.get(r.player!.id) ?? null,
       ovrDelta: deltaByPlayer.get(r.player!.id) ?? null,
+      archetypes: archetypesByPlayer.get(r.player!.id) ?? [],
     }));
 
   if (params.position) items = items.filter((p) => p.position === params.position);
@@ -192,6 +211,10 @@ export async function listPlayers(supabase: Supabase, params: PlayerListParams):
   if (params.ratingMax !== undefined) items = items.filter((p) => p.rating !== null && p.rating <= params.ratingMax!);
   if (params.ovrDeltaMin !== undefined) items = items.filter((p) => p.ovrDelta !== null && p.ovrDelta >= params.ovrDeltaMin!);
   if (params.ovrDeltaMax !== undefined) items = items.filter((p) => p.ovrDelta !== null && p.ovrDelta <= params.ovrDeltaMax!);
+  if (params.archetypeKeys && params.archetypeKeys.length > 0) {
+    const wanted = new Set(params.archetypeKeys);
+    items = items.filter((p) => p.archetypes.some((a) => wanted.has(a.key)));
+  }
   if (params.query) {
     const needle = params.query.trim().toLowerCase();
     if (needle) items = items.filter((p) => p.fullName.toLowerCase().includes(needle));

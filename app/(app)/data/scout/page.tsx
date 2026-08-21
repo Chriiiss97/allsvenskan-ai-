@@ -4,6 +4,7 @@ import { PlayerCard, type PlayerCardData, type PlayerSortKey } from "@/component
 import { SectionTabs } from "@/components/data/SectionTabs";
 import { getAvailableSeasons, listTeams } from "@/lib/football/catalog";
 import { listPlayers, type PlayerListParams } from "@/lib/football/player-catalog";
+import { ARCHETYPES } from "@/lib/football/rating/archetypes";
 import { translatePosition } from "@/lib/i18n/sv";
 
 // Samma motivering som /data/players/rankings: listPlayers kör
@@ -57,12 +58,14 @@ export default async function ScoutPage({
     ratingMax?: string;
     ovrDeltaMin?: string;
     ovrDeltaMax?: string;
+    archetype?: string | string[];
     q?: string;
     page?: string;
   }>;
 }) {
   const sp = await searchParams;
   const supabase = await createClient();
+  const selectedArchetypes = sp.archetype ? (Array.isArray(sp.archetype) ? sp.archetype : [sp.archetype]) : [];
 
   const seasons = await getAvailableSeasons(supabase);
   const seasonYear = sp.season ? Number(sp.season) : seasons[0]?.year;
@@ -93,6 +96,7 @@ export default async function ScoutPage({
       ratingMax: sp.ratingMax ? Number(sp.ratingMax) : undefined,
       ovrDeltaMin: sp.ovrDeltaMin ? Number(sp.ovrDeltaMin) : undefined,
       ovrDeltaMax: sp.ovrDeltaMax ? Number(sp.ovrDeltaMax) : undefined,
+      archetypeKeys: selectedArchetypes.length > 0 ? selectedArchetypes : undefined,
       query: sp.q,
       sort,
       sortDir,
@@ -113,6 +117,7 @@ export default async function ScoutPage({
       age: p.age,
       rating: p.rating,
       ovrDelta: compareYear ? p.ovrDelta : null,
+      archetypes: p.archetypes,
       stat: { goals: p.goals, assists: p.assists, appearances: p.appearances, minutesPlayed: p.minutesPlayed, year: seasonYear ?? "all" },
     };
   });
@@ -120,7 +125,7 @@ export default async function ScoutPage({
   const totalPages = Math.max(1, Math.ceil(result.total / PAGE_SIZE));
   const currentPage = page + 1;
 
-  function buildHref(overrides: Record<string, string | undefined>) {
+  function buildHref(overrides: Record<string, string | undefined>, archetypeOverride?: string[]) {
     const params = new URLSearchParams();
     const next: Record<string, string | undefined> = {
       season: sp.season, compareSeason: sp.compareSeason, team: sp.team, position: sp.position,
@@ -132,13 +137,20 @@ export default async function ScoutPage({
     for (const [key, value] of Object.entries(next)) {
       if (value) params.set(key, value);
     }
+    for (const key of archetypeOverride ?? selectedArchetypes) params.append("archetype", key);
     const qs = params.toString();
     return qs ? `/data/scout?${qs}` : "/data/scout";
   }
 
+  /** Bygger URL:en för att lägga till/ta bort EN arketyp från urvalet, samma "klicka för att växla"-mönster som resten av Scout:s filter. */
+  function toggleArchetypeHref(key: string) {
+    const next = selectedArchetypes.includes(key) ? selectedArchetypes.filter((k) => k !== key) : [...selectedArchetypes, key];
+    return buildHref({ page: undefined }, next);
+  }
+
   const hasFilters =
     sp.team || sp.position || sp.ageMin || sp.ageMax || sp.goalsMin || sp.assistsMin || sp.minutesMin ||
-    sp.ratingMin || sp.ratingMax || sp.compareSeason || sp.ovrDeltaMin || sp.ovrDeltaMax || sp.q;
+    sp.ratingMin || sp.ratingMax || sp.compareSeason || sp.ovrDeltaMin || sp.ovrDeltaMax || sp.q || selectedArchetypes.length > 0;
 
   return (
     <div>
@@ -178,6 +190,9 @@ export default async function ScoutPage({
       {/* Filter — Scout:s stora, kombinerbara sökform */}
       <form method="get" className="mt-4 flex flex-wrap items-end gap-3 rounded-xl border border-white/10 bg-[#1a1a19] p-3">
         <input type="hidden" name="season" value={seasonYear ?? ""} />
+        {selectedArchetypes.map((key) => (
+          <input key={key} type="hidden" name="archetype" value={key} />
+        ))}
         <label className="flex flex-col gap-1 text-xs text-[#898781]">
           Sök namn
           <input
@@ -260,17 +275,46 @@ export default async function ScoutPage({
         </button>
         {hasFilters && (
           <Link
-            href={buildHref({
-              team: undefined, position: undefined, ageMin: undefined, ageMax: undefined, goalsMin: undefined,
-              assistsMin: undefined, minutesMin: undefined, ratingMin: undefined, ratingMax: undefined,
-              compareSeason: undefined, ovrDeltaMin: undefined, ovrDeltaMax: undefined, q: undefined, page: undefined,
-            })}
+            href={buildHref(
+              {
+                team: undefined, position: undefined, ageMin: undefined, ageMax: undefined, goalsMin: undefined,
+                assistsMin: undefined, minutesMin: undefined, ratingMin: undefined, ratingMax: undefined,
+                compareSeason: undefined, ovrDeltaMin: undefined, ovrDeltaMax: undefined, q: undefined, page: undefined,
+              },
+              []
+            )}
             className="text-xs text-[#898781] hover:text-white"
           >
             Rensa filter
           </Link>
         )}
       </form>
+
+      {/* Spelartyper — Scout Engine Fas 4:s arketyper (se rating/archetypes.ts).
+          Klicka för att lägga till/ta bort, ingen "Sök"-knapp behövs — samma
+          "direkt navigering"-mönster som säsongsväljaren ovan. */}
+      <div className="mt-3">
+        <p className="mb-1.5 text-xs text-[#7d7c76]">
+          Spelartyper <span className="text-[#5f5e59]">(regelbaserade, byggda på riktig statistik — inga gissningar)</span>
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {ARCHETYPES.map((a) => {
+            const active = selectedArchetypes.includes(a.key);
+            return (
+              <Link
+                key={a.key}
+                href={toggleArchetypeHref(a.key)}
+                title={a.definition}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                  active ? "bg-[#3987e5]/15 text-white" : "border border-white/10 text-[#898781] hover:text-white"
+                }`}
+              >
+                {a.label}
+              </Link>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Sortering */}
       <div className="mt-3 flex items-center gap-2 text-xs">
