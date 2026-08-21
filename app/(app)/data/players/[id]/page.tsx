@@ -3,11 +3,13 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getPlayerProfile, FootballDataError } from "@/lib/football/tools";
 import { computePlayerDNA } from "@/lib/football/player-dna";
+import { computeRatingForPlayer } from "@/lib/football/rating/compute-rating";
 import { getPlayerLineupRoleProfile } from "@/lib/football/lineup-role";
 import { calculateAge } from "@/lib/football/age";
 import { StatBar } from "@/components/data/StatBar";
 import { PlayerRadarChart } from "@/components/data/PlayerRadarChart";
 import { PlayerDNA } from "@/components/data/PlayerDNA";
+import { PlayerRating } from "@/components/data/PlayerRating";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
 import { BackButton } from "@/components/nav/BackButton";
 import { translatePosition } from "@/lib/i18n/sv";
@@ -40,6 +42,16 @@ export default async function PlayerProfilePage({
 
   const age = calculateAge(profile.player.birthDate);
   const dna = profile.season ? await computePlayerDNA(supabase, { playerId: profile.player.id, season: profile.season }) : null;
+  // Player Rating (2026-08-21): separat statistisk 0-99-OVR, INTE samma sak
+  // som Player DNA (DNA = vilken typ av spelare, Rating = hur bra
+  // presterade den här säsongen) — se lib/football/rating/compute-rating.ts.
+  const rating = profile.season
+    ? await computeRatingForPlayer(supabase, {
+        playerId: profile.player.id,
+        position: profile.player.position,
+        season: profile.season,
+      })
+    : null;
 
   // Steg 9: lineup-härledd rolldata (start/avbytarlistningar, formation) —
   // egen från fixture_lineup_player, oberoende av Player DNA. season.id
@@ -128,6 +140,15 @@ export default async function PlayerProfilePage({
         </div>
       </div>
 
+      {/* Player Rating — statistisk 0-99-OVR, ett eget kort SKILT från
+          Player DNA (Rating = hur bra presterade säsongen, DNA = vilken typ
+          av spelare) för att inte blanda ihop de två frågorna. */}
+      {rating && profile.season && (
+        <div className="mt-4">
+          <PlayerRating data={rating} season={profile.season} />
+        </div>
+      )}
+
       {/* Player DNA — flyttad högst upp: det här är analysen, inte en
           detalj längst ner på sidan. */}
       {dna && (
@@ -167,7 +188,11 @@ export default async function PlayerProfilePage({
           ["Mål", profile.stats.goals],
           ["Assist", profile.stats.assists],
           ["Matcher", profile.stats.appearances],
-          ["Betyg", profile.stats.rating],
+          // "Snittbetyg (matcher)" — API-Football:s egna råa matchbetyg
+          // (profile.stats.rating), INTE samma tal som Player Ratings OVR
+          // ovan. Namnbytet är avsiktligt (2026-08-21) för att undvika
+          // exakt den sammanblandning en ny OVR-siffra annars hade skapat.
+          ["Snittbetyg (matcher)", profile.stats.rating],
         ].map(([label, value]) => (
           <div
             key={label as string}

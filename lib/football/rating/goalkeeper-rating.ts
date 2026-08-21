@@ -64,6 +64,8 @@ export interface GoalkeeperMetricDetail {
 
 export interface GoalkeeperConfidence {
   tier: ConfidenceTier;
+  /** Alltid "målvakter" — fältet finns för att spegla RatingConfidence:s form 1:1 i UI-koden. */
+  peerLabel: string;
   peerCount: number;
   ownMinutes: number;
   ownTier: ConfidenceTier;
@@ -214,6 +216,7 @@ export async function computeGoalkeeperRating(
   const peerTier = tierFromThresholds(peers.length, 12, 6);
   const confidence: GoalkeeperConfidence = {
     tier: worseTier(ownTier, peerTier),
+    peerLabel: positionGroupInfo.label,
     peerCount: summary.count,
     ownMinutes: player.minutesPlayed,
     ownTier,
@@ -253,6 +256,7 @@ export async function computeSeasonGoalkeeperRatings(
       metrics,
       confidence: {
         tier: worseTier(ownTier, peerTier),
+        peerLabel: positionGroupInfo.label,
         peerCount: summary.count,
         ownMinutes: player.minutesPlayed,
         ownTier,

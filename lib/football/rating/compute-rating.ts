@@ -6,6 +6,7 @@ import { aggregatePlayerSeasonStats, type PlayerSeasonAggregate } from "./rating
 import { buildRatingCategories, type RatingCategory } from "./categories";
 import type { RatingCategoryKey } from "./metric-registry";
 import { computeOvr, type OvrContribution } from "./position-rating-config";
+import { computeGoalkeeperRating, type GoalkeeperRating } from "./goalkeeper-rating";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -185,4 +186,24 @@ export async function computeSeasonRatings(supabase: Supabase, params: { season:
   }
 
   return result;
+}
+
+/**
+ * En enda uppslagspunkt för UI-koden: vet inget om positioner själv, bara
+ * vilken av de två helt separata modellerna (utespelare/målvakt) som ska
+ * anropas. `params.position` är rådata från player.position (t.ex.
+ * "Goalkeeper") — samma format getPositionGroup redan förväntar sig
+ * överallt annars i kodbasen.
+ */
+export type AnyPlayerRating = { kind: "outfield"; rating: PlayerRating } | { kind: "goalkeeper"; rating: GoalkeeperRating };
+
+export async function computeRatingForPlayer(
+  supabase: Supabase,
+  params: { playerId: number; position: string | null; season: number }
+): Promise<AnyPlayerRating> {
+  const positionGroupInfo = getPositionGroup(params.position);
+  if (positionGroupInfo?.group === "goalkeeper") {
+    return { kind: "goalkeeper", rating: await computeGoalkeeperRating(supabase, params) };
+  }
+  return { kind: "outfield", rating: await computePlayerRating(supabase, params) };
 }
