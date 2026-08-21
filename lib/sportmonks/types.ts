@@ -104,6 +104,61 @@ export interface SportmonksMetadataRow {
   values: Record<string, unknown>;
 }
 
+/**
+ * Rik händelse (Fas 5b) — fälten är EXAKT vad ett riktigt /events-anrop gav
+ * för en match med rött kort (fixture 19049416) denna session, inte gissat.
+ * result = löpande ställning vid händelsen; addition = läsbar beskrivning
+ * ("1st Goal"); rescinded = VAR-upphävt.
+ */
+export interface SportmonksRichEvent {
+  id: number;
+  fixture_id: number;
+  period_id: number | null;
+  participant_id: number;
+  type_id: number;
+  sub_type_id: number | null;
+  section: string | null;
+  player_id: number | null;
+  related_player_id: number | null;
+  player_name: string | null;
+  related_player_name: string | null;
+  result: string | null;
+  info: string | null;
+  addition: string | null;
+  minute: number;
+  extra_minute: number | null;
+  injured: boolean | null;
+  on_bench: boolean | null;
+  rescinded: boolean | null;
+  sort_order: number | null;
+}
+
+/** Minutstämplad lagstatistik-avläsning (Fas 5b, `include=trends`). */
+export interface SportmonksTrendRow {
+  id: number;
+  fixture_id: number;
+  participant_id: number;
+  type_id: number;
+  period_id: number | null;
+  value: number;
+  minute: number;
+}
+
+/** Väderprognos/rapport (Fas 5b, `include=weatherreport`). */
+export interface SportmonksWeatherReport {
+  id: number;
+  fixture_id: number;
+  venue_id: number | null;
+  temperature: { day: number; morning: number; evening: number; night: number } | null;
+  feels_like: { day: number; morning: number; evening: number; night: number } | null;
+  wind: { speed: number; direction: number } | null;
+  humidity: string | null; // "61%"
+  pressure: number | null;
+  clouds: string | null; // "84%"
+  description: string | null;
+  type: string | null; // 'forecast' | 'current' m.fl.
+}
+
 export interface SportmonksFixtureDetail extends SportmonksFixtureSummary {
   participants?: SportmonksTeam[];
   lineups?: SportmonksLineupEntry[];
@@ -112,5 +167,8 @@ export interface SportmonksFixtureDetail extends SportmonksFixtureSummary {
   matchfacts?: SportmonksMatchFact[];
   metadata?: SportmonksMetadataRow[];
   pressure?: SportmonksPressureRow[];
-  events?: { id: number; type_id: number; participant_id: number; minute: number }[];
+  events?: SportmonksRichEvent[];
+  trends?: SportmonksTrendRow[];
+  weatherreport?: SportmonksWeatherReport | null;
+  predictedlineups?: unknown[]; // overifierat om den nagonsin populeras, se Fas 5b-forskningen
 }

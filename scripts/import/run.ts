@@ -24,6 +24,7 @@ import { mapSportmonksPlayers } from "./sportmonks-map-players";
 import { reviewSportmonksPlayers } from "./sportmonks-review-players";
 import { importSportmonksXg } from "./sportmonks-import-xg";
 import { importSportmonksPlayerAdvancedStats } from "./sportmonks-import-player-advanced-stats";
+import { importSportmonksMatchDataBackfill, pollSportmonksLiveMatchData } from "./sportmonks-import-match-data";
 
 config({ path: path.resolve(process.cwd(), ".env.local") });
 
@@ -80,6 +81,15 @@ const STEPS: Record<string, () => Promise<void>> = {
   // Fas 5: per-spelare avancerad matchstatistik. Kraver Fas 1-3 korda forst.
   "sportmonks-player-advanced-stats": async () => {
     await importSportmonksPlayerAdvancedStats();
+  },
+  // Fas 5b: events/trends/vader/metadata for fardigspelade matcher.
+  "sportmonks-match-data": async () => {
+    await importSportmonksMatchDataBackfill();
+  },
+  // Fas 5b live-poll - EN tick, obeprovad mot en riktig pagaende match, se
+  // sportmonks-import-match-data.ts:s kommentar.
+  "sportmonks-live-poll": async () => {
+    await pollSportmonksLiveMatchData();
   },
   // 'all' kör de billiga stegen (~25 anrop totalt för 2 lag x 3 säsonger).
   // 'events' kör INTE med här — den kostar ett anrop per match och kan

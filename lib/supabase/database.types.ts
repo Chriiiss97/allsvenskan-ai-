@@ -201,6 +201,7 @@ export interface Database {
           sportmonks_xg_synced_at: string | null;
           sportmonks_pressure_synced_at: string | null;
           sportmonks_match_facts_synced_at: string | null;
+          sportmonks_matchdata_synced_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -874,6 +875,102 @@ export interface Database {
           data: unknown;
         };
         Update: Partial<Database["public"]["Tables"]["fixture_match_facts"]["Row"]>;
+        Relationships: [];
+      };
+      // --- Fas 5b: matchhändelse-/live-lager (20260821160000) ---
+      fixture_sportmonks_event: {
+        Row: {
+          id: number;
+          fixture_id: number;
+          sportmonks_event_id: number;
+          type_id: number;
+          sub_type_id: number | null;
+          team_id: number | null;
+          sportmonks_team_id: number | null;
+          player_id: number | null;
+          sportmonks_player_id: number | null;
+          related_player_id: number | null;
+          sportmonks_related_player_id: number | null;
+          player_name: string | null;
+          related_player_name: string | null;
+          result: string | null;
+          info: string | null;
+          addition: string | null;
+          minute: number | null;
+          extra_minute: number | null;
+          injured: boolean | null;
+          on_bench: boolean | null;
+          rescinded: boolean | null;
+          sort_order: number | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fixture_sportmonks_event"]["Row"]> & {
+          fixture_id: number;
+          sportmonks_event_id: number;
+          type_id: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["fixture_sportmonks_event"]["Row"]>;
+        Relationships: [];
+      };
+      fixture_stat_trend: {
+        Row: {
+          id: number;
+          fixture_id: number;
+          team_id: number | null;
+          sportmonks_team_id: number | null;
+          type_id: number;
+          minute: number;
+          value: number | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fixture_stat_trend"]["Row"]> & {
+          fixture_id: number;
+          type_id: number;
+          minute: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["fixture_stat_trend"]["Row"]>;
+        Relationships: [];
+      };
+      fixture_weather: {
+        Row: {
+          id: number;
+          fixture_id: number;
+          sportmonks_weather_id: number | null;
+          temperature_day: number | null;
+          temperature_morning: number | null;
+          temperature_evening: number | null;
+          temperature_night: number | null;
+          feels_like_day: number | null;
+          wind_speed: number | null;
+          wind_direction: number | null;
+          humidity_pct: number | null;
+          pressure: number | null;
+          clouds_pct: number | null;
+          description: string | null;
+          report_type: string | null;
+          raw: unknown;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fixture_weather"]["Row"]> & { fixture_id: number; raw: unknown };
+        Update: Partial<Database["public"]["Tables"]["fixture_weather"]["Row"]>;
+        Relationships: [];
+      };
+      fixture_sportmonks_metadata: {
+        Row: {
+          id: number;
+          fixture_id: number;
+          type_id: number;
+          value_type: string | null;
+          values: unknown;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fixture_sportmonks_metadata"]["Row"]> & {
+          fixture_id: number;
+          type_id: number;
+          values: unknown;
+        };
+        Update: Partial<Database["public"]["Tables"]["fixture_sportmonks_metadata"]["Row"]>;
         Relationships: [];
       };
     };
