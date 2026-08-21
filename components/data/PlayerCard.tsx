@@ -2,7 +2,7 @@ import Link from "next/link";
 import { PlayerAvatar } from "./PlayerAvatar";
 import { translatePosition } from "@/lib/i18n/sv";
 import { getTeamAccent } from "@/lib/data/team-colors";
-import { ovrColor } from "@/lib/football/rating/ovr-color";
+import { ovrColor, deltaColor } from "@/lib/football/rating/ovr-color";
 
 export interface PlayerCardStat {
   goals: number;
@@ -24,6 +24,10 @@ export interface PlayerCardData {
   stat: PlayerCardStat | null;
   /** Player Rating OVR (0–99) — odefinierad/null döljer badgen helt (t.ex. lagtruppens vy som inte alltid har en säsong att räkna mot). */
   rating?: number | null;
+  /** Visas i undertexten om satt (t.ex. Scout) — odefinierad/null döljer den helt, samma mönster som position. */
+  age?: number | null;
+  /** OVR-förändring mot en jämförelsesäsong (t.ex. Scout:s utvecklingsfilter) — odefinierad/null döljer chippen helt. */
+  ovrDelta?: number | null;
 }
 
 export type PlayerSortKey = "name" | "goals" | "assists" | "appearances" | "minutes";
@@ -86,8 +90,21 @@ export function PlayerCard({ player, sort = "name" }: { player: PlayerCardData; 
               {translatePosition(player.position)}
             </span>
           )}
+          {player.age != null && <span className="shrink-0 text-xs text-[#898781]">{player.age} år</span>}
         </div>
       </div>
+      {player.ovrDelta != null && (
+        <div
+          className="shrink-0 rounded-lg px-1.5 py-1 text-center"
+          style={{ backgroundColor: `${deltaColor(player.ovrDelta)}1a` }}
+          title="OVR-förändring mot jämförelsesäsongen"
+        >
+          <p className="text-xs font-bold leading-none tabular-nums" style={{ color: deltaColor(player.ovrDelta) }}>
+            {player.ovrDelta > 0 ? "+" : ""}
+            {player.ovrDelta}
+          </p>
+        </div>
+      )}
       {player.rating != null && (
         <div
           className="shrink-0 rounded-lg px-2 py-1 text-center"

@@ -132,6 +132,7 @@ export default async function ComparePlayersPage({
     <div>
       <SectionTabs
         tabs={[
+          { label: "Scout", href: "/data/scout" },
           { label: "Spelare", href: "/data/players" },
           { label: "Jämför spelare", href: "/data/players/compare" },
           { label: "Topplista", href: "/data/players/rankings" },

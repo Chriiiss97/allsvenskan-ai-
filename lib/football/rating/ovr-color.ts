@@ -12,3 +12,10 @@ export function ovrColor(ovr: number): string {
   if (ovr >= 50) return "#d9a526";
   return "#e66767";
 }
+
+/** Grönt/rött/grått för en OVR-delta (säsong-mot-säsong-förändring) — samma ±3-tröskel som rating-trend.ts:s "uppåtgående"/"nedåtgående"/"stabil", så färgen och texten aldrig säger emot varandra. */
+export function deltaColor(delta: number): string {
+  if (delta >= 3) return "#22c55e";
+  if (delta <= -3) return "#e66767";
+  return "#898781";
+}

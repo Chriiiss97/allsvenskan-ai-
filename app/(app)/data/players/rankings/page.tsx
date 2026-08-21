@@ -9,7 +9,7 @@ import {
   type RatingLeaderboardParams,
   type RatingTrendLeaderboardEntry,
 } from "@/lib/football/rating/leaderboard";
-import { ovrColor } from "@/lib/football/rating/ovr-color";
+import { ovrColor, deltaColor } from "@/lib/football/rating/ovr-color";
 import { translatePosition } from "@/lib/i18n/sv";
 
 // Samma motivering som /data/players: computeSeasonOvrMap/getRatingTrendLeaderboard
@@ -30,12 +30,6 @@ const POSITION_GROUP_LABELS: Record<string, string> = {
   midfielder: "Mittfältare",
   attacker: "Anfallare",
 };
-
-function deltaColor(delta: number): string {
-  if (delta >= 3) return "#22c55e";
-  if (delta <= -3) return "#e66767";
-  return "#898781";
-}
 
 /**
  * Player Rating — Topplista (rangordning) + Utveckling (mest förbättrad/
@@ -128,6 +122,7 @@ export default async function PlayerRankingsPage({
     <div>
       <SectionTabs
         tabs={[
+          { label: "Scout", href: "/data/scout" },
           { label: "Spelare", href: "/data/players" },
           { label: "Jämför spelare", href: "/data/players/compare" },
           { label: "Topplista", href: "/data/players/rankings" },

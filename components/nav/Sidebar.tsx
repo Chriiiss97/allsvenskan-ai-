@@ -42,6 +42,16 @@ const PlayerIcon = (props: SVGProps<SVGSVGElement>) => (
     <path d="M5 20c0-4.2 3.1-6.5 7-6.5s7 2.3 7 6.5" />
   </svg>
 );
+// Kikare — scouting-metaforen, skiljer sig medvetet från PlayerIcon (person)
+// så "hitta/jämför många spelare" (Scout) läses visuellt annorlunda från
+// "se en spelare" (Spelare) redan i ikonen, inte bara i etiketten.
+const ScoutIcon = (props: SVGProps<SVGSVGElement>) => (
+  <svg {...iconProps(props)}>
+    <circle cx="7.3" cy="15.8" r="3" />
+    <circle cx="16.7" cy="15.8" r="3" />
+    <path d="M10 14.2L8.7 6.5a1.6 1.6 0 011.6-1.9h3.4a1.6 1.6 0 011.6 1.9l-1.3 7.7M10.3 15.8h3.4" />
+  </svg>
+);
 const TeamIcon = (props: SVGProps<SVGSVGElement>) => (
   <svg {...iconProps(props)}>
     <path d="M12 3l7 3v5.5c0 4.8-3.2 7.7-7 8.8-3.8-1.1-7-4-7-8.8V6l7-3z" />
@@ -104,6 +114,11 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Tabeller", icon: StandingsIcon, disabled: true },
   { href: "/data/teams", label: "Lag", icon: TeamIcon },
   { href: "/data/players", label: "Spelare", icon: PlayerIcon },
+  // Egen huvudsektion (2026-08-21), medvetet skild från "Spelare" — Scout är
+  // det stora, kombinerbara sök-/filterverktyget (klubb+position+ålder+OVR+
+  // statistik+historik/utveckling i EN vy), Spelare förblir den enklare
+  // översikten. Se app/(app)/data/scout/page.tsx.
+  { href: "/data/scout", label: "Scout", icon: ScoutIcon },
   { href: "/settings", label: "Inställningar", icon: SettingsIcon },
 ];
 

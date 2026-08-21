@@ -3,6 +3,7 @@ import type { Database } from "@/lib/supabase/database.types";
 import { hasPlayedSeason } from "./active-player";
 import { calculateAge } from "./age";
 import { computeSeasonOvrMap } from "./rating/compute-rating";
+import { getRatingTrendComparison, type RatingTrendEntry } from "./rating/rating-store";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -41,9 +42,21 @@ export interface PlayerListParams {
   ageMin?: number;
   ageMax?: number;
   goalsMin?: number;
+  assistsMin?: number;
+  minutesMin?: number;
   /** Player Rating OVR (0–99) — filtreras i JS, se computeSeasonOvrMap. Spelare utan rating (t.ex. otillräckligt underlag) exkluderas av ett satt min/max, precis som Player Rating-kortet självt skulle visa "Ej tillgängligt" för dem. */
   ratingMin?: number;
   ratingMax?: number;
+  /**
+   * Scout (2026-08-21): säsong att jämföra OVR mot, för att filtrera/sortera
+   * på UTVECKLING (samma persisterade facit som Topplistans trend-läge, se
+   * rating-store.ts:s getRatingTrendComparison — inget nytt system). Om
+   * satt beräknas `ovrDelta` per spelare; annars är fältet alltid null och
+   * ovrDeltaMin/Max ignoreras helt (ingen kostnad om ingen frågar efter det).
+   */
+  compareSeason?: number;
+  ovrDeltaMin?: number;
+  ovrDeltaMax?: number;
   /**
    * Namnsök — filtreras i JS på den redan säsongsavgränsade mängden (se
    * filbeskrivningen), INTE en DB-fråga. player.full_name saknar index
@@ -53,7 +66,7 @@ export interface PlayerListParams {
    * tidigare klient-lokala sökningen som bara såg redan hämtade rader).
    */
   query?: string;
-  sort: "name" | "goals" | "assists" | "appearances" | "minutes" | "goalsPer90" | "age" | "rating";
+  sort: "name" | "goals" | "assists" | "appearances" | "minutes" | "goalsPer90" | "age" | "rating" | "ovrDelta";
   sortDir: "asc" | "desc";
   page: number;
   pageSize: number;
@@ -73,6 +86,8 @@ export interface PlayerListItem {
   goalsPer90: number | null;
   /** Player Rating OVR (0–99) — null om otillräckligt underlag den här säsongen, se lib/football/rating/compute-rating.ts. */
   rating: number | null;
+  /** rating minus OVR i params.compareSeason — null om compareSeason inte angavs ELLER spelaren saknar giltig OVR i någon av de två säsongerna. */
+  ovrDelta: number | null;
 }
 
 export interface PlayerListResult {
@@ -83,6 +98,20 @@ export interface PlayerListResult {
 function per90(value: number, minutes: number): number | null {
   if (minutes <= 0) return null;
   return Math.round(((value / minutes) * 90 + Number.EPSILON) * 10) / 10;
+}
+
+/** Hämtar OVR-deltat mot compareSeason — bara om anroparen faktiskt bad om det (compareSeason satt). */
+async function resolveTrendComparison(
+  supabase: Supabase,
+  params: Pick<PlayerListParams, "season" | "compareSeason">
+): Promise<RatingTrendEntry[] | null> {
+  if (!params.compareSeason) return null;
+  const [{ data: seasonA }, { data: seasonB }] = await Promise.all([
+    supabase.from("season").select("id").eq("year", params.compareSeason).maybeSingle(),
+    supabase.from("season").select("id").eq("year", params.season).maybeSingle(),
+  ]);
+  if (!seasonA || !seasonB) return null;
+  return getRatingTrendComparison(supabase, { seasonIdA: seasonA.id, seasonIdB: seasonB.id });
 }
 
 export async function listPlayers(supabase: Supabase, params: PlayerListParams): Promise<PlayerListResult> {
@@ -98,14 +127,16 @@ export async function listPlayers(supabase: Supabase, params: PlayerListParams):
   if (params.teamId) query = query.eq("team_id", params.teamId);
   if (params.goalsMin !== undefined) query = query.gt("goals", params.goalsMin - 1);
 
-  // Parallellt med statistics-frågan ovan — oberoende datakälla
-  // (fixture_player_stats via computeSeasonOvrMap), ingen anledning att
-  // vänta på den ena innan den andra startar.
-  const [{ data, error }, ovrMap] = await Promise.all([
+  // Parallellt med statistics-frågan ovan — oberoende datakällor
+  // (fixture_player_stats via computeSeasonOvrMap/getRatingTrendComparison),
+  // ingen anledning att vänta på den ena innan den andra startar.
+  const [{ data, error }, ovrMap, trendEntries] = await Promise.all([
     query.returns<StatRow[]>(),
     computeSeasonOvrMap(supabase, { season: params.season }),
+    resolveTrendComparison(supabase, params),
   ]);
   if (error) throw error;
+  const deltaByPlayer = new Map(trendEntries?.map((e) => [e.playerId, e.delta]) ?? []);
 
   // En spelare kan ha flera rader samma säsong (t.ex. olika league_id för
   // cup/liga) — summera per spelare, samma reduceringslogik som redan
@@ -149,13 +180,18 @@ export async function listPlayers(supabase: Supabase, params: PlayerListParams):
       minutesPlayed: r.minutesPlayed,
       goalsPer90: per90(r.goals, r.minutesPlayed),
       rating: ovrMap.get(r.player!.id) ?? null,
+      ovrDelta: deltaByPlayer.get(r.player!.id) ?? null,
     }));
 
   if (params.position) items = items.filter((p) => p.position === params.position);
   if (params.ageMin !== undefined) items = items.filter((p) => p.age !== null && p.age >= params.ageMin!);
   if (params.ageMax !== undefined) items = items.filter((p) => p.age !== null && p.age <= params.ageMax!);
+  if (params.assistsMin !== undefined) items = items.filter((p) => p.assists >= params.assistsMin!);
+  if (params.minutesMin !== undefined) items = items.filter((p) => p.minutesPlayed >= params.minutesMin!);
   if (params.ratingMin !== undefined) items = items.filter((p) => p.rating !== null && p.rating >= params.ratingMin!);
   if (params.ratingMax !== undefined) items = items.filter((p) => p.rating !== null && p.rating <= params.ratingMax!);
+  if (params.ovrDeltaMin !== undefined) items = items.filter((p) => p.ovrDelta !== null && p.ovrDelta >= params.ovrDeltaMin!);
+  if (params.ovrDeltaMax !== undefined) items = items.filter((p) => p.ovrDelta !== null && p.ovrDelta <= params.ovrDeltaMax!);
   if (params.query) {
     const needle = params.query.trim().toLowerCase();
     if (needle) items = items.filter((p) => p.fullName.toLowerCase().includes(needle));
@@ -178,6 +214,8 @@ export async function listPlayers(supabase: Supabase, params: PlayerListParams):
         return dir * ((a.goalsPer90 ?? -1) - (b.goalsPer90 ?? -1));
       case "rating":
         return dir * ((a.rating ?? -1) - (b.rating ?? -1));
+      case "ovrDelta":
+        return dir * ((a.ovrDelta ?? -100) - (b.ovrDelta ?? -100));
       case "goals":
       default:
         return dir * (a.goals - b.goals);
