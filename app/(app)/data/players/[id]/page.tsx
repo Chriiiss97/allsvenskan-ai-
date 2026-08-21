@@ -4,18 +4,13 @@ import { createClient } from "@/lib/supabase/server";
 import { getPlayerProfile, FootballDataError } from "@/lib/football/tools";
 import { computePlayerDNA } from "@/lib/football/player-dna";
 import { getPlayerLineupRoleProfile } from "@/lib/football/lineup-role";
+import { calculateAge } from "@/lib/football/age";
 import { StatBar } from "@/components/data/StatBar";
 import { PlayerRadarChart } from "@/components/data/PlayerRadarChart";
 import { PlayerDNA } from "@/components/data/PlayerDNA";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
 import { BackButton } from "@/components/nav/BackButton";
 import { translatePosition } from "@/lib/i18n/sv";
-
-function calculateAge(birthDate: string | null): number | null {
-  if (!birthDate) return null;
-  const diff = Date.now() - new Date(birthDate).getTime();
-  return Math.floor(diff / (365.25 * 24 * 60 * 60 * 1000));
-}
 
 function na(value: number | null, suffix = ""): string {
   return value === null ? "—" : `${value}${suffix}`;

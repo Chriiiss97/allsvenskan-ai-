@@ -557,9 +557,10 @@ export async function comparePlayers(supabase: Supabase, params: ComparePlayersP
 }
 
 // ---------------------------------------------------------------------------
-// compare_teams — Data-sektion del 2 (bara IFK Göteborg / AIK, resultatbaserat)
+// compare_teams — Data-sektion del 2 (resultatbaserat, hela ligan sedan
+// data-sektionens breddning 2026-08-20 — tidigare begränsat till IFK/AIK via
+// en konstant som blivit sakligt fel: fullt matchdjup finns nu för alla 33 lag)
 // ---------------------------------------------------------------------------
-const COMPARABLE_TEAM_EXTERNAL_IDS = [366, 377]; // IFK Göteborg, AIK
 
 interface ComparisonFixtureRow {
   id: number;
@@ -638,17 +639,6 @@ export interface TeamComparisonParams {
 export async function getTeamComparison(supabase: Supabase, params: TeamComparisonParams) {
   const teamA = await resolveTeamOrThrow(supabase, params.teamA);
   const teamB = await resolveTeamOrThrow(supabase, params.teamB);
-
-  for (const [label, t] of [
-    ["A", teamA],
-    ["B", teamB],
-  ] as const) {
-    if (!t.external_id || !COMPARABLE_TEAM_EXTERNAL_IDS.includes(t.external_id)) {
-      throw new FootballDataError(
-        `Lag ${label} ("${t.name}") har inte fullständig matchhistorik importerad — lag-vs-lag stödjer bara IFK Göteborg och AIK just nu.`
-      );
-    }
-  }
 
   let seasonYear = params.season ?? null;
   let seasonId: number | null = null;
@@ -759,12 +749,6 @@ export interface TeamProfileParams {
 export async function getTeamProfile(supabase: Supabase, params: TeamProfileParams) {
   const team = await resolveTeamOrThrow(supabase, params.team);
 
-  if (!team.external_id || !COMPARABLE_TEAM_EXTERNAL_IDS.includes(team.external_id)) {
-    throw new FootballDataError(
-      `"${team.name}" har inte fullständig data importerad — lagprofiler stödjer bara IFK Göteborg och AIK just nu.`
-    );
-  }
-
   let seasonYear = params.season ?? null;
   let seasonId: number | null = null;
   if (seasonYear) {
@@ -846,7 +830,7 @@ export async function getTeamProfile(supabase: Supabase, params: TeamProfilePara
   const topAssist = scorers.length > 0 ? [...scorers].sort((a, b) => b.assists - a.assists)[0] : null;
 
   return {
-    team: { name: team.name, logoUrl: logoRow?.logo_url ?? null },
+    team: { name: team.name, externalId: team.external_id, logoUrl: logoRow?.logo_url ?? null },
     season: seasonYear,
     record,
     squad: squad.map((p) => ({
@@ -900,12 +884,6 @@ export async function getMatchReport(supabase: Supabase, fixtureId: number) {
 
   if (fixtureError || !fixture) throw new FootballDataError(`Okänd match: ${fixtureId}`);
 
-  const fullPlayerDetail =
-    !!fixture.home?.external_id &&
-    !!fixture.away?.external_id &&
-    COMPARABLE_TEAM_EXTERNAL_IDS.includes(fixture.home.external_id) &&
-    COMPARABLE_TEAM_EXTERNAL_IDS.includes(fixture.away.external_id);
-
   let events: MatchEventRow[] = [];
   if (fixture.events_synced_at) {
     const { data, error } = await supabase
@@ -919,6 +897,17 @@ export async function getMatchReport(supabase: Supabase, fixtureId: number) {
     if (error) throw new FootballDataError(error.message);
     events = data ?? [];
   }
+
+  // Tidigare en hårdkodad IFK/AIK-gate (numera sakligt fel — spelartrupper
+  // importerade för alla 33 lag sedan data-sektionens breddning). Mäter nu
+  // istället riktigt: resolverade varje mål/kort/byte en spelare, eller
+  // finns det events där player_id fanns i källan men inte kunde kopplas
+  // till en rad i vår player-tabell (samma "team-namn utan spelarnamn"-fall
+  // MatchTimeline redan har en egen visuell fallback för, per event). "var"
+  // saknar ibland legitimt en spelare i källan — undantaget här, inte ett
+  // tecken på ofullständig import.
+  const fullPlayerDetail =
+    events.length === 0 || events.every((e) => e.type === "var" || e.player !== null);
 
   // Delad med steg 7:s finalize-match.ts (lib/football/match-completeness.ts)
   // — samma avstämningslogik oavsett om den körs vid läsning (här) eller i
