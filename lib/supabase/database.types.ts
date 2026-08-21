@@ -97,6 +97,8 @@ export interface Database {
           nicknames: string[];
           short_history: string | null;
           website_url: string | null;
+          /** Sportmonks eget lag-id. Sätts bara av scripts/import/sportmonks-map-teams.ts (Fas 1). */
+          sportmonks_id: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -164,6 +166,8 @@ export interface Database {
           position: string | null;
           photo_url: string | null;
           current_team_id: number | null;
+          /** Sportmonks eget spelar-id. Sätts BARA från godkända sportmonks_player_mapping_candidate-rader (Fas 3) — aldrig direkt av ett importscript. */
+          sportmonks_id: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -191,6 +195,12 @@ export interface Database {
           lineups_synced_at: string | null;
           statistics_synced_at: string | null;
           player_stats_synced_at: string | null;
+          /** Sportmonks eget fixture-id. Sätts av scripts/import/sportmonks-map-fixtures.ts (Fas 2). */
+          sportmonks_id: number | null;
+          sportmonks_advanced_stats_synced_at: string | null;
+          sportmonks_xg_synced_at: string | null;
+          sportmonks_pressure_synced_at: string | null;
+          sportmonks_match_facts_synced_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -518,6 +528,8 @@ export interface Database {
           fixture_id: number | null;
           response: unknown;
           fetched_at: string;
+          /** 'api-football' | 'sportmonks'. Default 'api-football' (befintliga rader). */
+          source: string;
         };
         Insert: Partial<Database["public"]["Tables"]["api_raw_response"]["Row"]> & {
           endpoint: string;
@@ -661,6 +673,207 @@ export interface Database {
           position_group: "goalkeeper" | "defender" | "midfielder" | "attacker";
         };
         Update: Partial<Database["public"]["Tables"]["player_season_rating"]["Row"]>;
+        Relationships: [];
+      };
+      // --- Sportmonks-integration (Fas 0, 20260821150000_sportmonks_foundation.sql) ---
+      sportmonks_type: {
+        Row: {
+          id: number;
+          name: string;
+          code: string | null;
+          stat_group: string | null;
+          raw: unknown;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["sportmonks_type"]["Row"]> & {
+          id: number;
+          name: string;
+          raw: unknown;
+        };
+        Update: Partial<Database["public"]["Tables"]["sportmonks_type"]["Row"]>;
+        Relationships: [];
+      };
+      sportmonks_player_mapping_candidate: {
+        Row: {
+          id: number;
+          player_id: number;
+          sportmonks_player_id: number;
+          sportmonks_name: string;
+          team_id: number | null;
+          match_basis: "name_and_dob" | "name_only" | "fuzzy_name_and_dob" | "fuzzy_name" | "manual";
+          confidence: "high" | "medium" | "low";
+          score: number | null;
+          status: "pending" | "approved" | "rejected";
+          reviewed_by: string | null;
+          reviewed_at: string | null;
+          notes: string | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["sportmonks_player_mapping_candidate"]["Row"]> & {
+          player_id: number;
+          sportmonks_player_id: number;
+          sportmonks_name: string;
+          match_basis: "name_and_dob" | "name_only" | "fuzzy_name_and_dob" | "fuzzy_name" | "manual";
+          confidence: "high" | "medium" | "low";
+        };
+        Update: Partial<Database["public"]["Tables"]["sportmonks_player_mapping_candidate"]["Row"]>;
+        Relationships: [];
+      };
+      fixture_player_advanced_stats: {
+        Row: {
+          id: number;
+          fixture_id: number;
+          team_id: number;
+          player_id: number | null;
+          touches: number | null;
+          ball_recovery: number | null;
+          possession_lost: number | null;
+          turnovers: number | null;
+          passes_final_third: number | null;
+          backward_passes: number | null;
+          total_crosses: number | null;
+          accurate_crosses: number | null;
+          successful_crosses_pct: number | null;
+          aerials_total: number | null;
+          aerials_won: number | null;
+          aerials_lost: number | null;
+          aerials_won_pct: number | null;
+          long_balls: number | null;
+          long_balls_won: number | null;
+          long_balls_won_pct: number | null;
+          big_chances_created: number | null;
+          big_chances_missed: number | null;
+          chances_created: number | null;
+          tackles_won: number | null;
+          tackles_won_pct: number | null;
+          duels_won_pct: number | null;
+          passes_accuracy_pct: number | null;
+          clearances: number | null;
+          clearance_offline: number | null;
+          error_lead_to_shot: number | null;
+          hit_woodwork: number | null;
+          dispossessed: number | null;
+          man_of_match: boolean | null;
+          gk_good_high_claim: number | null;
+          gk_saves_insidebox: number | null;
+          gk_punches: number | null;
+          xg: number | null;
+          xgot: number | null;
+          /** Overifierade type_id, {type_id: värde} — se migrationens filhuvud. Konsumeras INTE av analyskod förrän verifierat. */
+          raw_types: Record<string, unknown>;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fixture_player_advanced_stats"]["Row"]> & {
+          fixture_id: number;
+          team_id: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["fixture_player_advanced_stats"]["Row"]>;
+        Relationships: [];
+      };
+      fixture_team_advanced_stats: {
+        Row: {
+          id: number;
+          fixture_id: number;
+          team_id: number;
+          attacks: number | null;
+          dangerous_attacks: number | null;
+          ball_safe: number | null;
+          long_passes: number | null;
+          successful_long_passes: number | null;
+          successful_long_passes_pct: number | null;
+          total_crosses: number | null;
+          accurate_crosses: number | null;
+          big_chances_created: number | null;
+          big_chances_missed: number | null;
+          hit_woodwork: number | null;
+          injuries: number | null;
+          successful_passes_pct: number | null;
+          successful_dribbles_pct: number | null;
+          raw_types: Record<string, unknown>;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fixture_team_advanced_stats"]["Row"]> & {
+          fixture_id: number;
+          team_id: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["fixture_team_advanced_stats"]["Row"]>;
+        Relationships: [];
+      };
+      fixture_team_xg: {
+        Row: {
+          id: number;
+          fixture_id: number;
+          team_id: number;
+          xg: number | null;
+          xgot: number | null;
+          npxg: number | null;
+          xg_open_play: number | null;
+          xg_set_play: number | null;
+          xg_corners: number | null;
+          xg_free_kicks: number | null;
+          xg_penalties: number | null;
+          xg_difference: number | null;
+          xg_against: number | null;
+          xg_prevented: number | null;
+          xpts: number | null;
+          /** type_id 9685 "Shooting Performance" — bekräftat befolkad, INNEBÖRD OVERIFIERAD. Får inte användas av analyskod. */
+          shooting_performance: number | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fixture_team_xg"]["Row"]> & {
+          fixture_id: number;
+          team_id: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["fixture_team_xg"]["Row"]>;
+        Relationships: [];
+      };
+      fixture_pressure_index: {
+        Row: {
+          id: number;
+          fixture_id: number;
+          team_id: number;
+          minute: number;
+          pressure: number;
+          sportmonks_row_id: number | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fixture_pressure_index"]["Row"]> & {
+          fixture_id: number;
+          team_id: number;
+          minute: number;
+          pressure: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["fixture_pressure_index"]["Row"]>;
+        Relationships: [];
+      };
+      fixture_match_facts: {
+        Row: {
+          id: number;
+          fixture_id: number;
+          sportmonks_type_id: number;
+          team_id: number | null;
+          player_id: number | null;
+          participant: string | null;
+          basis: string | null;
+          scope: string | null;
+          value_shape: "scalar" | "home_away" | "distribution" | "other";
+          data: unknown;
+          natural_language: string | null;
+          category: string | null;
+          sportmonks_row_id: number | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fixture_match_facts"]["Row"]> & {
+          fixture_id: number;
+          sportmonks_type_id: number;
+          value_shape: "scalar" | "home_away" | "distribution" | "other";
+          data: unknown;
+        };
+        Update: Partial<Database["public"]["Tables"]["fixture_match_facts"]["Row"]>;
         Relationships: [];
       };
     };

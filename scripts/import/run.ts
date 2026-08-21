@@ -17,6 +17,7 @@ import { finalizeMatches } from "./finalize-match";
 import { seedTeamFacts } from "./seed-team-facts";
 import { seedLeagueFacts } from "./seed-league-facts";
 import { refreshAllSeasonRatings } from "./refresh-ratings";
+import { importSportmonksTypes } from "./import-sportmonks-types";
 
 config({ path: path.resolve(process.cwd(), ".env.local") });
 
@@ -45,6 +46,11 @@ const STEPS: Record<string, () => Promise<void>> = {
   facts: async () => {
     await seedTeamFacts();
     await seedLeagueFacts();
+  },
+  // Sportmonks-integration, Fas 0. Egen kvotbudget ("core"-entiteten), körs
+  // sällan (typregistret ändras knappt) — INTE del av 'all'.
+  "sportmonks-types": async () => {
+    await importSportmonksTypes();
   },
   // 'all' kör de billiga stegen (~25 anrop totalt för 2 lag x 3 säsonger).
   // 'events' kör INTE med här — den kostar ett anrop per match och kan

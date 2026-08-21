@@ -48,7 +48,7 @@ inget jag kan göra åt dig).
    ```
 2. **Koppla repot till ett Vercel-projekt** (vercel.com → New Project → importera GitHub-repot).
 3. **Sätt miljövariablerna** i Vercel-projektets Settings → Environment Variables — samma som i din lokala `.env.local`:
-   `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `API_FOOTBALL_KEY`, `ANTHROPIC_API_KEY` (och övriga chatten redan använder).
+   `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `API_FOOTBALL_KEY`, `ANTHROPIC_API_KEY` (och övriga chatten redan använder). `SPORTMONKS_API_TOKEN` behövs bara lokalt tills Sportmonks-importskripten (Fas 0+, `lib/sportmonks/client.ts`) körs från ett cron/produktionssteg — inget sådant är kopplat in ännu, så den behöver inte sättas i Vercel förrän dess.
 4. **Sätt en `CRON_SECRET`** i Vercel — en slumpad sträng, minst 16 tecken (t.ex. en lösenordsgenerator).
 5. **Deploya.** `finalize`-cronet aktiveras automatiskt från `vercel.json`.
 6. **Sätt samma `CRON_SECRET` i GitHub** (repots Settings → Secrets and
