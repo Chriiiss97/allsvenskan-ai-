@@ -7,7 +7,9 @@ import { computeAdvancedPlayerDNA } from "@/lib/football/advanced-dna";
 import { computeRatingForPlayer } from "@/lib/football/rating/compute-rating";
 import { getPlayerRatingHistory } from "@/lib/football/rating/rating-store";
 import { buildRatingTrendSummary } from "@/lib/football/rating/rating-trend";
+import { computeAdvancedDevelopment } from "@/lib/football/rating/advanced-development";
 import { PlayerRatingHistory } from "@/components/data/PlayerRatingHistory";
+import { AdvancedDevelopment } from "@/components/data/AdvancedDevelopment";
 import { getPlayerLineupRoleProfile } from "@/lib/football/lineup-role";
 import { calculateAge } from "@/lib/football/age";
 import { StatBar } from "@/components/data/StatBar";
@@ -54,6 +56,10 @@ export default async function PlayerProfilePage({
     profile.season && [2024, 2025, 2026].includes(profile.season)
       ? await computeAdvancedPlayerDNA(supabase, { playerId: profile.player.id, season: profile.season })
       : null;
+  // Fas 12: "varför" utvecklingen skedde, jämför de två senaste Sportmonks-
+  // täckta säsongerna — oberoende av vilken säsong sidan just nu visar
+  // (komponenten döljer sig själv om spelaren saknar minst två).
+  const advancedDevelopment = await computeAdvancedDevelopment(supabase, { playerId: profile.player.id });
   // Player Rating (2026-08-21): separat statistisk 0-99-OVR, INTE samma sak
   // som Player DNA (DNA = vilken typ av spelare, Rating = hur bra
   // presterade den här säsongen) — se lib/football/rating/compute-rating.ts.
@@ -171,6 +177,14 @@ export default async function PlayerProfilePage({
       <div className="mt-4">
         <PlayerRatingHistory history={ratingHistory} trend={ratingTrend} />
       </div>
+
+      {/* Fas 12: "varför" — helt frånvarande (ingen tom div) om spelaren
+          saknar minst två Sportmonks-täckta säsonger att jämföra. */}
+      {advancedDevelopment.available && (
+        <div className="mt-4">
+          <AdvancedDevelopment development={advancedDevelopment} />
+        </div>
+      )}
 
       {/* Player DNA — flyttad högst upp: det här är analysen, inte en
           detalj längst ner på sidan. */}
