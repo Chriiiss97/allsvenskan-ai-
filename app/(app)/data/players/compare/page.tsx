@@ -108,6 +108,7 @@ export default async function ComparePlayersPage({
         tabs={[
           { label: "Spelare", href: "/data/players" },
           { label: "Jämför spelare", href: "/data/players/compare" },
+          { label: "Topplista", href: "/data/players/rankings" },
         ]}
       />
       <h1 className="text-3xl font-bold tracking-tight">Jämför spelare</h1>

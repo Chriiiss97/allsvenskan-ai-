@@ -114,6 +114,7 @@ export default async function PlayersIndexPage({
         tabs={[
           { label: "Spelare", href: "/data/players" },
           { label: "Jämför spelare", href: "/data/players/compare" },
+          { label: "Topplista", href: "/data/players/rankings" },
         ]}
       />
 
