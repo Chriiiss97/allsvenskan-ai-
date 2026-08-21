@@ -3,7 +3,7 @@ import type { Database } from "@/lib/supabase/database.types";
 import { hasPlayedSeason } from "./active-player";
 import { calculateAge } from "./age";
 import { computeSeasonOvrMap } from "./rating/compute-rating";
-import { getRatingTrendComparison, getStoredSeasonRatings, type RatingTrendEntry } from "./rating/rating-store";
+import { getRatingTrendComparison, getStoredSeasonRatings, getCareerConsistencyMap, type RatingTrendEntry } from "./rating/rating-store";
 import { computePlayerArchetypes, type MatchedArchetype } from "./rating/archetypes";
 
 type Supabase = SupabaseClient<Database>;
@@ -67,6 +67,14 @@ export interface PlayerListParams {
    */
   archetypeKeys?: string[];
   /**
+   * Scout Engine Fas 5 (2026-08-21) — "konsekvent bra" (se
+   * rating-store.ts:s getCareerConsistencyMap). Läser HELA
+   * player_season_rating (alla säsonger), INTE bara den valda — bara
+   * hämtat om något av dessa två faktiskt är satt (ingen kostnad annars).
+   */
+  consistencyMinSeasons?: number;
+  consistencyOvrThreshold?: number;
+  /**
    * Namnsök — filtreras i JS på den redan säsongsavgränsade mängden (se
    * filbeskrivningen), INTE en DB-fråga. player.full_name saknar index
    * (bekräftat, ingen trigram/GIN), men ~200–400 rader/säsong gör en
@@ -75,7 +83,7 @@ export interface PlayerListParams {
    * tidigare klient-lokala sökningen som bara såg redan hämtade rader).
    */
   query?: string;
-  sort: "name" | "goals" | "assists" | "appearances" | "minutes" | "goalsPer90" | "age" | "rating" | "ovrDelta";
+  sort: "name" | "goals" | "assists" | "appearances" | "minutes" | "goalsPer90" | "age" | "rating" | "ovrDelta" | "consistency";
   sortDir: "asc" | "desc";
   page: number;
   pageSize: number;
@@ -99,6 +107,8 @@ export interface PlayerListItem {
   ovrDelta: number | null;
   /** Scout Engine Fas 3/4 — regelbaserade spelartyper, alltid en (ev. tom) array. */
   archetypes: MatchedArchetype[];
+  /** Scout Engine Fas 5 — antal säsonger totalt med OVR >= consistencyOvrThreshold. Alltid 0 om consistencyMinSeasons/-Threshold inte begärdes (ingen kostnad annars). */
+  seasonsAboveThreshold: number;
 }
 
 export interface PlayerListResult {
@@ -141,11 +151,16 @@ export async function listPlayers(supabase: Supabase, params: PlayerListParams):
   // Parallellt med statistics-frågan ovan — oberoende datakällor
   // (fixture_player_stats via computeSeasonOvrMap/getRatingTrendComparison),
   // ingen anledning att vänta på den ena innan den andra startar.
-  const [{ data, error }, ovrMap, trendEntries, storedRatings] = await Promise.all([
+  // Även när man bara SORTERAR på "konsekvent bra" utan att sätta ett
+  // minsta-antal-filter — annars tävlar alla om 0 och sorteringen blir
+  // meningslös. Filtret och sorteringen ska alltid vara i synk.
+  const wantsConsistency = params.consistencyMinSeasons !== undefined || params.consistencyOvrThreshold !== undefined || params.sort === "consistency";
+  const [{ data, error }, ovrMap, trendEntries, storedRatings, consistencyMap] = await Promise.all([
     query.returns<StatRow[]>(),
     computeSeasonOvrMap(supabase, { season: params.season }),
     resolveTrendComparison(supabase, params),
     getStoredSeasonRatings(supabase, seasonRow.id),
+    wantsConsistency ? getCareerConsistencyMap(supabase, params.consistencyOvrThreshold ?? 70) : Promise.resolve(null),
   ]);
   if (error) throw error;
   const deltaByPlayer = new Map(trendEntries?.map((e) => [e.playerId, e.delta]) ?? []);
@@ -200,6 +215,7 @@ export async function listPlayers(supabase: Supabase, params: PlayerListParams):
       rating: ovrMap.get(r.player!.id) ?? null,
       ovrDelta: deltaByPlayer.get(r.player!.id) ?? null,
       archetypes: archetypesByPlayer.get(r.player!.id) ?? [],
+      seasonsAboveThreshold: consistencyMap?.get(r.player!.id)?.seasonsAboveThreshold ?? 0,
     }));
 
   if (params.position) items = items.filter((p) => p.position === params.position);
@@ -215,6 +231,7 @@ export async function listPlayers(supabase: Supabase, params: PlayerListParams):
     const wanted = new Set(params.archetypeKeys);
     items = items.filter((p) => p.archetypes.some((a) => wanted.has(a.key)));
   }
+  if (params.consistencyMinSeasons !== undefined) items = items.filter((p) => p.seasonsAboveThreshold >= params.consistencyMinSeasons!);
   if (params.query) {
     const needle = params.query.trim().toLowerCase();
     if (needle) items = items.filter((p) => p.fullName.toLowerCase().includes(needle));
@@ -239,6 +256,8 @@ export async function listPlayers(supabase: Supabase, params: PlayerListParams):
         return dir * ((a.rating ?? -1) - (b.rating ?? -1));
       case "ovrDelta":
         return dir * ((a.ovrDelta ?? -100) - (b.ovrDelta ?? -100));
+      case "consistency":
+        return dir * (a.seasonsAboveThreshold - b.seasonsAboveThreshold);
       case "goals":
       default:
         return dir * (a.goals - b.goals);

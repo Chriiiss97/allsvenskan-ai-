@@ -165,3 +165,63 @@ export async function getRatingTrendComparison(
   }
   return entries;
 }
+
+export interface CareerConsistency {
+  playerId: number;
+  /** Antal säsonger med en giltig, minst "medel"-säker OVR — samma konfidensgolv som rating-trend.ts:s peak-logik, en flopp-säsong ska inte kunna räknas som en "bra säsong". */
+  seasonsPlayed: number;
+  /** Medel-OVR över de säsongerna. */
+  averageOvr: number;
+  /** Hur många av de säsongerna som klarade tröskeln (default 70). */
+  seasonsAboveThreshold: number;
+}
+
+/**
+ * "Konsekvent bra" — Scout Engine Fas 5 (historisk analys). Läser HELA
+ * player_season_rating (alla 11 säsonger, ~4 659 rader just nu — långt
+ * över Supabases 1000-radstak, sidnumrerad explicit, samma disciplin som
+ * redan bevisad nödvändig flera gånger i det här projektet). En enda
+ * fråga, oavsett hur många spelare Scout sedan filtrerar bland — inte en
+ * fråga per spelare.
+ *
+ * Kräver minst "medel" konfidens per säsong (samma princip som
+ * rating-trend.ts:s peak) — annars kunde en enda 200-minuters-flopp med
+ * ett slumpmässigt högt tal dra upp både snittet och tröskel-räkningen.
+ */
+export async function getCareerConsistencyMap(supabase: Supabase, thresholdOvr = 70): Promise<Map<number, CareerConsistency>> {
+  type Row = { player_id: number; ovr: number | null; confidence_tier: ConfidenceTier | null };
+  const rows: Row[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("player_season_rating")
+      .select("player_id, ovr, confidence_tier")
+      .range(from, from + PAGE - 1)
+      .returns<Row[]>();
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < PAGE) break;
+  }
+
+  const byPlayer = new Map<number, { sum: number; count: number; above: number }>();
+  for (const r of rows) {
+    if (r.ovr === null || r.confidence_tier === "låg" || r.confidence_tier === null) continue;
+    const entry = byPlayer.get(r.player_id) ?? { sum: 0, count: 0, above: 0 };
+    entry.sum += r.ovr;
+    entry.count += 1;
+    if (r.ovr >= thresholdOvr) entry.above += 1;
+    byPlayer.set(r.player_id, entry);
+  }
+
+  const result = new Map<number, CareerConsistency>();
+  for (const [playerId, e] of byPlayer) {
+    result.set(playerId, {
+      playerId,
+      seasonsPlayed: e.count,
+      averageOvr: Math.round((e.sum / e.count) * 10) / 10,
+      seasonsAboveThreshold: e.above,
+    });
+  }
+  return result;
+}

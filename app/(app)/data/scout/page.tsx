@@ -15,13 +15,15 @@ export const revalidate = 3600;
 
 const PAGE_SIZE = 30;
 const VALID_SORTS: PlayerListParams["sort"][] = [
-  "name", "goals", "assists", "appearances", "minutes", "goalsPer90", "age", "rating", "ovrDelta",
+  "name", "goals", "assists", "appearances", "minutes", "goalsPer90", "age", "rating", "ovrDelta", "consistency",
 ];
 const POSITIONS: NonNullable<PlayerListParams["position"]>[] = ["Goalkeeper", "Defender", "Midfielder", "Attacker"];
 const SORT_OPTIONS: [PlayerListParams["sort"], string][] = [
-  ["rating", "OVR"], ["ovrDelta", "OVR-förändring"], ["goals", "Mål"], ["assists", "Assist"],
+  ["rating", "OVR"], ["ovrDelta", "OVR-förändring"], ["consistency", "Konsekvent bra"], ["goals", "Mål"], ["assists", "Assist"],
   ["goalsPer90", "Mål/90"], ["minutes", "Minuter"], ["appearances", "Matcher"], ["age", "Ålder"], ["name", "Namn"],
 ];
+/** Tröskeln "konsekvent bra"-filtret räknar säsonger mot — fast, inte konfigurerbar i UI:t (håller filtret till EN enkel siffra istället för två, samma "inte ett Excel-ark"-princip som resten av Scout). */
+const CONSISTENCY_OVR_THRESHOLD = 70;
 
 /**
  * Scout — egen huvudsektion i navbaren (2026-08-21), medvetet skild från
@@ -59,6 +61,7 @@ export default async function ScoutPage({
     ovrDeltaMin?: string;
     ovrDeltaMax?: string;
     archetype?: string | string[];
+    consistencyMinSeasons?: string;
     q?: string;
     page?: string;
   }>;
@@ -97,6 +100,8 @@ export default async function ScoutPage({
       ovrDeltaMin: sp.ovrDeltaMin ? Number(sp.ovrDeltaMin) : undefined,
       ovrDeltaMax: sp.ovrDeltaMax ? Number(sp.ovrDeltaMax) : undefined,
       archetypeKeys: selectedArchetypes.length > 0 ? selectedArchetypes : undefined,
+      consistencyMinSeasons: sp.consistencyMinSeasons ? Number(sp.consistencyMinSeasons) : undefined,
+      consistencyOvrThreshold: sp.consistencyMinSeasons ? CONSISTENCY_OVR_THRESHOLD : undefined,
       query: sp.q,
       sort,
       sortDir,
@@ -131,6 +136,7 @@ export default async function ScoutPage({
       season: sp.season, compareSeason: sp.compareSeason, team: sp.team, position: sp.position,
       ageMin: sp.ageMin, ageMax: sp.ageMax, goalsMin: sp.goalsMin, assistsMin: sp.assistsMin, minutesMin: sp.minutesMin,
       ratingMin: sp.ratingMin, ratingMax: sp.ratingMax, ovrDeltaMin: sp.ovrDeltaMin, ovrDeltaMax: sp.ovrDeltaMax,
+      consistencyMinSeasons: sp.consistencyMinSeasons,
       q: sp.q, sort: sp.sort, dir: sp.dir, page: sp.page,
       ...overrides,
     };
@@ -150,7 +156,8 @@ export default async function ScoutPage({
 
   const hasFilters =
     sp.team || sp.position || sp.ageMin || sp.ageMax || sp.goalsMin || sp.assistsMin || sp.minutesMin ||
-    sp.ratingMin || sp.ratingMax || sp.compareSeason || sp.ovrDeltaMin || sp.ovrDeltaMax || sp.q || selectedArchetypes.length > 0;
+    sp.ratingMin || sp.ratingMax || sp.compareSeason || sp.ovrDeltaMin || sp.ovrDeltaMax || sp.q ||
+    selectedArchetypes.length > 0 || sp.consistencyMinSeasons;
 
   return (
     <div>
@@ -270,6 +277,18 @@ export default async function ScoutPage({
             </label>
           </>
         )}
+        <label className="flex flex-col gap-1 text-xs text-[#898781]">
+          Konsekvent bra
+          <input
+            type="number"
+            name="consistencyMinSeasons"
+            defaultValue={sp.consistencyMinSeasons ?? ""}
+            min={1}
+            placeholder="Antal säsonger"
+            title={`Minst så här många säsonger totalt (alla 2016–2026) med OVR ≥ ${CONSISTENCY_OVR_THRESHOLD}`}
+            className="w-24 rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-sm text-white"
+          />
+        </label>
         <button type="submit" className="rounded-md bg-[#3987e5] px-3 py-1.5 text-sm font-medium text-white">
           Sök
         </button>
@@ -279,7 +298,8 @@ export default async function ScoutPage({
               {
                 team: undefined, position: undefined, ageMin: undefined, ageMax: undefined, goalsMin: undefined,
                 assistsMin: undefined, minutesMin: undefined, ratingMin: undefined, ratingMax: undefined,
-                compareSeason: undefined, ovrDeltaMin: undefined, ovrDeltaMax: undefined, q: undefined, page: undefined,
+                compareSeason: undefined, ovrDeltaMin: undefined, ovrDeltaMax: undefined,
+                consistencyMinSeasons: undefined, q: undefined, page: undefined,
               },
               []
             )}
