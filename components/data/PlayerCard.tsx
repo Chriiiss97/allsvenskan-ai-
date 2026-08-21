@@ -30,6 +30,8 @@ export interface PlayerCardData {
   ovrDelta?: number | null;
   /** Scout Engine Fas 4 — regelbaserade spelartyper (t.ex. "Målskytt"). Odefinierad/tom döljer raden helt. */
   archetypes?: { label: string; definition: string }[];
+  /** Scout Engine Fas 6 — hur väl spelaren matchar de aktiva Scout-kriterierna, transparent (se lib/football/rating/scout-match.ts). Odefinierad/null döljer badgen helt (t.ex. inga filter aktiva). */
+  scoutMatch?: { percent: number; criteria: { label: string; strong: boolean }[] } | null;
 }
 
 export type PlayerSortKey = "name" | "goals" | "assists" | "appearances" | "minutes";
@@ -72,6 +74,9 @@ export function PlayerCard({ player, sort = "name" }: { player: PlayerCardData; 
   const accent = getTeamAccent(player.teamExternalId);
   const positionColor = player.position ? POSITION_COLORS[player.position] : undefined;
   const primaryStat = player.stat ? primaryStatFor(player.stat, sort) : null;
+  const matchTooltip = player.scoutMatch
+    ? player.scoutMatch.criteria.map((c) => `${c.strong ? "✅" : "⚠️"} ${c.label}`).join("\n")
+    : undefined;
 
   return (
     <Link
@@ -93,6 +98,15 @@ export function PlayerCard({ player, sort = "name" }: { player: PlayerCardData; 
             </span>
           )}
           {player.age != null && <span className="shrink-0 text-xs text-[#898781]">{player.age} år</span>}
+          {player.scoutMatch != null && (
+            <span
+              title={matchTooltip}
+              className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold"
+              style={{ backgroundColor: `${ovrColor(player.scoutMatch.percent)}22`, color: ovrColor(player.scoutMatch.percent) }}
+            >
+              {player.scoutMatch.percent}% match
+            </span>
+          )}
         </div>
         {player.archetypes && player.archetypes.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1">

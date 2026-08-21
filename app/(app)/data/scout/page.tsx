@@ -5,6 +5,7 @@ import { SectionTabs } from "@/components/data/SectionTabs";
 import { getAvailableSeasons, listTeams } from "@/lib/football/catalog";
 import { listPlayers, type PlayerListParams } from "@/lib/football/player-catalog";
 import { ARCHETYPES } from "@/lib/football/rating/archetypes";
+import { computeScoutMatch } from "@/lib/football/rating/scout-match";
 import { translatePosition } from "@/lib/i18n/sv";
 
 // Samma motivering som /data/players/rankings: listPlayers kör
@@ -83,31 +84,33 @@ export default async function ScoutPage({
   const teamId = sp.team ? teamByExternalId.get(Number(sp.team))?.id : undefined;
   const page = sp.page ? Math.max(0, Number(sp.page) - 1) : 0;
 
+  const listParams: PlayerListParams = {
+    season: seasonYear ?? 0,
+    compareSeason: compareYear,
+    teamId,
+    position,
+    ageMin: sp.ageMin ? Number(sp.ageMin) : undefined,
+    ageMax: sp.ageMax ? Number(sp.ageMax) : undefined,
+    goalsMin: sp.goalsMin ? Number(sp.goalsMin) : undefined,
+    assistsMin: sp.assistsMin ? Number(sp.assistsMin) : undefined,
+    minutesMin: sp.minutesMin ? Number(sp.minutesMin) : undefined,
+    ratingMin: sp.ratingMin ? Number(sp.ratingMin) : undefined,
+    ratingMax: sp.ratingMax ? Number(sp.ratingMax) : undefined,
+    ovrDeltaMin: sp.ovrDeltaMin ? Number(sp.ovrDeltaMin) : undefined,
+    ovrDeltaMax: sp.ovrDeltaMax ? Number(sp.ovrDeltaMax) : undefined,
+    archetypeKeys: selectedArchetypes.length > 0 ? selectedArchetypes : undefined,
+    consistencyMinSeasons: sp.consistencyMinSeasons ? Number(sp.consistencyMinSeasons) : undefined,
+    consistencyOvrThreshold: sp.consistencyMinSeasons ? CONSISTENCY_OVR_THRESHOLD : undefined,
+    query: sp.q,
+    sort,
+    sortDir,
+    page,
+    pageSize: PAGE_SIZE,
+  };
+
   let result = { items: [] as Awaited<ReturnType<typeof listPlayers>>["items"], total: 0 };
   if (seasonYear) {
-    result = await listPlayers(supabase, {
-      season: seasonYear,
-      compareSeason: compareYear,
-      teamId,
-      position,
-      ageMin: sp.ageMin ? Number(sp.ageMin) : undefined,
-      ageMax: sp.ageMax ? Number(sp.ageMax) : undefined,
-      goalsMin: sp.goalsMin ? Number(sp.goalsMin) : undefined,
-      assistsMin: sp.assistsMin ? Number(sp.assistsMin) : undefined,
-      minutesMin: sp.minutesMin ? Number(sp.minutesMin) : undefined,
-      ratingMin: sp.ratingMin ? Number(sp.ratingMin) : undefined,
-      ratingMax: sp.ratingMax ? Number(sp.ratingMax) : undefined,
-      ovrDeltaMin: sp.ovrDeltaMin ? Number(sp.ovrDeltaMin) : undefined,
-      ovrDeltaMax: sp.ovrDeltaMax ? Number(sp.ovrDeltaMax) : undefined,
-      archetypeKeys: selectedArchetypes.length > 0 ? selectedArchetypes : undefined,
-      consistencyMinSeasons: sp.consistencyMinSeasons ? Number(sp.consistencyMinSeasons) : undefined,
-      consistencyOvrThreshold: sp.consistencyMinSeasons ? CONSISTENCY_OVR_THRESHOLD : undefined,
-      query: sp.q,
-      sort,
-      sortDir,
-      page,
-      pageSize: PAGE_SIZE,
-    });
+    result = await listPlayers(supabase, listParams);
   }
 
   const cards: PlayerCardData[] = result.items.map((p) => {
@@ -123,6 +126,7 @@ export default async function ScoutPage({
       rating: p.rating,
       ovrDelta: compareYear ? p.ovrDelta : null,
       archetypes: p.archetypes,
+      scoutMatch: computeScoutMatch(p, listParams),
       stat: { goals: p.goals, assists: p.assists, appearances: p.appearances, minutesPlayed: p.minutesPlayed, year: seasonYear ?? "all" },
     };
   });
