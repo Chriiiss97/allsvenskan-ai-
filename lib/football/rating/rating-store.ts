@@ -22,6 +22,8 @@ type Supabase = SupabaseClient<Database>;
 export interface StoredMetricValue {
   value: number;
   percentile: number;
+  /** Scout Engine Fas 8 (prestanda) — 0 för fristående Scout-mått (scout-metrics.ts) som inte har någon peer-genomsnitt i sitt returformat. */
+  peerAverage: number;
 }
 
 export interface StoredSeasonRating {
@@ -34,6 +36,8 @@ export interface StoredSeasonRating {
   categoryScores: Record<string, number> | null;
   /** Scout Engine Fas 2 — per mått: {value, percentile}. Grunden för arketyper/percentilfilter. */
   metricValues: Record<string, StoredMetricValue> | null;
+  /** Scout Engine Fas 8 (prestanda) — antal peers confidence-bedömningen byggde på. */
+  peerCount: number | null;
 }
 
 /**
@@ -44,7 +48,7 @@ export interface StoredSeasonRating {
 export async function getStoredSeasonRatings(supabase: Supabase, seasonId: number): Promise<StoredSeasonRating[] | null> {
   const { data, error } = await supabase
     .from("player_season_rating")
-    .select("player_id, position_group, ovr, confidence_tier, own_minutes, category_scores, metric_values")
+    .select("player_id, position_group, ovr, confidence_tier, own_minutes, category_scores, metric_values, peer_count")
     .eq("season_id", seasonId);
   if (error) throw error;
   if (!data || data.length === 0) return null;
@@ -56,6 +60,7 @@ export async function getStoredSeasonRatings(supabase: Supabase, seasonId: numbe
     ownMinutes: r.own_minutes,
     categoryScores: r.category_scores,
     metricValues: r.metric_values,
+    peerCount: r.peer_count,
   }));
 }
 

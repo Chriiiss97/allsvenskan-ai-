@@ -42,6 +42,18 @@ export const GOALKEEPER_WEIGHTS = {
   cleanSheetPct: 20,
 } as const;
 
+/** Scout Engine Fas 8 (prestanda) — rating-store.ts:s snabba läsväg behöver label/unit för att visa "varför X?" utan att räkna om. Enda källan till sanning för dessa strängar, ingen dubblett. */
+export const GOALKEEPER_METRIC_LABELS: Record<keyof typeof GOALKEEPER_WEIGHTS, string> = {
+  savePct: "Räddningsprocent",
+  goalsConcededPer90: "Insläppta mål",
+  cleanSheetPct: "Clean sheet-andel",
+};
+export const GOALKEEPER_METRIC_UNITS: Record<keyof typeof GOALKEEPER_WEIGHTS, "/90" | "%"> = {
+  savePct: "%",
+  goalsConcededPer90: "/90",
+  cleanSheetPct: "%",
+};
+
 function assertGkWeightsSumTo100() {
   const sum = Object.values(GOALKEEPER_WEIGHTS).reduce((a, b) => a + b, 0);
   if (sum !== 100) throw new Error(`goalkeeper-rating.ts: GOALKEEPER_WEIGHTS summerar till ${sum}, inte 100.`);
@@ -155,16 +167,25 @@ function rateGoalkeeper(player: PlayerSeasonAggregate, peers: PlayerSeasonAggreg
     }
   }
 
-  // Proportionell viktomskalning, exakt samma princip som computeOvr i
-  // position-rating-config.ts: om ett mått saknar underlag helt fördelas
-  // dess vikt om över de kvarvarande, istället för att tyst räkna det som 0.
+  applyGoalkeeperWeighting(details);
+  return details;
+}
+
+/**
+ * Proportionell viktomskalning, exakt samma princip som computeOvr i
+ * position-rating-config.ts: om ett mått saknar underlag helt fördelas
+ * dess vikt om över de kvarvarande, istället för att tyst räkna det som 0.
+ * Extraherad (Scout Engine Fas 8, prestanda) så rating-store.ts:s snabba
+ * läsväg (byggd på redan sparade percentiler) kan återanvända EXAKT samma
+ * formel istället för att duplicera den — garanterat identiskt resultat
+ * med den levande beräkningen ovan, inte "nästan samma".
+ */
+export function applyGoalkeeperWeighting(details: GoalkeeperMetricDetail[]): void {
   const availableWeightSum = details.reduce((a, d) => a + d.weight, 0);
   for (const d of details) {
     const effectiveWeight = availableWeightSum > 0 ? (d.weight / availableWeightSum) * 100 : 0;
     d.contribution = Math.round(((d.percentile * effectiveWeight) / 100 + Number.EPSILON) * 10) / 10;
   }
-
-  return details;
 }
 
 function toPeerShape(agg: PlayerSeasonAggregate): PlayerSeasonAggregate & { minutes_played: number } {

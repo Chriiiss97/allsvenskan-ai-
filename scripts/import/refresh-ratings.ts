@@ -65,7 +65,8 @@ export async function refreshRatingsForSeason(supabase: Supabase, params: { seas
     own_minutes: number;
     computed_at: string;
     category_scores: Record<string, number> | null;
-    metric_values: Record<string, { value: number; percentile: number }> | null;
+    metric_values: Record<string, { value: number; percentile: number; peerAverage: number }> | null;
+    peer_count: number | null;
   };
   const now = new Date().toISOString();
   const rows: UpsertRow[] = [];
@@ -73,13 +74,19 @@ export async function refreshRatingsForSeason(supabase: Supabase, params: { seas
   for (const [playerId, r] of outfield) {
     if (!r.available || !r.positionGroup || !r.categories) continue; // t.ex. okänd position — inget rimligt facit att skriva
     const categoryScores: Record<string, number> = {};
-    const metricValues: Record<string, { value: number; percentile: number }> = {};
+    const metricValues: Record<string, { value: number; percentile: number; peerAverage: number }> = {};
     for (const [categoryKey, category] of Object.entries(r.categories)) {
       if (category.score !== null) categoryScores[categoryKey] = category.score;
-      for (const m of category.metrics) metricValues[m.key] = { value: m.playerValue, percentile: m.percentile };
+      for (const m of category.metrics) metricValues[m.key] = { value: m.playerValue, percentile: m.percentile, peerAverage: m.peerAverage };
     }
     const agg = aggregates.get(playerId);
-    if (agg) Object.assign(metricValues, scoutMetricsFor(agg));
+    if (agg) {
+      // Scout-mått (t.ex. dribblesPastPer90) har ingen peerAverage i
+      // sitt eget returformat — 0 här är ofarligt, "varför X?"-vyn
+      // visar bara Scout-motorns egna mått (categories.ts:s 14),
+      // aldrig scout-metrics.ts:s fristående mått.
+      for (const [key, v] of Object.entries(scoutMetricsFor(agg))) metricValues[key] = { ...v, peerAverage: 0 };
+    }
 
     rows.push({
       player_id: playerId,
@@ -91,14 +98,17 @@ export async function refreshRatingsForSeason(supabase: Supabase, params: { seas
       computed_at: now,
       category_scores: categoryScores,
       metric_values: metricValues,
+      peer_count: r.confidence?.peerCount ?? null,
     });
   }
   for (const [playerId, r] of goalkeepers) {
     if (!r.available) continue;
-    const metricValues: Record<string, { value: number; percentile: number }> = {};
-    for (const m of r.metrics) metricValues[m.key] = { value: m.playerValue, percentile: m.percentile };
+    const metricValues: Record<string, { value: number; percentile: number; peerAverage: number }> = {};
+    for (const m of r.metrics) metricValues[m.key] = { value: m.playerValue, percentile: m.percentile, peerAverage: m.peerAverage };
     const agg = aggregates.get(playerId);
-    if (agg) Object.assign(metricValues, scoutMetricsFor(agg));
+    if (agg) {
+      for (const [key, v] of Object.entries(scoutMetricsFor(agg))) metricValues[key] = { ...v, peerAverage: 0 };
+    }
 
     rows.push({
       player_id: playerId,
@@ -110,6 +120,7 @@ export async function refreshRatingsForSeason(supabase: Supabase, params: { seas
       computed_at: now,
       category_scores: null,
       metric_values: metricValues,
+      peer_count: r.confidence?.peerCount ?? null,
     });
   }
 
