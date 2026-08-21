@@ -223,6 +223,15 @@ export interface FixturesParams {
   season?: number;
   opponent?: string;
   limit?: number;
+  // Fas 14.0: valfritt statusfilter. Utan den (default) oförändrat beteende
+  // för alla befintliga anropare (chatverktyget get_fixtures och
+  // /api/teams/[team]/fixtures ska fortsätta kunna returnera BÅDE spelade
+  // och kommande matcher). "finished" används av getTeamProfile nedan för
+  // att fixa en riktig bugg: utan filter kunde "senaste matcher" mitt i en
+  // säsong råka visa ospelade (NS) matcher, eftersom fixture-tabellen
+  // innehåller hela säsongens schema och sorteringen var kickoff_at DESC
+  // utan statusvillkor.
+  status?: "finished" | "upcoming";
 }
 
 export async function getFixtures(supabase: Supabase, params: FixturesParams) {
@@ -251,9 +260,12 @@ export async function getFixtures(supabase: Supabase, params: FixturesParams) {
     .select(
       "kickoff_at, status, round, home_score, away_score, home:home_team_id(id, name), away:away_team_id(id, name), season:season_id(year)"
     )
-    .or(matchupFilter)
-    .order("kickoff_at", { ascending: false })
-    .limit(limit);
+    .or(matchupFilter);
+
+  if (params.status === "finished") query = query.eq("status", "FT");
+  else if (params.status === "upcoming") query = query.neq("status", "FT");
+
+  query = query.order("kickoff_at", { ascending: false }).limit(limit);
 
   if (params.season) {
     await assertSeasonExists(supabase, params.season);
@@ -809,7 +821,11 @@ export async function getTeamProfile(supabase: Supabase, params: TeamProfilePara
     getTopScorers(supabase, { team: team.name, season: seasonYear ?? undefined, limit: 50 }),
     getTeamFacts(supabase, team.name),
     supabase.from("team").select("logo_url").eq("id", team.id).single<{ logo_url: string | null }>(),
-    getFixtures(supabase, { team: team.name, season: seasonYear ?? undefined, limit: 5 }),
+    // status: "finished" — Fas 14.0-fix: utan detta kunde denna lista visa
+    // KOMMANDE, ospelade matcher mitt i en säsong (se FixturesParams-
+    // kommentaren ovan), vilket direkt motsvarade användarens klagomål att
+    // "matcher visas inte korrekt".
+    getFixtures(supabase, { team: team.name, season: seasonYear ?? undefined, limit: 5, status: "finished" }),
   ]);
 
   // En spelare kan ha flera statistikrader samma säsong (t.ex. olika
@@ -843,6 +859,57 @@ export async function getTeamProfile(supabase: Supabase, params: TeamProfilePara
     topAssist: topAssist && topAssist.assists > 0 ? { name: topAssist.name, assists: topAssist.assists } : null,
     recentMatches: recentFixtures.fixtures,
     facts,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// getNextFixture — Fas 14.0. Inget chattverktyg (get_fixtures redan täcker
+// "vad har X kvar att spela" via status:"upcoming" ovan) — bara en liten,
+// riktad hjälpfunktion för UI:ts kommande "Nästa match"-widget (Fas 14.3,
+// lagsidan). Samma statuskonvention som redan används i app/(app)/data/
+// matches/page.tsx (allt utom "FT" räknas som "kommande") — ingen ny,
+// ogissad statustaxonomi införs här.
+// ---------------------------------------------------------------------------
+export interface NextFixtureParams {
+  team: string;
+  season?: number;
+}
+
+export async function getNextFixture(supabase: Supabase, params: NextFixtureParams) {
+  const team = await resolveTeamOrThrow(supabase, params.team);
+
+  let query = supabase
+    .from("fixture")
+    .select(
+      "kickoff_at, status, round, home_score, away_score, home:home_team_id(id, name), away:away_team_id(id, name), season:season_id(year)"
+    )
+    .or(`home_team_id.eq.${team.id},away_team_id.eq.${team.id}`)
+    .neq("status", "FT")
+    .order("kickoff_at", { ascending: true })
+    .limit(1);
+
+  if (params.season) {
+    await assertSeasonExists(supabase, params.season);
+    const { data: seasonRow } = await supabase.from("season").select("id").eq("year", params.season).single();
+    query = query.eq("season_id", seasonRow!.id);
+  }
+
+  const { data, error } = await query.returns<FixtureRow[]>();
+  if (error) throw new FootballDataError(error.message);
+  const next = data?.[0] ?? null;
+
+  return {
+    team: team.name,
+    fixture: next
+      ? {
+          date: next.kickoff_at,
+          season: next.season?.year ?? null,
+          round: next.round,
+          status: next.status,
+          home: next.home?.name ?? null,
+          away: next.away?.name ?? null,
+        }
+      : null,
   };
 }
 

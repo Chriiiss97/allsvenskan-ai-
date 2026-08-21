@@ -10,8 +10,17 @@ import { ALLSVENSKAN_LEAGUE_EXTERNAL_ID, IMPORT_SEASONS } from "./config";
  * För redan avslutade säsonger (2022–2024) blir det förstås bara EN
  * meningsfull snapshot (sluttabellen) tills vi kör det här upprepat under en
  * pågående säsong.
+ *
+ * Fas 14.0: valfri `seasonYear` — utan den (manuell körning, `npm run
+ * import standings`) importeras fortfarande ALLA IMPORT_SEASONS som förut.
+ * Cron-jobbet (app/api/cron/finalize) skickar däremot bara den AKTUELLA
+ * säsongen, av samma skäl som refreshRatingsForSeason redan bara körs för
+ * aktuell säsong där (se kommentar i route.ts): historiska säsongers
+ * sluttabeller ändras aldrig, så att hämta om alla 11 säsonger varje dygn
+ * vore ren spilld API-Football-kvot och skulle bara stapla meningslösa
+ * append-only-snapshots på redan facitställda säsonger.
  */
-export async function importStandings() {
+export async function importStandings(options?: { seasonYear?: number }) {
   const supabase = createAdminClient();
 
   const { data: league } = await supabase
@@ -24,7 +33,8 @@ export async function importStandings() {
   const { data: teamRows } = await supabase.from("team").select("id, external_id");
   const teamIdByExternal = new Map((teamRows ?? []).map((t) => [t.external_id, t.id]));
 
-  for (const year of IMPORT_SEASONS) {
+  const years = options?.seasonYear ? [options.seasonYear] : IMPORT_SEASONS;
+  for (const year of years) {
     const { data: seasonRow } = await supabase
       .from("season")
       .select("id")

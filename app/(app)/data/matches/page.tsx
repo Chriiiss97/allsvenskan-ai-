@@ -180,7 +180,13 @@ export default async function MatchesPage({
                     </span>
                     <span className="flex items-center gap-2 text-xs text-[#898781]">
                       {new Date(f.kickoff_at).toLocaleDateString("sv-SE")}
-                      {f.events_synced_at ? (
+                      {f.status !== "FT" ? (
+                        // Fas 14.0-fix: en ospelad match visade tidigare
+                        // "Bara resultat" (fanns inget resultat alls) —
+                        // samma FT/inte-FT-konvention som statusfiltret
+                        // ovan i denna fil.
+                        <span className="rounded-full bg-[#3987e5]/20 px-2 py-0.5 text-[#3987e5]">Kommande</span>
+                      ) : f.events_synced_at ? (
                         <span className="rounded-full bg-[#0ca30c]/20 px-2 py-0.5 text-[#0ca30c]">Rapport tillgänglig</span>
                       ) : (
                         <span className="rounded-full bg-white/5 px-2 py-0.5">Bara resultat</span>
