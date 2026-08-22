@@ -1,16 +1,10 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getPlayerProfile, FootballDataError } from "@/lib/football/tools";
-import { computePlayerDNA } from "@/lib/football/player-dna";
-import { computeAdvancedPlayerDNA } from "@/lib/football/advanced-dna";
-import { computeRatingForPlayer } from "@/lib/football/rating/compute-rating";
-import { getPlayerRatingHistory, getStoredSeasonRatings } from "@/lib/football/rating/rating-store";
 import { buildRatingTrendSummary } from "@/lib/football/rating/rating-trend";
-import { computeAdvancedDevelopment } from "@/lib/football/rating/advanced-development";
 import { computePlayerArchetypes } from "@/lib/football/rating/archetypes";
 import { PlayerRatingHistory } from "@/components/data/PlayerRatingHistory";
 import { AdvancedDevelopment } from "@/components/data/AdvancedDevelopment";
-import { getPlayerLineupRoleProfile } from "@/lib/football/lineup-role";
 import { calculateAge } from "@/lib/football/age";
 import { PlayerRadarChart } from "@/components/data/PlayerRadarChart";
 import { PlayerDNA } from "@/components/data/PlayerDNA";
@@ -19,15 +13,9 @@ import { PlayerRating } from "@/components/data/PlayerRating";
 import { StatBar } from "@/components/data/StatBar";
 import { translatePosition } from "@/lib/i18n/sv";
 import { addToShortlist, removeFromShortlist } from "../../shortlist/actions";
-import { computeAgeAdjustedZScores } from "@/lib/football/rating/scout-intelligence-zscore";
-import { computeConsistencyCoefficients } from "@/lib/football/rating/scout-intelligence-consistency";
-import { computeRegressionToMean } from "@/lib/football/rating/scout-intelligence-regression";
 import { ScoutIntelligenceCard } from "@/components/scout/ScoutIntelligenceCard";
-import { getCareerTimeline } from "@/lib/football/career-timeline";
-import { getPlayerMatchLog } from "@/lib/football/player-match-log";
-import { aggregatePlayerCardExtraMetrics } from "@/lib/football/rating/player-card-extra-metrics";
-import { listTeamsWithSeasonSummary } from "@/lib/football/catalog";
 import { getPositionGroup } from "@/lib/football/position-group";
+import { getCachedPlayerCardAnalysis } from "@/lib/football/player-card-data";
 import { PlayerCardHeader } from "@/components/scout/player-card/PlayerCardHeader";
 import { PlayerSnapshot, type SnapshotRow } from "@/components/scout/player-card/PlayerSnapshot";
 import { ContextBanner } from "@/components/scout/player-card/ContextBanner";
@@ -82,84 +70,71 @@ export default async function ScoutPlayerProfilePage({
   const positionGroupInfo = getPositionGroup(profile.player.position);
   const isGoalkeeper = positionGroupInfo?.group === "goalkeeper";
 
-  const dna = profile.season ? await computePlayerDNA(supabase, { playerId: profile.player.id, season: profile.season }) : null;
-  const advancedDna =
-    profile.season && [2024, 2025, 2026].includes(profile.season)
-      ? await computeAdvancedPlayerDNA(supabase, { playerId: profile.player.id, season: profile.season })
-      : null;
-  const advancedDevelopment = await computeAdvancedDevelopment(supabase, { playerId: profile.player.id });
-  const rating = profile.season
-    ? await computeRatingForPlayer(supabase, {
-        playerId: profile.player.id,
-        position: profile.player.position,
-        season: profile.season,
-      })
-    : null;
-  const ratingHistory = await getPlayerRatingHistory(supabase, profile.player.id);
+  // ---------------------------------------------------------------------
+  // PRESTANDA (2026-08-22): sidan gjorde tidigare ~15 SEKVENTIELLA awaits
+  // (varje analysmodul/ny Fas 15-datakälla en efter en) — flera av dem
+  // egna fulla säsongsaggregeringar (0,5–3+ sekunder VAR, se profilering i
+  // körloggen) — 2–5+ sekunder per sidladdning. Att bara köra dem
+  // parallellt (Promise.all) gav bara en delvis förbättring, eftersom
+  // Postgres/Supabase själv gör påtagligt arbete per fråga och flera
+  // SAMTIDIGA tunga frågor konkurrerar om samma DB-resurser (uppmätt:
+  // 7 sådana frågor sekventiellt ~9,5s, parallellt fortfarande ~5s — inte
+  // "millisekunder"). Den verkliga fixen: all den här datan är oförändrad
+  // mellan importkörningar och ALDRIG användarspecifik (publik läsdata,
+  // se DATABASE.md) — cachas därför GLOBALT i
+  // lib/football/player-card-data.ts (unstable_cache, 5 min TTL). Ingen
+  // beräkningslogik ändrad, bara VAR/HUR OFTA den körs.
+  // ---------------------------------------------------------------------
+  const [analysis, authResult] = await Promise.all([
+    getCachedPlayerCardAnalysis(
+      profile.player.id,
+      profile.season,
+      profile.player.position,
+      isGoalkeeper,
+      profile.player.team?.id ?? null
+    ),
+    supabase.auth.getUser(),
+  ]);
+  const user = authResult.data.user;
+  const {
+    dna,
+    advancedDna,
+    advancedDevelopment,
+    rating,
+    ratingHistory,
+    careerTimeline,
+    regressionResult,
+    standingsTeams,
+    lineupRole,
+    zScoresResult: zScoreResult,
+    consistencyResult,
+    storedRatings,
+    matchLog,
+    extraMetrics,
+  } = analysis;
+
   const ratingTrend = buildRatingTrendSummary(ratingHistory);
 
-  let lineupRole: Awaited<ReturnType<typeof getPlayerLineupRoleProfile>> = null;
-  let seasonId: number | null = null;
-  if (profile.season) {
-    const { data: seasonRow } = await supabase.from("season").select("id").eq("year", profile.season).maybeSingle();
-    if (seasonRow) {
-      seasonId = seasonRow.id;
-      lineupRole = await getPlayerLineupRoleProfile(supabase, { playerId: profile.player.id, seasonId: seasonRow.id });
-    }
-  }
-
-  // Scout Intelligence (separat mini-fas, 2026-08-22).
-  let zScoreResult = null;
-  let consistencyResult = null;
-  let regressionResult = null;
-  if (seasonId && profile.season) {
-    const [zScores, consistencies, regression] = await Promise.all([
-      computeAgeAdjustedZScores(supabase, { seasonId, seasonYear: profile.season }),
-      computeConsistencyCoefficients(supabase, { seasonId }),
-      computeRegressionToMean(supabase, { currentSeasonYear: profile.season }),
-    ]);
-    zScoreResult = zScores.get(profile.player.id) ?? null;
-    consistencyResult = consistencies.get(profile.player.id) ?? null;
-    regressionResult = regression.results.get(profile.player.id) ?? null;
-  }
-
-  // Fas 15 — NY data: huvudarketyp (för headern), karriärtidslinje,
-  // match-för-match-logg, övriga Sportmonks-fält, lagets tabellplacering.
-  let mainArchetypeLabel: string | null = null;
-  if (seasonId) {
-    const storedRatings = await getStoredSeasonRatings(supabase, seasonId);
-    const own = storedRatings?.find((r) => r.playerId === profile.player.id);
-    if (own) {
-      const archetypes = computePlayerArchetypes(
-        { positionGroup: own.positionGroup, categoryScores: own.categoryScores, metricValues: own.metricValues },
-        own.confidenceTier
-      );
-      mainArchetypeLabel = archetypes[0]?.label ?? null;
-    }
-  }
-
-  const careerTimeline = await getCareerTimeline(supabase, { playerId: profile.player.id });
-  const matchLog = seasonId
-    ? await getPlayerMatchLog(supabase, { playerId: profile.player.id, seasonId, position: profile.player.position })
-    : { available: false, isGoalkeeper, entries: [] };
-  const extraMetrics =
-    seasonId && profile.season && [2024, 2025, 2026].includes(profile.season)
-      ? (await aggregatePlayerCardExtraMetrics(supabase, { seasonId })).get(profile.player.id) ?? null
-      : null;
-
   let standingsLabel: string | null = null;
-  if (profile.season && profile.player.team) {
-    const teams = await listTeamsWithSeasonSummary(supabase, { season: profile.season });
-    const own = teams.find((t) => t.id === profile.player.team!.id);
+  if (standingsTeams && profile.player.team) {
+    const own = standingsTeams.find((t) => t.id === profile.player.team!.id);
     if (own?.rank !== null && own?.rank !== undefined) {
       standingsLabel = `${profile.player.team.name} — ${own.rank}:a (${own.points ?? "—"} p)`;
     }
   }
 
-  // Shortlist.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let mainArchetypeLabel: string | null = null;
+  const ownStoredRating = storedRatings?.find((r) => r.playerId === profile.player.id);
+  if (ownStoredRating) {
+    const archetypes = computePlayerArchetypes(
+      { positionGroup: ownStoredRating.positionGroup, categoryScores: ownStoredRating.categoryScores, metricValues: ownStoredRating.metricValues },
+      ownStoredRating.confidenceTier
+    );
+    mainArchetypeLabel = archetypes[0]?.label ?? null;
+  }
+
+  // Shortlist — beror på `user` ovan, så den kan inte vara med i samma våg;
+  // ett enda indexerat enradsuppslag, försumbar kostnad som sista steget.
   let isShortlisted = false;
   if (user) {
     const { data: shortlistRow } = await supabase
@@ -174,6 +149,17 @@ export default async function ScoutPlayerProfilePage({
 
   // --- Snapshot (positionsanpassad, se plans/humble-giggling-biscuit.md §4) ---
   const ovrValue = rating?.rating.available ? rating.rating.ovr : null;
+  // Fas 15-fixning (2026-08-22): Player Rating/GoalkeeperRatings EGNA
+  // confidence — INTE dna?.confidence (alltid null för målvakter, eftersom
+  // ingen DNA-profil finns för dem) och INTE regressionens confidence (ett
+  // annat begrepp: antal TIDIGARE säsonger, inte årets speltid). Verkligt
+  // fall som avslöjade buggen: E. Berisha (målvakt) fick OVR 99 på bara 1
+  // match/90 minuter 2026, men ingen varning visades — Snapshot/Context
+  // läste dna?.confidence (null, målvakt) och föll tillbaka på
+  // regressionens confidence (mäter något helt annat). Se
+  // PlayerCardHeader.tsx för samma fix på själva OVR-badgen.
+  const ratingConfidenceTier = rating?.rating.available ? (rating.rating.confidence?.tier ?? null) : null;
+  const ratingOwnMinutes = rating?.rating.available ? (rating.rating.confidence?.ownMinutes ?? null) : null;
   const snapshotRows: SnapshotRow[] = [];
   if (ovrValue !== null) snapshotRows.push({ label: "OVR", value: String(ovrValue) });
   if (age !== null) snapshotRows.push({ label: "Ålder", value: String(age) });
@@ -238,6 +224,8 @@ export default async function ScoutPlayerProfilePage({
         age={age}
         nationality={profile.player.nationality}
         ovr={ovrValue}
+        ovrConfidenceTier={ratingConfidenceTier}
+        ovrConfidenceMinutes={ratingOwnMinutes}
         mainArchetypeLabel={mainArchetypeLabel}
         isShortlisted={isShortlisted}
         shortlistAction={isShortlisted ? removeFromShortlist : addToShortlist}
@@ -248,10 +236,10 @@ export default async function ScoutPlayerProfilePage({
         freeProfileHref={`/spelare/${id}${profile.season ? `?season=${profile.season}` : ""}`}
       />
 
-      <PlayerSnapshot rows={snapshotRows} confidence={dna?.confidence?.tier ?? regressionResult?.confidence ?? null} />
+      <PlayerSnapshot rows={snapshotRows} confidence={ratingConfidenceTier} />
 
       <ContextBanner
-        confidence={dna?.confidence?.tier ?? regressionResult?.confidence ?? null}
+        confidence={ratingConfidenceTier}
         appearances={profile.stats.appearances}
         minutesPlayed={profile.stats.minutesPlayed}
         season={profile.season}

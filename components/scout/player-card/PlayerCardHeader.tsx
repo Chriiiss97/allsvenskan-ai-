@@ -2,6 +2,8 @@ import Link from "next/link";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
 import { translatePosition } from "@/lib/i18n/sv";
 import { ovrColor } from "@/lib/football/rating/ovr-color";
+import type { ConfidenceTier } from "@/lib/football/confidence";
+import { colors } from "@/lib/design/tokens";
 
 /**
  * Fas 15 (Complete Scout Player Card) — hero-sektion. Ersätter dagens
@@ -24,6 +26,8 @@ export function PlayerCardHeader({
   age,
   nationality,
   ovr,
+  ovrConfidenceTier,
+  ovrConfidenceMinutes,
   mainArchetypeLabel,
   isShortlisted,
   shortlistAction,
@@ -41,6 +45,23 @@ export function PlayerCardHeader({
   age: number | null;
   nationality: string | null;
   ovr: number | null;
+  /**
+   * Fas 15-fixning (2026-08-22): Player Rating/GoalkeeperRatings EGNA
+   * `confidence.tier` — INTE Player DNA:s (som alltid är null för
+   * målvakter, eftersom DNA aldrig byggs för målvakter) och INTE
+   * regressionens (ett annat begrepp: antal TIDIGARE säsonger, inte
+   * årets speltid). Ett upptäckt verkligt fall: E. Berisha (målvakt),
+   * 2026 — 1 match/90 minuter gav OVR 99 (100 % räddningsprocent/clean
+   * sheet på ett enda extremfall), men Snapshot/Context visade INGEN
+   * varning eftersom de läste dna?.confidence (alltid null för målvakter)
+   * istället för själva ratingens confidence. OVR-TALET ändras inte här
+   * (skulle kräva att röra goalkeeper-rating.ts/compute-rating.ts, som är
+   * skyddade filer) — men badgen byter till samma "låg"-färg som resten av
+   * appens confidence-indikatorer använder, istället för en missvisande
+   * grön "elit"-färg, så en 1-matchs-99:a aldrig SER trovärdig ut.
+   */
+  ovrConfidenceTier: ConfidenceTier | null;
+  ovrConfidenceMinutes: number | null;
   mainArchetypeLabel: string | null;
   isShortlisted: boolean;
   shortlistAction: (formData: FormData) => void | Promise<void>;
@@ -59,10 +80,19 @@ export function PlayerCardHeader({
             <h1 className="text-2xl font-bold tracking-tight text-white">{name}</h1>
             {ovr !== null && (
               <span
-                className="rounded-full px-3 py-1 text-base font-bold tabular-nums"
-                style={{ backgroundColor: `${ovrColor(ovr)}26`, color: ovrColor(ovr) }}
-                title="Player Rating — statistisk 0–99, se Performance-sektionen för hela nedbrytningen."
+                className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-base font-bold tabular-nums"
+                style={
+                  ovrConfidenceTier === "låg"
+                    ? { backgroundColor: `${colors.status.confidence.low}26`, color: colors.status.confidence.low }
+                    : { backgroundColor: `${ovrColor(ovr)}26`, color: ovrColor(ovr) }
+                }
+                title={
+                  ovrConfidenceTier === "låg"
+                    ? `Otillräckligt underlag — bara ${ovrConfidenceMinutes ?? 0} minuter denna säsong. Talet kan svänga kraftigt på ett fåtal matcher, tolka försiktigt.`
+                    : "Player Rating — statistisk 0–99, se Performance-sektionen för hela nedbrytningen."
+                }
               >
+                {ovrConfidenceTier === "låg" && <span aria-hidden>⚠</span>}
                 {ovr}
               </span>
             )}
@@ -85,6 +115,12 @@ export function PlayerCardHeader({
             {age !== null && ` · ${age} år`}
             {nationality && ` · ${nationality}`}
           </p>
+
+          {ovr !== null && ovrConfidenceTier === "låg" && (
+            <p className="mt-1 text-xs font-medium" style={{ color: colors.status.confidence.low }}>
+              ⚠ Otillräckligt underlag för OVR {ovr} — bara {ovrConfidenceMinutes ?? 0} minuter denna säsong. Tolka försiktigt.
+            </p>
+          )}
 
           {mainArchetypeLabel && (
             <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-[#a78bfa]/15 px-2.5 py-1 text-xs font-semibold text-[#a78bfa]">
