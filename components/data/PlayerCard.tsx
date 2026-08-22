@@ -64,7 +64,7 @@ function primaryStatFor(stat: PlayerCardStat, sort: PlayerSortKey): { value: num
 }
 
 /**
- * Ett spelarkort — återanvänds av både spelarlistan (/data/players) och
+ * Ett spelarkort — återanvänds av både spelarlistan (/spelare) och
  * lagprofilens truppsektion, så det bara finns EN kortstil att hålla
  * konsekvent. Positionsbadge + tunn klubbfärgad vänsterkant bryter den
  * annars enformiga "identisk box"-känslan utan att göra varje kort till
@@ -78,7 +78,7 @@ export function PlayerCard({
 }: {
   player: PlayerCardData;
   sort?: PlayerSortKey;
-  /** Scout Engine Fas 7 — override av standardmålet (`/data/players/{id}`), t.ex. Scout:s "stanna kvar, öppna detaljpanel"-länk. Odefinierad = oförändrat beteende för alla befintliga anropare. */
+  /** Scout Engine Fas 7 — override av standardmålet (`/spelare/{id}`), t.ex. Scout:s "stanna kvar, öppna detaljpanel"-länk. Odefinierad = oförändrat beteende för alla befintliga anropare. */
   href?: string;
   /** Scout Engine Fas 7 — visuellt markerad som den just nu öppna detaljpanelens spelare. */
   active?: boolean;
@@ -92,7 +92,7 @@ export function PlayerCard({
 
   return (
     <Link
-      href={href ?? `/data/players/${player.id}`}
+      href={href ?? `/spelare/${player.id}`}
       className={`flex items-center gap-3 rounded-xl border border-l-2 bg-[#1a1a19] p-3 transition-colors hover:border-white/25 hover:bg-white/[.03] ${
         active ? "border-[#3987e5]/50 bg-white/[.03]" : "border-white/10"
       }`}

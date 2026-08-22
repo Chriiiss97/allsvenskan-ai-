@@ -31,7 +31,7 @@ export interface ScoutMatchInfo {
  * Scout Engine Fas 7 — detaljpanelen. Man ska ALDRIG lämna Scout för att se
  * en spelares fulla bild (uttrycklig instruktion, uppgraderad från "trevligt
  * att ha" till ett hårt krav mitt i projektet) — den här panelen visas
- * SOM EN DEL av /data/scout, aldrig som en egen sida. Byggd genom att
+ * SOM EN DEL av /scout/spelare, aldrig som en egen sida. Byggd genom att
  * återanvända EXAKT samma komponenter som den fulla profilsidan
  * (PlayerRating/PlayerDNA/PlayerRatingHistory) — inget nytt parallellt
  * presentationslager, bara en annan plats att montera dem på. Länken

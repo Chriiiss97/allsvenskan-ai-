@@ -3,6 +3,7 @@ import { isAuthorizedCronRequest } from "@/lib/cron/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { finalizeMatches } from "@/scripts/import/finalize-match";
 import { refreshRatingsForSeason } from "@/scripts/import/refresh-ratings";
+import { importStandings } from "@/scripts/import/import-standings";
 import { logRateLimitSnapshot } from "@/lib/cron/rate-limit-snapshot";
 import { getAvailableSeasons } from "@/lib/football/catalog";
 
@@ -32,13 +33,25 @@ export async function GET(request: NextRequest) {
     // uppdateras här — resten backfillas en gång manuellt (npm run import
     // ratings). Fail-open: en misslyckad ratingfräschning ska inte få
     // finalize-avstämningen (redan klar ovan) att rapporteras som ett fel.
+    const [currentSeason] = await getAvailableSeasons(supabase);
     try {
-      const [currentSeason] = await getAvailableSeasons(supabase);
       if (currentSeason) {
         await refreshRatingsForSeason(supabase, { seasonId: currentSeason.id, seasonYear: currentSeason.year });
       }
     } catch (ratingErr) {
       console.error("[cron/finalize] ratingfräschning misslyckades (fail-open):", ratingErr);
+    }
+
+    // standings (Fas 14.0): tabellen importerades tidigare bara manuellt —
+    // "Tabeller" i sidomenyn var inaktiverad delvis av det skälet. Samma
+    // fail-open-princip och samma "bara aktuell säsong"-avgränsning som
+    // ratingfräschningen ovan (se kommentar i import-standings.ts).
+    try {
+      if (currentSeason) {
+        await importStandings({ seasonYear: currentSeason.year });
+      }
+    } catch (standingsErr) {
+      console.error("[cron/finalize] standings-import misslyckades (fail-open):", standingsErr);
     }
 
     await logRateLimitSnapshot(supabase, "cron-finalize");

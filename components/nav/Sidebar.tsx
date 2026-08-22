@@ -91,11 +91,13 @@ interface NavItem {
   disabled?: boolean;
   // "Utforska" pekar (medvetet, se komponentkommentaren nedan) på samma
   // route som "Spelare" — den ska därför aldrig visas som aktiv själv,
-  // annars lyser två länkar blått samtidigt på /data/players.
+  // annars lyser två länkar blått samtidigt på /spelare.
   trackActive?: boolean;
-  // Admin-länken får en avvikande (gul) accentfärg istället för appens
-  // vanliga blå, så den läses som en separat, priviligierad funktion.
-  accent?: "blue" | "amber";
+  // Admin-länken får en avvikande (gul) accentfärg, Scout en violett —
+  // samma violetta ton som redan etablerad för Sportmonks-lagret
+  // (AdvancedDNA/AdvancedDevelopment, #a78bfa) — så Scout läses som en
+  // egen, avgränsad produkt redan i menyn, inte appens vanliga blå.
+  accent?: "blue" | "amber" | "violet";
 }
 
 const ADMIN_ITEM: NavItem = { href: "/admin", label: "Admin", icon: EyeIcon, accent: "amber" };
@@ -104,21 +106,28 @@ const ADMIN_ITEM: NavItem = { href: "/admin", label: "Admin", icon: EyeIcon, acc
 // Utforska → Matcher → Tabeller) följt av "vad vill jag undersöka"
 // (Lag → Spelare), med Inställningar sist i samma kompakta grupp —
 // inte utspridd över hela sidohöjden.
+//
+// Fas 14.1 (routing-skelett): hrefs uppdaterade till den nya, kortare
+// URL-strukturen (/matcher, /lag, /spelare, /scout/spelare) — se
+// plans/humble-giggling-biscuit.md. Scout pekar nu in i en egen
+// route-grupp ((scout), eget layout.tsx) med violett accent istället för
+// att vara ännu en flik bland de andra — full egen navigation/shell för
+// Scout byggs i Fas 14.4, det här är bara den första visuella markören.
 const NAV_ITEMS: NavItem[] = [
   { href: "/chat", label: "Chatta", icon: ChatIcon },
   // Ingen egen "utforska-hub"-sida finns ännu (skulle vara en ny route,
   // vilket vi medvetet inte lägger till här) — pekar därför på samma
   // ingång som startsidans "Utforska data"-kort.
-  { href: "/data/players", label: "Utforska", icon: ExploreIcon, trackActive: false },
-  { href: "/data/matches", label: "Matcher", icon: MatchIcon },
-  { label: "Tabeller", icon: StandingsIcon, disabled: true },
-  { href: "/data/teams", label: "Lag", icon: TeamIcon },
-  { href: "/data/players", label: "Spelare", icon: PlayerIcon },
+  { href: "/spelare", label: "Utforska", icon: ExploreIcon, trackActive: false },
+  { href: "/matcher", label: "Matcher", icon: MatchIcon },
+  { href: "/tabell", label: "Tabeller", icon: StandingsIcon },
+  { href: "/lag", label: "Lag", icon: TeamIcon },
+  { href: "/spelare", label: "Spelare", icon: PlayerIcon },
   // Egen huvudsektion (2026-08-21), medvetet skild från "Spelare" — Scout är
   // det stora, kombinerbara sök-/filterverktyget (klubb+position+ålder+OVR+
   // statistik+historik/utveckling i EN vy), Spelare förblir den enklare
-  // översikten. Se app/(app)/data/scout/page.tsx.
-  { href: "/data/scout", label: "Scout", icon: ScoutIcon },
+  // översikten. Se app/(scout)/scout/spelare/page.tsx.
+  { href: "/scout/spelare", label: "Scout", icon: ScoutIcon, accent: "violet" },
   { href: "/settings", label: "Inställningar", icon: SettingsIcon },
 ];
 
@@ -127,7 +136,9 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   const activeClasses =
     item.accent === "amber"
       ? "bg-amber-400/15 text-white before:bg-amber-400 before:shadow-[0_0_8px_1px_rgba(251,191,36,0.6)]"
-      : "bg-[#3987e5]/15 text-white before:bg-[#3987e5] before:shadow-[0_0_8px_1px_rgba(57,135,229,0.6)]";
+      : item.accent === "violet"
+        ? "bg-[#a78bfa]/15 text-white before:bg-[#a78bfa] before:shadow-[0_0_8px_1px_rgba(167,139,250,0.6)]"
+        : "bg-[#3987e5]/15 text-white before:bg-[#3987e5] before:shadow-[0_0_8px_1px_rgba(57,135,229,0.6)]";
   const classes = `relative flex flex-col items-center gap-1 rounded-xl px-2 py-2.5 text-[11px] font-medium leading-tight transition-colors before:absolute before:left-0 before:top-1/2 before:h-6 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:content-[''] ${
     active ? activeClasses : "text-[#c3c2b7] before:bg-transparent hover:bg-white/5 hover:text-white"
   }`;
@@ -201,7 +212,12 @@ export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
               </span>
             );
           }
-          const activeClasses = item.accent === "amber" ? "bg-amber-400/15 text-white" : "bg-white/10 text-white";
+          const activeClasses =
+            item.accent === "amber"
+              ? "bg-amber-400/15 text-white"
+              : item.accent === "violet"
+                ? "bg-[#a78bfa]/15 text-white"
+                : "bg-white/10 text-white";
           return (
             <Link
               key={item.label}

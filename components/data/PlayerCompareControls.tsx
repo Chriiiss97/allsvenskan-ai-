@@ -25,7 +25,7 @@ export function PlayerCompareControls({
     const params = new URLSearchParams();
     params.set("a", key === "a" ? String(id) : idA ? String(idA) : "");
     params.set("b", key === "b" ? String(id) : idB ? String(idB) : "");
-    router.push(`/data/players/compare?${params.toString()}`);
+    router.push(`/spelare/compare?${params.toString()}`);
   }
 
   return (

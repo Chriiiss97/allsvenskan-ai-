@@ -115,3 +115,84 @@ export async function listTeamsWithSeasonSummary(
       return a.name.localeCompare(b.name, "sv");
     });
 }
+
+export interface StandingsTableRow {
+  team: TeamOption;
+  rank: number;
+  points: number;
+  played: number;
+  win: number;
+  draw: number;
+  lose: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalsDiff: number;
+  /** Senaste 5, äldst→nyast, t.ex. "WWDLW" — samma format som api-football, oförändrat. */
+  form: string | null;
+}
+
+interface FullStandingsRow {
+  team_id: number;
+  rank: number;
+  points: number;
+  played: number | null;
+  win: number | null;
+  draw: number | null;
+  lose: number | null;
+  goals_for: number | null;
+  goals_against: number | null;
+  goals_diff: number | null;
+  form: string | null;
+  captured_at: string;
+}
+
+/**
+ * Fas 14.3 — den fulla serietabellen (rank/M/V/O/F/GM/IM/+-/poäng/form),
+ * inte bara lagöversiktens rank/points/played-brottstycke. Samma
+ * dedupe-till-senaste-`captured_at`-princip som listTeamsWithSeasonSummary
+ * (standings är append-only, se migrationens kommentar), bara med fler
+ * fält. Lag utan tabelldata för säsongen (t.ex. gästspel Sportmonks-bara
+ * lag inte spelat i Allsvenskan den säsongen) utelämnas helt — ingen
+ * påhittad "0:a" rad.
+ */
+export async function getStandingsTable(supabase: Supabase, params: { season: number }): Promise<StandingsTableRow[]> {
+  const teams = await listTeams(supabase);
+  const teamById = new Map(teams.map((t) => [t.id, t]));
+
+  const { data: seasonRow } = await supabase.from("season").select("id").eq("year", params.season).maybeSingle();
+  if (!seasonRow) return [];
+
+  const { data: rows, error } = await supabase
+    .from("standings")
+    .select("team_id, rank, points, played, win, draw, lose, goals_for, goals_against, goals_diff, form, captured_at")
+    .eq("season_id", seasonRow.id)
+    .order("captured_at", { ascending: false })
+    .returns<FullStandingsRow[]>();
+  if (error) throw error;
+
+  const latestByTeam = new Map<number, FullStandingsRow>();
+  for (const row of rows ?? []) {
+    if (!latestByTeam.has(row.team_id)) latestByTeam.set(row.team_id, row);
+  }
+
+  const result: StandingsTableRow[] = [];
+  for (const row of latestByTeam.values()) {
+    const team = teamById.get(row.team_id);
+    if (!team) continue;
+    result.push({
+      team,
+      rank: row.rank,
+      points: row.points,
+      played: row.played ?? 0,
+      win: row.win ?? 0,
+      draw: row.draw ?? 0,
+      lose: row.lose ?? 0,
+      goalsFor: row.goals_for ?? 0,
+      goalsAgainst: row.goals_against ?? 0,
+      goalsDiff: row.goals_diff ?? 0,
+      form: row.form,
+    });
+  }
+
+  return result.sort((a, b) => a.rank - b.rank);
+}

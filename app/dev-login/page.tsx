@@ -78,7 +78,7 @@ export default function DevLoginPage() {
         <p className="mt-1 space-x-2">
           <Link href="/" className="underline">Startsida</Link>
           <Link href="/chat" className="underline">Chat</Link>
-          <Link href="/data/players" className="underline">Data</Link>
+          <Link href="/spelare" className="underline">Data</Link>
         </p>
       </div>
     </div>

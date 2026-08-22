@@ -21,7 +21,7 @@ export interface ResolvedTeam {
  * API-Football lagrar lagnamn utan svenska tecken ("IFK Goteborg"), men
  * användare skriver förstås "Göteborg".
  */
-function normalize(value: string): string {
+export function normalize(value: string): string {
   return value
     .trim()
     .toLowerCase()
