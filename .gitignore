@@ -40,3 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 supabase/.temp/
+
+# Player Intelligence Engine research — regenerable backtest output, not source
+/scripts/research/output/
