@@ -12,9 +12,15 @@ interface FixtureRow {
   events_synced_at: string | null;
   home_team_id: number;
   away_team_id: number;
-  home: { name: string } | null;
-  away: { name: string } | null;
+  home: { name: string; logo_url: string | null } | null;
+  away: { name: string; logo_url: string | null } | null;
 }
+
+const STATUS_TABS: { value: string; label: string }[] = [
+  { value: "", label: "Alla" },
+  { value: "upcoming", label: "Kommande" },
+  { value: "finished", label: "Senaste" },
+];
 
 /**
  * Data-sektionens breddning (2026-08-20): Säsong → omgång → matcher för
@@ -43,7 +49,7 @@ export default async function MatchesPage({
     let query = supabase
       .from("fixture")
       .select(
-        "id, kickoff_at, status, round, home_score, away_score, events_synced_at, home_team_id, away_team_id, home:home_team_id(name), away:away_team_id(name)"
+        "id, kickoff_at, status, round, home_score, away_score, events_synced_at, home_team_id, away_team_id, home:home_team_id(name, logo_url), away:away_team_id(name, logo_url)"
       )
       .eq("season_id", seasonRow.id);
 
@@ -57,7 +63,11 @@ export default async function MatchesPage({
     if (status === "finished") query = query.eq("status", "FT");
     else if (status === "upcoming") query = query.neq("status", "FT");
 
-    const { data } = await query.order("kickoff_at", { ascending: true }).returns<FixtureRow[]>();
+    // "Senaste" (finished) är mest meningsfullt nyast-först — "Kommande"/
+    // "Alla" som ett säsongsschema, kronologiskt (oförändrat sen tidigare).
+    const { data } = await query
+      .order("kickoff_at", { ascending: status !== "finished" })
+      .returns<FixtureRow[]>();
     fixtures = data ?? [];
 
     // Resultat-filter (V/O/F) är bara meningsfullt relativt ETT valt lag —
@@ -106,9 +116,33 @@ export default async function MatchesPage({
         ))}
       </div>
 
-      {/* Filter — server-formulär, ingen klient-JS krävs */}
-      <form method="get" className="mt-4 flex flex-wrap items-end gap-3 rounded-xl border border-white/10 bg-[#1a1a19] p-3">
+      {/* Kommande/Senaste — den primära, mest FotMob-lika växeln, ovanför
+          detaljfiltren istället för nedgrävd i ett formulär. */}
+      <div className="mt-4 flex gap-1 rounded-lg border border-white/10 bg-[#1a1a19] p-1 text-sm">
+        {STATUS_TABS.map((tab) => (
+          <Link
+            key={tab.value}
+            href={`/matcher?${new URLSearchParams({
+              season: String(seasonYear ?? ""),
+              ...(home ? { home } : {}),
+              ...(away ? { away } : {}),
+              ...(team ? { team } : {}),
+              ...(result ? { result } : {}),
+              ...(tab.value ? { status: tab.value } : {}),
+            }).toString()}`}
+            className={`flex-1 rounded-md px-3 py-1.5 text-center font-medium transition-colors ${
+              (status ?? "") === tab.value ? "bg-white/10 text-white" : "text-[#898781] hover:text-white"
+            }`}
+          >
+            {tab.label}
+          </Link>
+        ))}
+      </div>
+
+      {/* Detaljfilter — server-formulär, ingen klient-JS krävs */}
+      <form method="get" className="mt-3 flex flex-wrap items-end gap-3 rounded-xl border border-white/10 bg-[#1a1a19] p-3">
         <input type="hidden" name="season" value={seasonYear ?? ""} />
+        <input type="hidden" name="status" value={status ?? ""} />
         <label className="flex flex-col gap-1 text-xs text-[#898781]">
           Lag
           <select name="team" defaultValue={team ?? ""} className="rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-sm text-white">
@@ -145,19 +179,14 @@ export default async function MatchesPage({
             <option value="L">Förlust</option>
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-xs text-[#898781]">
-          Status
-          <select name="status" defaultValue={status ?? ""} className="rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-sm text-white">
-            <option value="">Alla</option>
-            <option value="finished">Avslutade</option>
-            <option value="upcoming">Kommande</option>
-          </select>
-        </label>
         <button type="submit" className="rounded-md bg-[#3987e5] px-3 py-1.5 text-sm font-medium text-white">
           Filtrera
         </button>
-        {(home || away || team || result || status) && (
-          <Link href={`/matcher?season=${seasonYear ?? ""}`} className="text-xs text-[#898781] hover:text-white">
+        {(home || away || team || result) && (
+          <Link
+            href={`/matcher?${new URLSearchParams({ season: String(seasonYear ?? ""), ...(status ? { status } : {}) }).toString()}`}
+            className="text-xs text-[#898781] hover:text-white"
+          >
             Rensa filter
           </Link>
         )}
@@ -175,11 +204,31 @@ export default async function MatchesPage({
                     href={`/matcher/${f.id}`}
                     className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-[#1a1a19] px-4 py-2.5 text-sm transition-colors hover:border-white/25 hover:bg-white/[.03]"
                   >
-                    <span>
-                      {f.home?.name} {f.home_score ?? "–"}–{f.away_score ?? "–"} {f.away?.name}
+                    <span className="flex min-w-0 items-center gap-2">
+                      {f.home?.logo_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- extern logga
+                        <img src={f.home.logo_url} alt="" className="h-5 w-5 shrink-0" />
+                      ) : (
+                        <div className="h-5 w-5 shrink-0 rounded-full bg-white/5" aria-hidden />
+                      )}
+                      <span className="truncate">{f.home?.name}</span>
+                      <span className="shrink-0 tabular-nums text-white">
+                        {f.home_score ?? "–"}–{f.away_score ?? "–"}
+                      </span>
+                      <span className="truncate">{f.away?.name}</span>
+                      {f.away?.logo_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- extern logga
+                        <img src={f.away.logo_url} alt="" className="h-5 w-5 shrink-0" />
+                      ) : (
+                        <div className="h-5 w-5 shrink-0 rounded-full bg-white/5" aria-hidden />
+                      )}
                     </span>
-                    <span className="flex items-center gap-2 text-xs text-[#898781]">
-                      {new Date(f.kickoff_at).toLocaleDateString("sv-SE")}
+                    <span className="flex shrink-0 items-center gap-2 text-xs text-[#898781]">
+                      <span className="whitespace-nowrap">
+                        {new Date(f.kickoff_at).toLocaleDateString("sv-SE")}
+                        {" · "}
+                        {new Date(f.kickoff_at).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
                       {f.status !== "FT" ? (
                         // Fas 14.0-fix: en ospelad match visade tidigare
                         // "Bara resultat" (fanns inget resultat alls) —

@@ -2,24 +2,33 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getPlayerProfile, FootballDataError } from "@/lib/football/tools";
-import { computePlayerDNA } from "@/lib/football/player-dna";
-import { computeAdvancedPlayerDNA } from "@/lib/football/advanced-dna";
 import { computeRatingForPlayer } from "@/lib/football/rating/compute-rating";
-import { getPlayerRatingHistory } from "@/lib/football/rating/rating-store";
-import { buildRatingTrendSummary } from "@/lib/football/rating/rating-trend";
-import { computeAdvancedDevelopment } from "@/lib/football/rating/advanced-development";
-import { PlayerRatingHistory } from "@/components/data/PlayerRatingHistory";
-import { AdvancedDevelopment } from "@/components/data/AdvancedDevelopment";
 import { getPlayerLineupRoleProfile } from "@/lib/football/lineup-role";
 import { calculateAge } from "@/lib/football/age";
 import { StatBar } from "@/components/data/StatBar";
-import { PlayerRadarChart } from "@/components/data/PlayerRadarChart";
-import { PlayerDNA } from "@/components/data/PlayerDNA";
-import { AdvancedDNA } from "@/components/data/AdvancedDNA";
-import { PlayerRating } from "@/components/data/PlayerRating";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
 import { BackButton } from "@/components/nav/BackButton";
 import { translatePosition } from "@/lib/i18n/sv";
+import { ovrColor } from "@/lib/football/rating/ovr-color";
+
+/**
+ * Fas 14.3 (plans/humble-giggling-biscuit.md) — TRIMMAD gratisversion.
+ * Player DNA, Advancerad DNA, Utveckling ("varför") och Player Ratings
+ * fulla kategori-/kontributionsnedbrytning samt percentil-radarn ("Jämförelse
+ * mot positionssnitt") flyttas till Scout (/scout/spelare/[id], Fas 14.4) —
+ * de är analys/scouting, inte grundläggande fotbollsstatistik. Kvar: bio,
+ * en ENKEL OVR-siffra (ingen kategorinedbrytning — beslutat med
+ * användaren: en färgkodad badge räcker som gratis "teaser"), hero-
+ * statistik, grundstatistik, roll i laget, och de fyra per-90-panelerna
+ * (Anfall/Passningsspel/Duellspel/Försvar — vanliga box score-tal, inte
+ * proprietär DNA-analys, så de stannar kvar).
+ *
+ * KÄND LUCKA (inte löst i denna delfas): en riktig match-för-match-
+ * matchhistorik för spelaren (efterfrågad i användarens ursprungliga
+ * gratissidespec) finns inte än — skulle kräva en ny, overifierad
+ * datafråga och byggs bättre som en egen, verifierad liten fas än att
+ * hastas in här.
+ */
 
 function na(value: number | null, suffix = ""): string {
   return value === null ? "—" : `${value}${suffix}`;
@@ -48,21 +57,8 @@ export default async function PlayerProfilePage({
   }
 
   const age = calculateAge(profile.player.birthDate);
-  const dna = profile.season ? await computePlayerDNA(supabase, { playerId: profile.player.id, season: profile.season }) : null;
-  // Fas 9 (Sportmonks-integrationen): separat avancerat DNA-lager, bara
-  // 2024-2026 — se lib/football/advanced-dna.ts. Komponenten döljer sig
-  // själv helt (returnerar null) om spelaren/säsongen saknar täckning.
-  const advancedDna =
-    profile.season && [2024, 2025, 2026].includes(profile.season)
-      ? await computeAdvancedPlayerDNA(supabase, { playerId: profile.player.id, season: profile.season })
-      : null;
-  // Fas 12: "varför" utvecklingen skedde, jämför de två senaste Sportmonks-
-  // täckta säsongerna — oberoende av vilken säsong sidan just nu visar
-  // (komponenten döljer sig själv om spelaren saknar minst två).
-  const advancedDevelopment = await computeAdvancedDevelopment(supabase, { playerId: profile.player.id });
-  // Player Rating (2026-08-21): separat statistisk 0-99-OVR, INTE samma sak
-  // som Player DNA (DNA = vilken typ av spelare, Rating = hur bra
-  // presterade den här säsongen) — se lib/football/rating/compute-rating.ts.
+  // Player Rating (2026-08-21): bara den enkla 0-99-siffran visas gratis —
+  // kategori-/kontributionsnedbrytningen är Scout-innehåll (Fas 14.4).
   const rating = profile.season
     ? await computeRatingForPlayer(supabase, {
         playerId: profile.player.id,
@@ -70,16 +66,9 @@ export default async function PlayerProfilePage({
         season: profile.season,
       })
     : null;
-  // Utveckling (2026-08-21): historik ur player_season_rating-facit, INTE
-  // live-beräknat — komplement till (aldrig ersättning för) OVR-kortet ovan
-  // som visar spelarens NUVARANDE valda säsong.
-  const ratingHistory = await getPlayerRatingHistory(supabase, profile.player.id);
-  const ratingTrend = buildRatingTrendSummary(ratingHistory);
 
   // Steg 9: lineup-härledd rolldata (start/avbytarlistningar, formation) —
-  // egen från fixture_lineup_player, oberoende av Player DNA. season.id
-  // (inte året) krävs av lib/football/lineup-role.ts, samma uppslag som
-  // team-dna.ts redan gör.
+  // grundläggande fotbollsfakta, inte scouting-analys, stannar kvar gratis.
   let lineupRole: Awaited<ReturnType<typeof getPlayerLineupRoleProfile>> = null;
   if (profile.season) {
     const { data: seasonRow } = await supabase.from("season").select("id").eq("year", profile.season).maybeSingle();
@@ -87,10 +76,6 @@ export default async function PlayerProfilePage({
       lineupRole = await getPlayerLineupRoleProfile(supabase, { playerId: profile.player.id, seasonId: seasonRow.id });
     }
   }
-  // Bara första meningen i hjälten — hela sammanfattningen visas redan i
-  // Player DNA-kortet direkt nedanför, så en full dubblering här vore bara
-  // repetition, inte en teaser.
-  const heroQuote = dna?.summary ? dna.summary.split(". ")[0].replace(/\.$/, "") + "." : null;
 
   const grundstatistikRows = (
     [
@@ -134,17 +119,24 @@ export default async function PlayerProfilePage({
           photoUrl={profile.player.photoUrl}
         />
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-semibold tracking-tight">{profile.player.name}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-xl font-semibold tracking-tight">{profile.player.name}</h1>
+            {rating?.rating.available && rating.rating.ovr !== null && (
+              <span
+                className="rounded-full px-2.5 py-0.5 text-sm font-bold tabular-nums"
+                style={{ backgroundColor: `${ovrColor(rating.rating.ovr)}26`, color: ovrColor(rating.rating.ovr) }}
+                title="Player Rating — statistisk 0–99. Full uppdelning i Scout."
+              >
+                {rating.rating.ovr}
+              </span>
+            )}
+          </div>
           <p className="mt-0.5 text-sm text-[#c3c2b7]">
             {profile.player.team?.name ?? "—"}{" "}
             {profile.player.position && `· ${translatePosition(profile.player.position)}`}
             {age !== null && ` · ${age} år`}
             {profile.player.nationality && ` · ${profile.player.nationality}`}
           </p>
-          {/* Öppningsraden i "scoutingrapporten" — första meningen av
-              Player DNA:s sammanfattning, som en teaser till kortet
-              nedanför. */}
-          {heroQuote && <p className="mt-1.5 text-sm italic text-[#898781]">&ldquo;{heroQuote}&rdquo;</p>}
         </div>
 
         {/* Säsongsväljare */}
@@ -163,48 +155,8 @@ export default async function PlayerProfilePage({
         </div>
       </div>
 
-      {/* Player Rating — statistisk 0-99-OVR, ett eget kort SKILT från
-          Player DNA (Rating = hur bra presterade säsongen, DNA = vilken typ
-          av spelare) för att inte blanda ihop de två frågorna. */}
-      {rating && profile.season && (
-        <div className="mt-4">
-          <PlayerRating data={rating} season={profile.season} />
-        </div>
-      )}
-
-      {/* Utveckling — historisk OVR/trend/toppsäsong, komplement till
-          nuvarande-säsong-kortet ovan, aldrig en ersättning för det. */}
-      <div className="mt-4">
-        <PlayerRatingHistory history={ratingHistory} trend={ratingTrend} />
-      </div>
-
-      {/* Fas 12: "varför" — helt frånvarande (ingen tom div) om spelaren
-          saknar minst två Sportmonks-täckta säsonger att jämföra. */}
-      {advancedDevelopment.available && (
-        <div className="mt-4">
-          <AdvancedDevelopment development={advancedDevelopment} />
-        </div>
-      )}
-
-      {/* Player DNA — flyttad högst upp: det här är analysen, inte en
-          detalj längst ner på sidan. */}
-      {dna && (
-        <div className="mt-4">
-          <PlayerDNA dna={dna} />
-        </div>
-      )}
-
-      {/* Avancerad DNA (Fas 9, Sportmonks 2024+) — döljer sig själv helt om
-          spelaren/säsongen saknar täckning, inget villkor behövs här. */}
-      {advancedDna && (
-        <div className="mt-4">
-          <AdvancedDNA dna={advancedDna} />
-        </div>
-      )}
-
-      {/* Roll i laget — lineup-härledd (steg 9), oberoende av Player DNA:s
-          statistikbaserade analys. Visas bara om vi har minst en sparad
-          laguppställning för spelaren den säsongen. */}
+      {/* Roll i laget — lineup-härledd (steg 9). Visas bara om vi har minst
+          en sparad laguppställning för spelaren den säsongen. */}
       {lineupRole && (
         <div className="mt-4 rounded-xl border border-white/10 bg-[#1a1a19] p-5">
           <h2 className="text-sm font-semibold">Roll i laget — {profile.season}</h2>
@@ -249,35 +201,21 @@ export default async function PlayerProfilePage({
         ))}
       </div>
 
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
-        {/* Grundstatistik */}
-        <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
-          <h2 className="text-sm font-semibold">Grundstatistik — {profile.season}</h2>
-          <div className="mt-3 grid grid-cols-3 gap-3 text-center">
-            {grundstatistikRows.map(([label, value]) => (
-              <div key={label}>
-                <p className="text-lg font-semibold">{na(value)}</p>
-                <p className="text-[10px] text-[#898781]">{label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Radardiagram */}
-        <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
-          <h2 className="text-sm font-semibold">Jämförelse mot positionssnitt</h2>
-          <div className="mt-3">
-            <PlayerRadarChart
-              per90={profile.per90}
-              positionAveragePer90={profile.positionAveragePer90}
-              peerGroup={profile.peerGroup}
-            />
-          </div>
+      {/* Grundstatistik */}
+      <div className="mt-4 rounded-xl border border-white/10 bg-[#1a1a19] p-5">
+        <h2 className="text-sm font-semibold">Grundstatistik — {profile.season}</h2>
+        <div className="mt-3 grid grid-cols-3 gap-3 text-center sm:grid-cols-6">
+          {grundstatistikRows.map(([label, value]) => (
+            <div key={label}>
+              <p className="text-lg font-semibold">{na(value)}</p>
+              <p className="text-[10px] text-[#898781]">{label}</p>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Per-90-statistik, grupperad i paneler à la analysverktyg — stödjande
-          detalj under DNA-analysen, en panel visas bara om den faktiskt har
+      {/* Per-90-statistik, grupperad i paneler — vanliga box score-tal, inte
+          proprietär DNA-analys, en panel visas bara om den faktiskt har
           något mått att visa. */}
       {(hasAnfall || hasPassningsspel || hasDuellspel || hasForsvar) && (
         <div className="mt-8">
@@ -371,6 +309,20 @@ export default async function PlayerProfilePage({
           </div>
         </div>
       )}
+
+      {/* Scout-CTA — den fulla analysstacken (Player DNA, Advancerad DNA,
+          Utveckling, OVR-nedbrytning) flyttad hit, se /scout/spelare/[id]
+          (Fas 14.4). */}
+      <Link
+        href={`/scout/spelare?selected=${profile.player.id}`}
+        className="mt-8 flex items-center justify-between gap-3 rounded-xl border border-[#a78bfa]/30 bg-[#a78bfa]/10 p-4 text-sm transition-colors hover:bg-[#a78bfa]/15"
+      >
+        <span>
+          <span className="font-semibold text-[#a78bfa]">🧬 Se full scouting-analys</span>
+          <span className="ml-1 text-[#c3c2b7]">— DNA, arketyper, percentiler och utveckling i Scout.</span>
+        </span>
+        <span className="text-[#a78bfa]">→</span>
+      </Link>
     </div>
   );
 }

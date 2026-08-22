@@ -27,6 +27,7 @@ import { importSportmonksPlayerAdvancedStats } from "./sportmonks-import-player-
 import { importSportmonksMatchDataBackfill, pollSportmonksLiveMatchData } from "./sportmonks-import-match-data";
 import { importSportmonksPressure } from "./sportmonks-import-pressure";
 import { importSportmonksMatchFacts } from "./sportmonks-import-match-facts";
+import { fixTeamNameDiacritics } from "./fix-team-name-diacritics";
 
 config({ path: path.resolve(process.cwd(), ".env.local") });
 
@@ -41,6 +42,7 @@ const STEPS: Record<string, () => Promise<void>> = {
   "player-stats": () => importPlayerStats(),
   coaches: importCoaches,
   standings: importStandings,
+  "fix-team-names": fixTeamNameDiacritics,
   "pre-match": runPreMatchPipeline,
   live: runLiveTick,
   finalize: finalizeMatches,

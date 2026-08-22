@@ -120,9 +120,7 @@ const NAV_ITEMS: NavItem[] = [
   // ingång som startsidans "Utforska data"-kort.
   { href: "/spelare", label: "Utforska", icon: ExploreIcon, trackActive: false },
   { href: "/matcher", label: "Matcher", icon: MatchIcon },
-  // href satt redan nu (fast disabled) så Fas 14.3 bara behöver slå av
-  // disabled — sidan /tabell byggs där.
-  { href: "/tabell", label: "Tabeller", icon: StandingsIcon, disabled: true },
+  { href: "/tabell", label: "Tabeller", icon: StandingsIcon },
   { href: "/lag", label: "Lag", icon: TeamIcon },
   { href: "/spelare", label: "Spelare", icon: PlayerIcon },
   // Egen huvudsektion (2026-08-21), medvetet skild från "Spelare" — Scout är
