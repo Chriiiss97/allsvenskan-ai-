@@ -19,6 +19,10 @@ import { PlayerRating } from "@/components/data/PlayerRating";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
 import { translatePosition } from "@/lib/i18n/sv";
 import { addToShortlist, removeFromShortlist } from "../../shortlist/actions";
+import { computeAgeAdjustedZScores } from "@/lib/football/rating/scout-intelligence-zscore";
+import { computeConsistencyCoefficients } from "@/lib/football/rating/scout-intelligence-consistency";
+import { computeRegressionToMean } from "@/lib/football/rating/scout-intelligence-regression";
+import { ScoutIntelligenceCard } from "@/components/scout/ScoutIntelligenceCard";
 
 /**
  * Fas 14.4 (plans/humble-giggling-biscuit.md) — Scouts FULLA spelarprofil.
@@ -78,6 +82,27 @@ export default async function ScoutPlayerProfilePage({
     }
   }
   const heroQuote = dna?.summary ? dna.summary.split(". ")[0].replace(/\.$/, "") + "." : null;
+
+  // Scout Intelligence (separat mini-fas, 2026-08-22) — tre kompletterande
+  // mått, se lib/football/rating/scout-intelligence-*.ts. Batch-funktioner
+  // (hela ligan i en genomgång) — slår bara upp DEN HÄR spelaren ur
+  // resultatet, samma mönster som resten av Scout-lagret (aldrig N+1).
+  let zScoreResult = null;
+  let consistencyResult = null;
+  let regressionResult = null;
+  if (profile.season) {
+    const { data: seasonForIntelligence } = await supabase.from("season").select("id").eq("year", profile.season).maybeSingle();
+    if (seasonForIntelligence) {
+      const [zScores, consistencies, regression] = await Promise.all([
+        computeAgeAdjustedZScores(supabase, { seasonId: seasonForIntelligence.id, seasonYear: profile.season }),
+        computeConsistencyCoefficients(supabase, { seasonId: seasonForIntelligence.id }),
+        computeRegressionToMean(supabase, { currentSeasonYear: profile.season }),
+      ]);
+      zScoreResult = zScores.get(profile.player.id) ?? null;
+      consistencyResult = consistencies.get(profile.player.id) ?? null;
+      regressionResult = regression.results.get(profile.player.id) ?? null;
+    }
+  }
 
   // Shortlist — stjärnmärkt eller inte för den inloggade användaren
   // (RLS-scopad, se migration 20260822120000_scout_shortlist.sql).
@@ -168,6 +193,10 @@ export default async function ScoutPlayerProfilePage({
           <AdvancedDevelopment development={advancedDevelopment} />
         </div>
       )}
+
+      <div className="mt-4">
+        <ScoutIntelligenceCard zScore={zScoreResult} consistency={consistencyResult} regression={regressionResult} />
+      </div>
 
       {dna && (
         <div className="mt-4">
