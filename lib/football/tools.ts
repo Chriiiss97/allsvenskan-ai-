@@ -298,6 +298,139 @@ export async function getFixtures(supabase: Supabase, params: FixturesParams) {
 }
 
 // ---------------------------------------------------------------------------
+// get_live_matches — pågående Allsvenskan-matcher (heltäckande, inte bara
+// IFK Göteborg/AIK — samma ligascope som scripts/import/live-pipeline.ts,
+// som pollar/fyller fixture_live_snapshots för ALLA Allsvenskan-matcher).
+// ---------------------------------------------------------------------------
+
+/**
+ * API-FOOTBALL:s statuskoder för en match som fortfarande pågår (inte
+ * paus-innan/färdig). Källa: samma kodlista live-pipeline.ts jämför mot
+ * (status.short) — TBD/NS = inte startad, FT/AET/PEN = klar, resten här.
+ */
+export const LIVE_FIXTURE_STATUSES = ["1H", "HT", "2H", "ET", "BT", "P", "SUSP", "INT", "LIVE"] as const;
+
+/**
+ * En match kan bli hängandes kvar på en "live"-status i fixture-tabellen om
+ * post-match-importen av någon anledning missar den (t.ex. finalize-cronen
+ * körs bara en gång/dygn) — utan det här skulle en sådan match visas som
+ * "pågår" dagar senare. En riktig Allsvensk match är utspelad (inkl. paus)
+ * på under ~3 timmar, så ett tidsfönster på avspark inom senaste 3 timmarna
+ * skiljer en genuint pågående match från en fastnad statusrad utan att
+ * gissa något om SJÄLVA matchdatan.
+ */
+export const LIVE_FIXTURE_MAX_AGE_MS = 3 * 60 * 60 * 1000;
+
+/** Delad av get_live_matches och get_match_report — samma "räknas som pågår
+ * just nu"-regel på båda ställena, se kommentaren på konstanterna ovan. */
+export function isFixtureLikelyLive(status: string, kickoffAt: string): boolean {
+  if (!(LIVE_FIXTURE_STATUSES as readonly string[]).includes(status)) return false;
+  return Date.now() - new Date(kickoffAt).getTime() <= LIVE_FIXTURE_MAX_AGE_MS;
+}
+
+interface LiveFixtureRow {
+  id: number;
+  kickoff_at: string;
+  status: string;
+  round: string | null;
+  home_score: number | null;
+  away_score: number | null;
+  home: { id: number; name: string; logo_url: string | null } | null;
+  away: { id: number; name: string; logo_url: string | null } | null;
+}
+
+interface LiveSnapshotRow {
+  fixture_id: number;
+  captured_at: string;
+  match_minute: number | null;
+  home_score: number | null;
+  away_score: number | null;
+  home_possession_pct: number | null;
+  away_possession_pct: number | null;
+  home_shots_total: number | null;
+  away_shots_total: number | null;
+  home_shots_on_target: number | null;
+  away_shots_on_target: number | null;
+  home_corners: number | null;
+  away_corners: number | null;
+}
+
+export async function getLiveMatches(supabase: Supabase) {
+  const cutoff = new Date(Date.now() - LIVE_FIXTURE_MAX_AGE_MS).toISOString();
+
+  const { data: fixtures, error } = await supabase
+    .from("fixture")
+    .select(
+      "id, kickoff_at, status, round, home_score, away_score, home:home_team_id(id, name, logo_url), away:away_team_id(id, name, logo_url)"
+    )
+    .in("status", LIVE_FIXTURE_STATUSES)
+    .gte("kickoff_at", cutoff)
+    .order("kickoff_at", { ascending: true })
+    .returns<LiveFixtureRow[]>();
+  if (error) throw new FootballDataError(error.message);
+
+  const liveFixtures = fixtures ?? [];
+  if (liveFixtures.length === 0) return { matches: [] };
+
+  // Senaste snapshot per match (possession/skott/hörnor) — en fråga för
+  // alla matcher, sen plockas den nyaste raden per fixture_id ut i JS
+  // (Supabase har ingen inbyggd "senaste per grupp"-select).
+  const { data: snapshots, error: snapshotError } = await supabase
+    .from("fixture_live_snapshots")
+    .select(
+      "fixture_id, captured_at, match_minute, home_score, away_score, home_possession_pct, away_possession_pct, home_shots_total, away_shots_total, home_shots_on_target, away_shots_on_target, home_corners, away_corners"
+    )
+    .in(
+      "fixture_id",
+      liveFixtures.map((f) => f.id)
+    )
+    .order("captured_at", { ascending: false })
+    .returns<LiveSnapshotRow[]>();
+  if (snapshotError) throw new FootballDataError(snapshotError.message);
+
+  const latestSnapshotByFixture = new Map<number, LiveSnapshotRow>();
+  for (const snap of snapshots ?? []) {
+    if (!latestSnapshotByFixture.has(snap.fixture_id)) {
+      latestSnapshotByFixture.set(snap.fixture_id, snap);
+    }
+  }
+
+  return {
+    matches: liveFixtures.map((f) => {
+      const snap = latestSnapshotByFixture.get(f.id) ?? null;
+      return {
+        fixtureId: f.id,
+        status: f.status,
+        round: f.round,
+        kickoff: f.kickoff_at,
+        home: f.home ? { name: f.home.name, logoUrl: f.home.logo_url } : null,
+        away: f.away ? { name: f.away.name, logoUrl: f.away.logo_url } : null,
+        // Snapshotens resultat är färskast om vi har en; annars faller vi
+        // tillbaka på fixture-radens (uppdateras också av live-tick).
+        homeScore: snap?.home_score ?? f.home_score,
+        awayScore: snap?.away_score ?? f.away_score,
+        minute: snap?.match_minute ?? null,
+        // null = aldrig hämtad än (t.ex. första tick:en för matchen) —
+        // visas som "väntar på statistik", aldrig som 0.
+        possession: snap
+          ? { home: snap.home_possession_pct, away: snap.away_possession_pct }
+          : null,
+        shots: snap
+          ? {
+              home: snap.home_shots_total,
+              away: snap.away_shots_total,
+              homeOnTarget: snap.home_shots_on_target,
+              awayOnTarget: snap.away_shots_on_target,
+            }
+          : null,
+        corners: snap ? { home: snap.home_corners, away: snap.away_corners } : null,
+        lastUpdated: snap?.captured_at ?? null,
+      };
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // get_player_profile — Data-sektion del 1
 // ---------------------------------------------------------------------------
 interface PlayerBioRow {
@@ -586,7 +719,7 @@ interface ComparisonFixtureRow {
   season: { year: number } | null;
 }
 
-function computeFormRecord(
+export function computeFormRecord(
   fixtures: ComparisonFixtureRow[],
   teamId: number
 ): {
@@ -640,6 +773,27 @@ function computeFormRecord(
     points: wins * 3 + draws,
     form: form.slice(-5),
   };
+}
+
+/**
+ * Fas 16c — senaste 5 resultatens W/D/L-sekvens för ETT lag, byggd på riktig
+ * matchdata (fixture.home_score/away_score), inte Sportmonks förberäknade
+ * "streak"-fakta (som ger ett antal/andel, aldrig den faktiska ORDNINGEN
+ * match för match). Återanvänder computeFormRecord — samma vinst/oavgjort/
+ * förlust-logik som redan används av getTeamComparison/getTeamProfile,
+ * aldrig en egen, andra definition av "vinst" på ett annat ställe.
+ */
+export async function getRecentFormSequence(supabase: Supabase, teamId: number, limit = 5) {
+  const { data, error } = await supabase
+    .from("fixture")
+    .select("id, external_id, kickoff_at, status, home_score, away_score, home_team_id, away_team_id, season:season_id(year)")
+    .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
+    .eq("status", "FT")
+    .order("kickoff_at", { ascending: false })
+    .limit(limit)
+    .returns<ComparisonFixtureRow[]>();
+  if (error) throw new FootballDataError(error.message);
+  return computeFormRecord(data ?? [], teamId);
 }
 
 export interface TeamComparisonParams {
@@ -922,8 +1076,8 @@ interface MatchEventRow {
   minute: number;
   extra_minute: number | null;
   team: { id: number; name: string } | null;
-  player: { full_name: string } | null;
-  assist: { full_name: string } | null;
+  player: { id: number; full_name: string } | null;
+  assist: { id: number; full_name: string } | null;
 }
 
 export async function getMatchReport(supabase: Supabase, fixtureId: number) {
@@ -951,18 +1105,75 @@ export async function getMatchReport(supabase: Supabase, fixtureId: number) {
 
   if (fixtureError || !fixture) throw new FootballDataError(`Okänd match: ${fixtureId}`);
 
+  // Live-pipeline.ts skriver till event-tabellen match för match redan under
+  // pågående spel, men sätter ALDRIG events_synced_at (det fältet är
+  // post-match-importens "klar"-markör) — utan den här grenen skulle en
+  // pågående matchs redan sparade mål/kort/byten visas som "inga händelser
+  // än" trots att de finns i databasen.
+  const isLive = isFixtureLikelyLive(fixture.status, fixture.kickoff_at);
+  const eventsAvailable = !!fixture.events_synced_at || isLive;
+
   let events: MatchEventRow[] = [];
-  if (fixture.events_synced_at) {
+  if (eventsAvailable) {
     const { data, error } = await supabase
       .from("event")
       .select(
-        "type, detail, minute, extra_minute, team:team_id(id, name), player:player_id(full_name), assist:assist_player_id(full_name)"
+        "type, detail, minute, extra_minute, team:team_id(id, name), player:player_id(id, full_name), assist:assist_player_id(id, full_name)"
       )
       .eq("fixture_id", fixture.id)
       .order("minute", { ascending: true })
       .returns<MatchEventRow[]>();
     if (error) throw new FootballDataError(error.message);
     events = data ?? [];
+  }
+
+  // Samma anledning som ovan: fixture.home_score/away_score sätts bara av
+  // post-match-importen. Under pågående spel är källan istället senaste
+  // fixture_live_snapshots-raden (samma tabell get_live_matches läser).
+  let liveMinute: number | null = null;
+  let liveLastUpdated: string | null = null;
+  let liveStats: {
+    possession: { home: number | null; away: number | null } | null;
+    shots: { home: number | null; away: number | null; homeOnTarget: number | null; awayOnTarget: number | null } | null;
+    corners: { home: number | null; away: number | null } | null;
+  } | null = null;
+  let homeScore = fixture.home_score;
+  let awayScore = fixture.away_score;
+  if (isLive) {
+    const { data: snapshot } = await supabase
+      .from("fixture_live_snapshots")
+      .select(
+        "captured_at, match_minute, home_score, away_score, home_possession_pct, away_possession_pct, home_shots_total, away_shots_total, home_shots_on_target, away_shots_on_target, home_corners, away_corners"
+      )
+      .eq("fixture_id", fixture.id)
+      .order("captured_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (snapshot) {
+      homeScore = homeScore ?? snapshot.home_score;
+      awayScore = awayScore ?? snapshot.away_score;
+      liveMinute = snapshot.match_minute;
+      liveLastUpdated = snapshot.captured_at;
+      liveStats = {
+        possession:
+          snapshot.home_possession_pct != null || snapshot.away_possession_pct != null
+            ? { home: snapshot.home_possession_pct, away: snapshot.away_possession_pct }
+            : null,
+        shots:
+          snapshot.home_shots_total != null || snapshot.away_shots_total != null
+            ? {
+                home: snapshot.home_shots_total,
+                away: snapshot.away_shots_total,
+                homeOnTarget: snapshot.home_shots_on_target,
+                awayOnTarget: snapshot.away_shots_on_target,
+              }
+            : null,
+        corners:
+          snapshot.home_corners != null || snapshot.away_corners != null
+            ? { home: snapshot.home_corners, away: snapshot.away_corners }
+            : null,
+      };
+    }
   }
 
   // Tidigare en hårdkodad IFK/AIK-gate (numera sakligt fel — spelartrupper
@@ -993,9 +1204,13 @@ export async function getMatchReport(supabase: Supabase, fixtureId: number) {
     venue: fixture.venue_name,
     home: fixture.home ? { id: fixture.home.id, name: fixture.home.name, logoUrl: fixture.home.logo_url } : null,
     away: fixture.away ? { id: fixture.away.id, name: fixture.away.name, logoUrl: fixture.away.logo_url } : null,
-    homeScore: fixture.home_score,
-    awayScore: fixture.away_score,
-    eventsAvailable: !!fixture.events_synced_at,
+    homeScore,
+    awayScore,
+    isLive,
+    liveMinute,
+    liveLastUpdated,
+    liveStats,
+    eventsAvailable,
     eventsComplete,
     fullPlayerDetail,
     events: events.map((e) => ({
@@ -1005,7 +1220,9 @@ export async function getMatchReport(supabase: Supabase, fixtureId: number) {
       extraMinute: e.extra_minute,
       team: e.team?.name ?? null,
       player: e.player?.full_name ?? null,
+      playerId: e.player?.id ?? null,
       assist: e.assist?.full_name ?? null,
+      assistId: e.assist?.id ?? null,
     })),
   };
 }

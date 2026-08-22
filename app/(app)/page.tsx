@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 import { strings } from "@/lib/i18n/sv";
-import { getTopScorers } from "@/lib/football/tools";
+import { getTopScorers, getLiveMatches } from "@/lib/football/tools";
+import { timeAgo } from "@/lib/admin/format";
 
 interface FavoriteTeam {
   id: number;
@@ -118,6 +119,18 @@ export default async function Home() {
     } catch {
       topScorer = null;
     }
+  }
+
+  // Hela ligan, inte bara favoritlaget — samma scope som live-pipeline.ts
+  // (scripts/import/live-pipeline.ts) faktiskt fyller fixture_live_snapshots
+  // för. Ett fel här (t.ex. tabellen inte migrerad än på en ny miljö) ska
+  // aldrig krascha startsidan — visas bara som "inga matcher pågår".
+  let liveMatches: Awaited<ReturnType<typeof getLiveMatches>>["matches"] = [];
+  try {
+    const result = await getLiveMatches(supabase);
+    liveMatches = result.matches;
+  } catch {
+    liveMatches = [];
   }
 
   return (
@@ -273,24 +286,93 @@ export default async function Home() {
         </div>
       </div>
 
-      {/* 5. LIVE — reserverad yta, ingen påhittad matchdata */}
-      <div className="mt-8 flex flex-col items-start justify-between gap-3 rounded-2xl border border-white/5 bg-white/[0.015] px-5 py-4 sm:mt-10 sm:flex-row sm:items-center">
-        <div className="flex items-center gap-3">
-          <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden>
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500/50" />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
-          </span>
-          <div>
+      {/* 5. LIVE — riktig data ur fixture_live_snapshots (scripts/import/live-pipeline.ts,
+          pollad av .github/workflows/pipeline-poll.yml), ingen påhittad matchdata.
+          Tom lista visas ärligt som "inga matcher pågår", aldrig som platshållare. */}
+      {liveMatches.length === 0 ? (
+        <div className="mt-8 flex flex-col items-start justify-between gap-3 rounded-2xl border border-white/5 bg-white/[0.015] px-5 py-4 sm:mt-10 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-3">
+            <span className="relative flex h-2.5 w-2.5 shrink-0 rounded-full bg-[#5f5e59]" aria-hidden />
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#898781]">
+                {strings.home.liveBadge}
+              </p>
+              <p className="text-sm text-[#c3c2b7]">{strings.home.liveNone}</p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-8 space-y-3 sm:mt-10">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden>
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500/50" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
+            </span>
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#e0645f]">
               {strings.home.liveBadge}
             </p>
-            <p className="text-sm text-[#c3c2b7]">{strings.home.liveComingSoon}</p>
           </div>
+          {liveMatches.map((m) => (
+            <Link
+              key={m.fixtureId}
+              href={`/matcher/${m.fixtureId}`}
+              className="block rounded-2xl border border-[#e0645f]/25 bg-gradient-to-br from-[#e0645f]/[0.06] via-[#15171c] to-[#15171c] px-5 py-4 transition-colors hover:border-[#e0645f]/50 hover:bg-[#e0645f]/[0.1]"
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-1 items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2">
+                    {m.home?.logoUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element -- extern logga
+                      <img src={m.home.logoUrl} alt="" className="h-6 w-6 shrink-0" />
+                    )}
+                    <span className="truncate text-sm font-semibold text-white">{m.home?.name ?? "?"}</span>
+                  </div>
+                  <span className="shrink-0 text-lg font-bold text-white tabular-nums">
+                    {m.homeScore ?? "–"}–{m.awayScore ?? "–"}
+                  </span>
+                  <div className="flex min-w-0 items-center justify-end gap-2">
+                    <span className="truncate text-sm font-semibold text-white">{m.away?.name ?? "?"}</span>
+                    {m.away?.logoUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element -- extern logga
+                      <img src={m.away.logoUrl} alt="" className="h-6 w-6 shrink-0" />
+                    )}
+                  </div>
+                </div>
+                <span className="shrink-0 rounded-full border border-[#e0645f]/40 bg-[#e0645f]/10 px-2.5 py-1 text-[11px] font-semibold text-[#e0645f] tabular-nums">
+                  {m.minute != null ? `${m.minute}′` : m.status}
+                </span>
+              </div>
+              {m.lastUpdated && (
+                <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-white/5 pt-3 text-[11px] text-[#898781]">
+                  {m.possession && m.possession.home != null && m.possession.away != null && (
+                    <span>
+                      {strings.home.livePossession}: <span className="text-[#c3c2b7]">{m.possession.home}%–{m.possession.away}%</span>
+                    </span>
+                  )}
+                  {m.shots && m.shots.home != null && m.shots.away != null && (
+                    <span>
+                      {strings.home.liveShots}: <span className="text-[#c3c2b7]">{m.shots.home}–{m.shots.away}</span>
+                    </span>
+                  )}
+                  {m.corners && m.corners.home != null && m.corners.away != null && (
+                    <span>
+                      {strings.home.liveCorners}: <span className="text-[#c3c2b7]">{m.corners.home}–{m.corners.away}</span>
+                    </span>
+                  )}
+                  {/* Ärlig färskhetsindikator — pollningen (GitHub Actions,
+                      var 5:e minut, kan droppas av GitHub under belastning)
+                      kan halka efter en riktig matchhändelse med tiotals
+                      minuter. Bättre att visa exakt hur gammal datan är än
+                      att låtsas den är sekundfärsk. */}
+                  <span className="ml-auto text-[#5f5e59]">
+                    {strings.home.liveUpdated} {timeAgo(m.lastUpdated)}
+                  </span>
+                </div>
+              )}
+            </Link>
+          ))}
         </div>
-        <span className="shrink-0 rounded-full border border-white/10 px-3 py-1 text-[11px] font-medium text-[#898781]">
-          {strings.home.liveComingSoonShort}
-        </span>
-      </div>
+      )}
 
       {/* Kontostatus — låg vikt, ren metadata, längst ner */}
       <div className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-2.5 text-xs sm:text-sm">

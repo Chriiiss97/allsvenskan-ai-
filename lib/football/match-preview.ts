@@ -43,6 +43,10 @@ export interface MatchFact {
   sportmonksTypeId: number;
   participant: "home" | "away" | null;
   naturalLanguage: string;
+  /** "h2h" (inbördes möten) | "team" (lagets egen form) | "overall" | null — se lib/football/match-preview-sv.ts. */
+  basis: string | null;
+  /** Sportmonks strukturerade underlag bakom `naturalLanguage` (samma tal, aldrig omräknat) — okänd form per sportmonksTypeId, se match-preview-sv.ts. */
+  data: unknown;
 }
 
 export interface MatchPreviewData {
@@ -53,6 +57,10 @@ export interface MatchPreviewData {
   form: MatchFact[];
   /** Individuella spelarjämförelser — category="players". */
   players: MatchFact[];
+  /** Fas 16: lagets snitt jämfört med Allsvenskans snitt — category="statistic_comparisons",
+   * verifierad form (se match-preview-sv.ts:s comparisonFact). Tidigare medvetet uteslutet
+   * (se filhuvudets historik) i väntan på en säker, kontrollerad presentation. */
+  leagueComparisons: MatchFact[];
 }
 
 interface FactRow {
@@ -61,6 +69,7 @@ interface FactRow {
   basis: string | null;
   category: string | null;
   natural_language: string | null;
+  data: unknown;
 }
 
 export async function getMatchPreview(supabase: Supabase, fixtureId: number): Promise<MatchPreviewData> {
@@ -71,7 +80,7 @@ export async function getMatchPreview(supabase: Supabase, fixtureId: number): Pr
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
       .from("fixture_match_facts")
-      .select("sportmonks_type_id, participant, basis, category, natural_language")
+      .select("sportmonks_type_id, participant, basis, category, natural_language, data")
       .eq("fixture_id", fixtureId)
       .not("natural_language", "is", null)
       .range(from, from + PAGE - 1)
@@ -86,6 +95,8 @@ export async function getMatchPreview(supabase: Supabase, fixtureId: number): Pr
       sportmonksTypeId: r.sportmonks_type_id,
       participant: r.participant === "home" || r.participant === "away" ? r.participant : null,
       naturalLanguage: r.natural_language as string,
+      basis: r.basis,
+      data: r.data,
     };
   }
 
@@ -94,5 +105,6 @@ export async function getMatchPreview(supabase: Supabase, fixtureId: number): Pr
     headToHead: rows.filter((r) => r.basis === "h2h" && r.category !== "players").map(toFact),
     form: rows.filter((r) => r.basis === "team" && r.category === "streaks").map(toFact),
     players: rows.filter((r) => r.category === "players").map(toFact),
+    leagueComparisons: rows.filter((r) => r.category === "statistic_comparisons").map(toFact),
   };
 }

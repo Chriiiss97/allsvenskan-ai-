@@ -23,10 +23,13 @@ export const strings = {
     welcomeTitle: "Välkommen till Allsvenskan-chattbot",
     welcomeBody:
       "Fråga om mål, assist, kort, matcher och klubbhistoria — allt om IFK Göteborg och AIK.",
-    liveComingSoon:
-      "Live-matchchatt är på väg — under tiden kan du fråga om historisk statistik.",
     liveBadge: "Live",
-    liveComingSoonShort: "Kommer snart",
+    liveNone: "Inga matcher pågår just nu.",
+    liveMinute: "min",
+    liveUpdated: "Uppdaterad",
+    livePossession: "Bollinnehav",
+    liveShots: "Skott",
+    liveCorners: "Hörnor",
     buildingNotice:
       "Sidan är under uppbyggnad. Just nu testar vi inloggning och databasgrund.",
     yourTeam: "Din klubb",
@@ -49,7 +52,7 @@ export const strings = {
   chat: {
     title: "Chatta om Allsvenskan",
     backToHome: "Till startsidan",
-    liveHint: "🔴 Live-matchchatt är på väg — fråga mig gärna om historisk statistik än så länge.",
+    liveHint: "🔴 Chatten kan ännu inte svara om pågående matcher i realtid — se startsidan för live-resultat.",
     placeholder: "Fråga om mål, kort, matcher, klubbhistoria...",
     send: "Skicka",
     sending: "Skickar...",

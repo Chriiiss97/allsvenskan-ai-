@@ -1,9 +1,10 @@
 import { apiFootballGet } from "../../lib/api-football/client";
-import type { ApiLiveFixtureResponse, ApiFixtureStatisticsResponse, ApiEventResponse } from "../../lib/api-football/types";
+import type { ApiLiveFixtureResponse, ApiFixtureStatisticsResponse, ApiEventResponse, ApiFixtureResponse } from "../../lib/api-football/types";
 import { createAdminClient } from "./admin-client";
 import { createTeamCache } from "./team-cache";
 import { createPlayerCache } from "./player-cache";
 import { ALLSVENSKAN_LEAGUE_EXTERNAL_ID } from "./config";
+import { LIVE_FIXTURE_STATUSES } from "../../lib/football/tools";
 
 /**
  * Steg 6 — live-match pipeline. Precis som steg 5 är det här EN
@@ -30,6 +31,53 @@ import { ALLSVENSKAN_LEAGUE_EXTERNAL_ID } from "./config";
  */
 const STATS_REFRESH_MINUTES = 3;
 
+/**
+ * En match som en gång fångades av live-tick:en (fixture.status satt till
+ * en pågående-kod, t.ex. "2H") men som sen slutar dyka upp i /fixtures?
+ * live=all — API-Football har då redan gått vidare till FT (eller AET/PEN)
+ * på sin sida. Ingenting annat i produktionsflödet flyttar bort en fixture-
+ * rad FRÅN en pågående-kod: import-fixtures.ts körs bara vid säsongsimport,
+ * och finalize-match.ts (steg 7) filtrerar SJÄLV på status="FT" innan den
+ * ens tittar på matchen — ett moment 22 utan den här funktionen. Utan
+ * stängning blir en match hängandes på t.ex. "2H, minut 86" i databasen för
+ * evigt, vilket visas som "LIVE" i produkten långt efter att matchen är
+ * slut (upptäckt 2026-08-22 av en användare som jämförde mot FotMob).
+ *
+ * Frågar EN riktig /fixtures?id=X per kandidat — aldrig gissat resultat.
+ * Ingen tidsgräns på avspark här (till skillnad från UI-lagrets 3-timmars
+ * "visa som live"-fönster i lib/football/tools.ts:s isFixtureLikelyLive) —
+ * en fastnad statusrad ska rättas oavsett hur gammal den är, det är en
+ * ren datakorrekthetsfråga, inte en fråga om vad som ska visas som pågår
+ * just nu.
+ */
+async function closeOutStaleLiveFixtures(
+  supabase: ReturnType<typeof createAdminClient>,
+  currentlyLiveExternalIds: Set<number>
+) {
+  const { data: candidates, error } = await supabase
+    .from("fixture")
+    .select("id, external_id, status")
+    .in("status", LIVE_FIXTURE_STATUSES);
+  if (error) throw error;
+
+  for (const c of candidates ?? []) {
+    if (!c.external_id || currentlyLiveExternalIds.has(c.external_id)) continue;
+
+    const { data: real } = await apiFootballGet<ApiFixtureResponse>("/fixtures", { id: c.external_id });
+    const match = real[0];
+    if (!match || match.fixture.status.short === c.status) continue;
+
+    const { error: updateError } = await supabase
+      .from("fixture")
+      .update({ status: match.fixture.status.short, home_score: match.goals.home, away_score: match.goals.away })
+      .eq("id", c.id);
+    if (updateError) throw updateError;
+    console.log(
+      `  ⟳ Match ${c.id} (external_id ${c.external_id}) hade lämnat live-flödet — status rättad ${c.status} → ${match.fixture.status.short} (${match.goals.home}-${match.goals.away}).`
+    );
+  }
+}
+
 // `supabase`-param (steg 10): se pre-match-pipeline.ts / import-events.ts.
 export async function runLiveTick(supabase: ReturnType<typeof createAdminClient> = createAdminClient()) {
   const teamCache = createTeamCache(supabase);
@@ -38,6 +86,9 @@ export async function runLiveTick(supabase: ReturnType<typeof createAdminClient>
   const { data: liveFixtures } = await apiFootballGet<ApiLiveFixtureResponse>("/fixtures", { live: "all" });
 
   const allsvenskanLive = liveFixtures.filter((f) => f.league.id === ALLSVENSKAN_LEAGUE_EXTERNAL_ID);
+
+  await closeOutStaleLiveFixtures(supabase, new Set(allsvenskanLive.map((f) => f.fixture.id)));
+
   if (allsvenskanLive.length === 0) {
     console.log(`Inga pågående Allsvenskan-matcher just nu (${liveFixtures.length} live totalt i andra ligor).`);
     return;

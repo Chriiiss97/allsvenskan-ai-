@@ -1,14 +1,32 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getMatchReport, FootballDataError } from "@/lib/football/tools";
+import { getMatchReport, getRecentFormSequence, FootballDataError } from "@/lib/football/tools";
 import { getMatchTeamStatsComparison } from "@/lib/football/team-rollup";
 import { getMatchPreview, type MatchFact } from "@/lib/football/match-preview";
+import { translateMatchFact, extractPlayerHighlight, extractComparisonHighlight } from "@/lib/football/match-preview-sv";
+import { buildH2HSummary } from "@/lib/football/match-h2h-summary";
+import { buildMatchInsight } from "@/lib/football/match-insight";
+import { buildMatchRecap } from "@/lib/football/match-recap";
+import { buildKeyPlayerCategories } from "@/lib/football/match-key-players";
 import { hasScoutAccess } from "@/lib/auth/premium";
 import { PremiumGate } from "@/components/scout/PremiumGate";
 import { colors } from "@/lib/design/tokens";
 import { MatchTimeline } from "@/components/data/MatchTimeline";
 import { BackButton } from "@/components/nav/BackButton";
+import { timeAgo } from "@/lib/admin/format";
+import { MatchFactGroup, FactRow, type DisplayFact } from "@/components/data/MatchFactGroup";
+import { MatchHeadToHeadSummary } from "@/components/data/MatchHeadToHeadSummary";
+import { MatchKeyPlayers } from "@/components/data/MatchKeyPlayers";
+import { MatchFormSequence } from "@/components/data/MatchFormSequence";
+import { MatchLeagueComparisons } from "@/components/data/MatchLeagueComparisons";
+import { StatCompareRow } from "@/components/data/StatCompareRow";
+import { MatchRecapCard } from "@/components/data/MatchRecapCard";
+import { FormationPitch } from "@/components/data/FormationPitch";
+import { buildPitchPlayers } from "@/lib/football/formation-pitch";
+import { buildPreMatchNarrative, buildPostMatchNarrative } from "@/lib/football/match-narrative";
+import { MatchNarrativeCard } from "@/components/data/MatchNarrativeCard";
 
 // Steg 9: "Match DNA" — hemma vs bortalagets lagstatistik (possession/skott/
 // hörnor/xG), byggd på steg 8:s getMatchTeamStatsComparison. Bara rader där
@@ -26,7 +44,8 @@ interface LineupPlayerRow {
   is_starter: boolean;
   shirt_number: number | null;
   position: string | null;
-  player: { id: number; full_name: string } | null;
+  grid: string | null;
+  player: { id: number; full_name: string; photo_url: string | null } | null;
 }
 
 interface LineupRow {
@@ -35,27 +54,105 @@ interface LineupRow {
   fixture_lineup_player: LineupPlayerRow[];
 }
 
-/** Fas 14.6 — en grupp Match Preview-fakta (H2H/form/spelare), döljer sig själv helt om tom. */
-function FactGroup({ title, facts, homeName, awayName }: { title: string; facts: MatchFact[]; homeName: string; awayName: string }) {
+/**
+ * Fas 16 — bygger visningstexten för en grupp Match Preview-fakta: en säker
+ * svensk mening när sportmonks_type_id är täckt (lib/football/match-preview-sv.ts),
+ * annars den engelska originalmeningen (aldrig en gissad översättning).
+ */
+function toDisplayFacts(facts: MatchFact[], homeName: string, awayName: string): DisplayFact[] {
+  return facts.map((f, i) => {
+    const sv = translateMatchFact(f, homeName, awayName);
+    return { key: `${f.sportmonksTypeId}-${i}`, text: sv ?? f.naturalLanguage, translated: sv !== null };
+  });
+}
+
+/**
+ * Fas 16f — en spelarrad i Startelvor: ansiktsbild när vi har en
+ * (photo_url), annars samma tröjnummer-badge som förut — aldrig en stor
+ * bild, bara en liten, konsekvent avatar (h-7 w-7). Länken är samma redan
+ * säkra fixture_lineup_player.player_id-koppling som fanns innan, oförändrad.
+ */
+function LineupPlayerRow({
+  player,
+  shirtNumber,
+  dim,
+}: {
+  player: { id: number; full_name: string; photo_url: string | null } | null;
+  shirtNumber: number | null;
+  dim?: boolean;
+}) {
+  return (
+    <li className="flex items-center gap-2.5 text-sm">
+      {player?.photo_url ? (
+        // eslint-disable-next-line @next/next/no-img-element -- extern spelarbild
+        <img src={player.photo_url} alt="" className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-white/10" />
+      ) : (
+        <span
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold tabular-nums ring-1 ${
+            dim ? "bg-white/[0.03] text-[#5f5e59] ring-white/5" : "bg-white/5 text-[#898781] ring-white/10"
+          }`}
+        >
+          {shirtNumber ?? "–"}
+        </span>
+      )}
+      {player ? (
+        <Link href={`/spelare/${player.id}`} className={`transition-colors hover:text-white hover:underline ${dim ? "text-[#898781]" : "text-[#c3c2b7]"}`}>
+          {player.full_name}
+        </Link>
+      ) : (
+        <span className={dim ? "text-[#898781]" : "text-[#c3c2b7]"}>Okänd spelare</span>
+      )}
+    </li>
+  );
+}
+
+/**
+ * Fas 14.6/16/16b — en titlad grupp Match Preview-fakta, döljer sig själv
+ * helt om tom. `summary` (valfri): en visuell sammanfattning (t.ex.
+ * MatchHeadToHeadSummary) som visas FÖRE listan — då läggs HELA listan (inte
+ * bara det som sticker ut över 6) bakom en enda "Visa detaljer", eftersom
+ * sammanfattningen redan gav helhetsbilden.
+ */
+function FactSection({
+  icon,
+  title,
+  facts,
+  homeName,
+  awayName,
+  summary,
+}: {
+  icon: string;
+  title: string;
+  facts: MatchFact[];
+  homeName: string;
+  awayName: string;
+  summary?: ReactNode;
+}) {
   if (facts.length === 0) return null;
+  const displayFacts = toDisplayFacts(facts, homeName, awayName);
   return (
     <div>
-      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-[#7d7c76]">{title}</p>
-      <ul className="max-h-80 space-y-1.5 overflow-y-auto pr-1">
-        {facts.map((f, i) => (
-          <li key={i} className="flex items-start gap-2 text-sm text-[#c3c2b7]">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full" style={{ backgroundColor: colors.accent.matchPreview }} aria-hidden />
-            <span>
-              {f.participant && (
-                <span className="mr-1.5 rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[#898781]">
-                  {f.participant === "home" ? homeName : awayName}
-                </span>
-              )}
-              {f.naturalLanguage}
-            </span>
-          </li>
-        ))}
-      </ul>
+      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-[#898781]">
+        <span aria-hidden>{icon}</span> {title}
+      </p>
+      {summary ? (
+        <>
+          {summary}
+          <details className="group mt-3">
+            <summary className="cursor-pointer list-none text-xs font-medium text-[#898781] marker:content-none hover:text-[#c3c2b7]">
+              Visa detaljer ({displayFacts.length}) <span className="text-[#5f5e59] group-open:hidden">▾</span>
+              <span className="hidden text-[#5f5e59] group-open:inline">▴</span>
+            </summary>
+            <ul className="mt-2 divide-y divide-white/5 border-t border-white/5">
+              {displayFacts.map((f) => (
+                <FactRow key={f.key} fact={f} />
+              ))}
+            </ul>
+          </details>
+        </>
+      ) : (
+        <MatchFactGroup facts={displayFacts} />
+      )}
     </div>
   );
 }
@@ -79,11 +176,27 @@ export default async function MatchReportPage({
   const matchStats = await getMatchTeamStatsComparison(supabase, Number(fixtureId));
   const statRows = MATCH_STAT_ROWS.filter((row) => matchStats.home?.[row.key] != null || matchStats.away?.[row.key] != null);
 
+  // Pågående match: post-match-statistiken (fixture_team_stats) finns inte
+  // förrän efter matchen — faller tillbaka till samma live-snapshot som
+  // startsidans live-yta och get_live_matches redan visar (bollinnehav/
+  // skott/hörnor), aldrig xG/fouls som vi inte har live.
+  const liveStatRows: { label: string; home: number | string | null; away: number | string | null; suffix?: string }[] = [];
+  if (statRows.length === 0 && report.isLive && report.liveStats) {
+    if (report.liveStats.possession)
+      liveStatRows.push({ label: "Bollinnehav", home: report.liveStats.possession.home, away: report.liveStats.possession.away, suffix: "%" });
+    if (report.liveStats.shots)
+      liveStatRows.push({ label: "Skott", home: report.liveStats.shots.home, away: report.liveStats.shots.away });
+    if (report.liveStats.shots)
+      liveStatRows.push({ label: "Skott på mål", home: report.liveStats.shots.homeOnTarget, away: report.liveStats.shots.awayOnTarget });
+    if (report.liveStats.corners)
+      liveStatRows.push({ label: "Hörnor", home: report.liveStats.corners.home, away: report.liveStats.corners.away });
+  }
+
   // Steg 4 (data-sektionens breddning): startelvor/formation — nedan sedan
   // steg 4 av Ultra-plan-projektet, men aldrig visade i UI:t förrän nu.
   const { data: lineupRows } = await supabase
     .from("fixture_lineup")
-    .select("team_id, formation, fixture_lineup_player(is_starter, shirt_number, position, player:player_id(id, full_name))")
+    .select("team_id, formation, fixture_lineup_player(is_starter, shirt_number, position, grid, player:player_id(id, full_name, photo_url))")
     .eq("fixture_id", Number(fixtureId))
     .returns<LineupRow[]>();
   const homeLineup = lineupRows?.find((l) => l.team_id === report.home?.id) ?? null;
@@ -103,107 +216,297 @@ export default async function MatchReportPage({
     hasPreviewAccess = hasScoutAccess(profile);
   }
 
+  const homeName = report.home?.name ?? "Hemma";
+  const awayName = report.away?.name ?? "Borta";
+
+  // Fas 16b — samma tal som redan visas i FactSection nedan, bara
+  // omformade till en visuell sammanfattning respektive kort (H2H-stapel,
+  // spelarkort) och en kort jämförande textrad ("AI:s matchbild" — se
+  // lib/football/match-insight.ts:s filhuvud för varför det INTE är ett
+  // AI/LLM-anrop). Ingen ny data, ingen ny beräkning bortom enkla
+  // jämförelser av redan verifierade tal.
+  const h2hSummary = buildH2HSummary(preview.headToHead);
+  const matchInsight = preview.available ? buildMatchInsight(preview, homeName, awayName) : null;
+  const playerHighlights = preview.players.map((f) => extractPlayerHighlight(f, homeName, awayName)).filter((h): h is NonNullable<typeof h> => h !== null);
+  // Sällsynta spelarfakta som inte blir ett kort (t.ex. övergångshistorik,
+  // "X har tidigare spelat för Y") — visas ändå, som text, aldrig tyst dolda.
+  const uncoveredPlayerFacts = preview.players.filter((f) => extractPlayerHighlight(f, homeName, awayName) === null);
+  const leagueComparisons = preview.leagueComparisons
+    .map((f) => extractComparisonHighlight(f, homeName, awayName))
+    .filter((c): c is NonNullable<typeof c> => c !== null);
+  const uncoveredComparisonFacts = preview.leagueComparisons.filter((f) => extractComparisonHighlight(f, homeName, awayName) === null);
+
+  // Fas 16c — "Senaste 5" som en RIKTIG resultatsekvens (W/D/L, kronologisk
+  // ordning), byggd på egen matchdata (fixture.home_score/away_score), inte
+  // Sportmonks aggregerade sviter — se lib/football/tools.ts:s
+  // getRecentFormSequence. Bara hämtad när Inför matchen-sektionen faktiskt
+  // visas (samma villkor som preview.available nedan).
+  const [homeFormRecord, awayFormRecord] =
+    preview.available && report.home && report.away
+      ? await Promise.all([getRecentFormSequence(supabase, report.home.id), getRecentFormSequence(supabase, report.away.id)])
+      : [null, null];
+
+  // Fas 16d — "Nyckelspelare": grupperar samma playerHighlights-tal efter
+  // VILKEN FRÅGA de svarar på (störst målhot/bäst målchans/bäst betyg)
+  // istället för en rå grid av alla 12 — se match-key-players.ts:s filhuvud.
+  const keyPlayerCategories = buildKeyPlayerCategories(playerHighlights);
+
+  // Fas 16f — "Matchrapport": ställer favoredTeam (redan beräknad ovan,
+  // buildMatchInsight) mot facit (report.homeScore/awayScore + samma
+  // matchStats som Lagstatistik-sektionen redan visar). Bara meningsfullt
+  // för en AVSLUTAD match — en pågående/kommande match har inget facit än.
+  const matchRecap = report.status === "FT" ? buildMatchRecap(matchInsight, homeName, awayName, report.homeScore, report.awayScore, matchStats) : null;
+
+  // Fas 16g — den betalda långa Matchrapporten. Inför-delen bygger på samma
+  // strukturer som de FRIA sektionerna nedan (H2H/form/nyckelspelare/
+  // ligasnitt) redan visar — bara omformade till löpande text istället för
+  // separata visuella block. Efter-delen kräver matchRecap (bara satt för
+  // en avslutad match).
+  const preMatchNarrative = preview.available
+    ? buildPreMatchNarrative({
+        homeName,
+        awayName,
+        h2h: h2hSummary,
+        homeForm: homeFormRecord,
+        awayForm: awayFormRecord,
+        insight: matchInsight,
+        keyPlayers: keyPlayerCategories,
+        leagueComparisons,
+      })
+    : [];
+  const postMatchNarrative =
+    matchRecap && report.homeScore != null && report.awayScore != null
+      ? buildPostMatchNarrative({
+          recap: matchRecap,
+          homeName,
+          awayName,
+          homeScore: report.homeScore,
+          awayScore: report.awayScore,
+          matchStats,
+          keyPlayers: keyPlayerCategories,
+          events: report.events,
+        })
+      : null;
+
   return (
-    <div>
+    <div className="space-y-12">
       <BackButton href="/matcher" label="Alla matcher" />
 
-      <div className="mt-4 rounded-xl border border-white/10 bg-[#1a1a19] p-6 text-center">
-        <p className="text-xs text-[#898781]">
-          {report.season} · {report.round} · {new Date(report.date).toLocaleDateString("sv-SE")}
+      {/* LEVEL 1 — HERO / MATCH IDENTITY. Ingen inramning — sidans "omslag",
+          bär sin vikt genom typografi och luft, inte ett kort. */}
+      <div className="text-center">
+        {report.isLive ? (
+          <div className="flex items-center justify-center gap-2">
+            <span className="relative flex h-2 w-2 shrink-0" aria-hidden>
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500/50" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+            </span>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[#e0645f]">
+              Live{report.liveMinute != null ? ` · ${report.liveMinute}′` : ""}
+            </p>
+          </div>
+        ) : (
+          <p className="text-[11px] uppercase tracking-[0.25em] text-[#7d7c76]">
+            {report.season} · {report.round} · {new Date(report.date).toLocaleDateString("sv-SE")}
+          </p>
+        )}
+
+        <div className="mt-6 flex items-center justify-center gap-4 sm:gap-8">
+          <div className="flex flex-1 flex-col items-center gap-2 sm:flex-row sm:justify-end">
+            {report.home?.logoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element -- extern logga
+              <img src={report.home.logoUrl} alt="" className="h-9 w-9 sm:h-12 sm:w-12" />
+            )}
+            <span className="text-base font-bold leading-tight sm:text-2xl">{homeName}</span>
+          </div>
+          <div className="shrink-0 text-4xl font-black tabular-nums tracking-tight sm:text-6xl">
+            {report.homeScore ?? "–"}–{report.awayScore ?? "–"}
+          </div>
+          <div className="flex flex-1 flex-col items-center gap-2 sm:flex-row sm:justify-start">
+            <span className="text-base font-bold leading-tight sm:text-2xl">{awayName}</span>
+            {report.away?.logoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element -- extern logga
+              <img src={report.away.logoUrl} alt="" className="h-9 w-9 sm:h-12 sm:w-12" />
+            )}
+          </div>
+        </div>
+
+        <p className="mt-4 text-xs text-[#898781]">
+          {!report.isLive && <span className="mr-2 rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#7d7c76]">{report.status}</span>}
+          {report.venue}
         </p>
-        <p className="mt-2 text-2xl font-semibold">
-          {report.home?.name} {report.homeScore ?? "–"} – {report.awayScore ?? "–"} {report.away?.name}
-        </p>
-        {report.venue && <p className="mt-1 text-xs text-[#898781]">{report.venue}</p>}
+        {report.isLive && report.liveLastUpdated && <p className="mt-2 text-[11px] text-[#5f5e59]">Uppdaterad {timeAgo(report.liveLastUpdated)}</p>}
+
+        {((!report.fullPlayerDetail && report.eventsAvailable) || (report.eventsAvailable && !report.eventsComplete)) && (
+          <div className="mx-auto mt-5 max-w-md space-y-1 text-[11px] leading-relaxed text-[#7d7c76]">
+            {!report.fullPlayerDetail && report.eventsAvailable && (
+              <p>Vissa spelare i matchens händelser kunde inte kopplas till en spelarprofil — visas med lagnamn istället.</p>
+            )}
+            {report.eventsAvailable && !report.eventsComplete && (
+              <p>Händelsetidslinjen kan sakna enstaka händelser (känd lucka i äldre källdata) — resultatet ovan stämmer.</p>
+            )}
+          </div>
+        )}
       </div>
 
-      {!report.fullPlayerDetail && report.eventsAvailable && (
-        <p className="mt-3 text-xs text-[#898781]">
-          Vissa spelare i den här matchens händelser kunde inte kopplas till en spelarprofil —
-          händelserna nedan visas då med lagnamn men utan spelarnamn.
-        </p>
-      )}
-
-      {report.eventsAvailable && !report.eventsComplete && (
-        <p className="mt-3 text-xs text-[#898781]">
-          Vi har inte fullständig händelsedata för den här matchen — resultatet ovan stämmer, men
-          tidslinjen kan sakna händelser (en känd lucka i källdatan för äldre matcher).
-        </p>
-      )}
-
-      {preview.available && (
-        <div className="mt-4 rounded-xl border p-5" style={{ borderColor: `${colors.accent.matchPreview}33`, backgroundColor: "#101615" }}>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold" style={{ color: colors.accent.matchPreview }}>
-              🔮 Match Preview
-            </span>
-            <span className="text-[10px] uppercase tracking-wide text-[#5f5e59]">Sportmonks · engelska originalcitat</span>
+      {/* LEVEL 2 — INTELLIGENCE. Två delar med olika åtkomst, per uttrycklig
+          produktbeslut: (1) en GRATIS snabbanalys (verdict + bekräftat/
+          överraskade) som alla ser, även utan Scout — (2) en BETALD,
+          sammanhängande långanalys (Matchrapport). Resten (H2H/form/
+          nyckelspelare/ligasnitt) är EGNA fria sektioner nedan, inte längre
+          instängda bakom samma spärr som Matchrapporten. */}
+      {matchRecap && (
+        <div>
+          <p className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: colors.accent.matchPreview }}>
+            ⚡ Snabbanalys
+          </p>
+          <div className="mt-5">
+            <MatchRecapCard recap={matchRecap} />
           </div>
+        </div>
+      )}
+
+      {(preMatchNarrative.length > 0 || postMatchNarrative) && (
+        <div className={matchRecap ? "border-t border-white/5 pt-10" : ""}>
+          <p className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: colors.accent.matchPreview }}>
+            🔮 Matchrapport
+          </p>
           <PremiumGate
             hasAccess={hasPreviewAccess}
-            title="Match Preview"
-            description="Inbördes möten, formsviter och spelarfakta inför matchen — kräver ett Scout-medlemskap."
+            title="Matchrapport"
+            description="Den fullständiga analysen — inför matchen och (när matchen är spelad) hur den höll mot facit. Kräver ett Scout-medlemskap."
             emoji="🔮"
             accentColor={colors.accent.matchPreview}
-            ctaLabel="Lås upp Match Preview"
+            ctaLabel="Lås upp Matchrapport"
           >
-            <div className="mt-3 flex flex-col gap-5">
-              <FactGroup title="Inbördes möten" facts={preview.headToHead} homeName={report.home?.name ?? "Hemma"} awayName={report.away?.name ?? "Borta"} />
-              <FactGroup title="Senaste form" facts={preview.form} homeName={report.home?.name ?? "Hemma"} awayName={report.away?.name ?? "Borta"} />
-              <FactGroup title="Spelarfakta" facts={preview.players} homeName={report.home?.name ?? "Hemma"} awayName={report.away?.name ?? "Borta"} />
+            <div className="mt-5">
+              <MatchNarrativeCard preMatch={preMatchNarrative} postMatch={postMatchNarrative} verdict={matchRecap?.verdict ?? null} />
             </div>
           </PremiumGate>
         </div>
       )}
 
+      {preview.available && (
+        <div className={matchRecap || preMatchNarrative.length > 0 ? "space-y-10 border-t border-white/5 pt-10" : "space-y-10"}>
+          <div>
+            <FactSection
+              icon="⚔️"
+              title="Inbördes möten"
+              facts={preview.headToHead}
+              homeName={homeName}
+              awayName={awayName}
+              summary={h2hSummary ? <MatchHeadToHeadSummary summary={h2hSummary} homeName={homeName} awayName={awayName} /> : undefined}
+            />
+          </div>
+
+          {(homeFormRecord || awayFormRecord || preview.form.length > 0) && (
+            <div>
+              <p className="mb-4 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-[#898781]">
+                <span aria-hidden>📈</span> Senaste form
+              </p>
+              {(homeFormRecord || awayFormRecord) && (
+                <div className="grid gap-6 sm:grid-cols-2">
+                  {homeFormRecord && homeFormRecord.played > 0 && <MatchFormSequence teamName={homeName} record={homeFormRecord} />}
+                  {awayFormRecord && awayFormRecord.played > 0 && <MatchFormSequence teamName={awayName} record={awayFormRecord} />}
+                </div>
+              )}
+              {preview.form.length > 0 && (
+                <details className="group mt-4">
+                  <summary className="cursor-pointer list-none text-xs font-medium text-[#898781] marker:content-none hover:text-[#c3c2b7]">
+                    Visa formdetaljer ({preview.form.length}) <span className="text-[#5f5e59] group-open:hidden">▾</span>
+                    <span className="hidden text-[#5f5e59] group-open:inline">▴</span>
+                  </summary>
+                  <ul className="mt-2 divide-y divide-white/5 border-t border-white/5">
+                    {toDisplayFacts(preview.form, homeName, awayName).map((f) => (
+                      <FactRow key={f.key} fact={f} />
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+
+          {(keyPlayerCategories.length > 0 || uncoveredPlayerFacts.length > 0) && (
+            <div>
+              <p className="mb-5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-[#898781]">
+                <span aria-hidden>🧠</span> Nyckelspelare
+              </p>
+              {keyPlayerCategories.length > 0 && <MatchKeyPlayers categories={keyPlayerCategories} />}
+              {uncoveredPlayerFacts.length > 0 && (
+                <ul className={keyPlayerCategories.length > 0 ? "mt-5 space-y-1.5 border-t border-white/5 pt-4" : ""}>
+                  {toDisplayFacts(uncoveredPlayerFacts, homeName, awayName).map((f) => (
+                    <FactRow key={f.key} fact={f} />
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {(leagueComparisons.length > 0 || uncoveredComparisonFacts.length > 0) && (
+            <div>
+              <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-[#898781]">
+                <span aria-hidden>📊</span> Jämfört med ligasnittet
+              </p>
+              {leagueComparisons.length > 0 && <MatchLeagueComparisons comparisons={leagueComparisons} />}
+              {uncoveredComparisonFacts.length > 0 && (
+                <ul className={leagueComparisons.length > 0 ? "mt-3 space-y-1.5" : ""}>
+                  {toDisplayFacts(uncoveredComparisonFacts, homeName, awayName).map((f) => (
+                    <FactRow key={f.key} fact={f} />
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          <p className="text-[10px] text-[#5f5e59]">
+            Källa: Sportmonks. Rader märkta <span className="rounded border border-white/10 px-1 py-px">EN</span> kunde inte översättas
+            säkert och visas i original.
+          </p>
+        </div>
+      )}
+
+      {/* LEVEL 3 — DATA. Sektionsdelare (border-t) istället för egna kort —
+          samma yta som Intelligence-zonen ovan, bara utan premium-spärren. */}
       {(homeLineup || awayLineup) && (
-        <div className="mt-4 rounded-xl border border-white/10 bg-[#1a1a19] p-5">
-          <h2 className="text-sm font-semibold">Startelvor</h2>
-          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+        <div className="border-t border-white/5 pt-8">
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+            <span aria-hidden>👥</span> Startelvor
+          </h2>
+          <div className="mt-6 grid gap-8 sm:grid-cols-2">
             {[
-              { team: report.home?.name ?? "Hemma", lineup: homeLineup },
-              { team: report.away?.name ?? "Borta", lineup: awayLineup },
+              { team: homeName, lineup: homeLineup },
+              { team: awayName, lineup: awayLineup },
             ].map(({ team, lineup }) => (
               <div key={team}>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-medium text-white">{team}</p>
-                  {lineup?.formation && <p className="text-[11px] text-[#898781]">{lineup.formation}</p>}
+                <div className="flex items-baseline justify-between">
+                  <p className="text-base font-bold text-white">{team}</p>
+                  {lineup?.formation && <p className="text-xs font-medium tabular-nums text-[#898781]">{lineup.formation}</p>}
                 </div>
                 {lineup ? (
                   <>
-                    <ul className="mt-2 space-y-1">
-                      {lineup.fixture_lineup_player
-                        .filter((p) => p.is_starter)
-                        .map((p, i) => (
-                          <li key={i} className="flex items-center gap-2 text-xs text-[#c3c2b7]">
-                            {p.shirt_number !== null && <span className="w-4 text-[#7d7c76]">{p.shirt_number}</span>}
-                            {p.player ? (
-                              <Link href={`/spelare/${p.player.id}`} className="hover:text-white hover:underline">
-                                {p.player.full_name}
-                              </Link>
-                            ) : (
-                              <span>Okänd spelare</span>
-                            )}
-                          </li>
-                        ))}
-                    </ul>
+                    {(() => {
+                      const starters = lineup.fixture_lineup_player.filter((p) => p.is_starter);
+                      const pitchPlayers = buildPitchPlayers(starters);
+                      return pitchPlayers ? (
+                        <div className="mt-3">
+                          <FormationPitch players={pitchPlayers} />
+                        </div>
+                      ) : (
+                        <ul className="mt-3 space-y-2">
+                          {starters.map((p, i) => (
+                            <LineupPlayerRow key={i} player={p.player} shirtNumber={p.shirt_number} />
+                          ))}
+                        </ul>
+                      );
+                    })()}
                     {lineup.fixture_lineup_player.some((p) => !p.is_starter) && (
                       <>
-                        <p className="mt-2 text-[10px] uppercase tracking-wide text-[#7d7c76]">Avbytare</p>
-                        <ul className="mt-1 space-y-1">
+                        <p className="mb-2 mt-4 text-[10px] font-semibold uppercase tracking-wide text-[#7d7c76]">Avbytare</p>
+                        <ul className="space-y-2">
                           {lineup.fixture_lineup_player
                             .filter((p) => !p.is_starter)
                             .map((p, i) => (
-                              <li key={i} className="flex items-center gap-2 text-xs text-[#898781]">
-                                {p.shirt_number !== null && <span className="w-4 text-[#7d7c76]">{p.shirt_number}</span>}
-                                {p.player ? (
-                                  <Link href={`/spelare/${p.player.id}`} className="hover:text-white hover:underline">
-                                    {p.player.full_name}
-                                  </Link>
-                                ) : (
-                                  <span>Okänd spelare</span>
-                                )}
-                              </li>
+                              <LineupPlayerRow key={i} player={p.player} shirtNumber={p.shirt_number} dim />
                             ))}
                         </ul>
                       </>
@@ -218,39 +521,42 @@ export default async function MatchReportPage({
         </div>
       )}
 
-      {statRows.length > 0 && (
-        <div className="mt-4 rounded-xl border border-white/10 bg-[#1a1a19] p-5">
-          <h2 className="text-sm font-semibold">Lagstatistik</h2>
-          <div className="mt-3 flex items-center justify-between text-[11px] uppercase tracking-wide text-[#7d7c76]">
+      {(statRows.length > 0 || liveStatRows.length > 0) && (
+        <div className="border-t border-white/5 pt-8">
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+            <span aria-hidden>📊</span> Lagstatistik
+          </h2>
+          <div className="mt-5 flex items-center justify-between text-[11px] uppercase tracking-wide text-[#7d7c76]">
             <span>{report.home?.name ?? "Hemma"}</span>
             <span>{report.away?.name ?? "Borta"}</span>
           </div>
           <div className="mt-1 divide-y divide-white/5">
-            {statRows.map((row) => {
-              const home = matchStats.home?.[row.key] ?? null;
-              const away = matchStats.away?.[row.key] ?? null;
-              return (
-                <div key={row.key} className="flex items-center justify-between py-2 text-sm">
-                  <span className="w-16 font-medium tabular-nums text-white">
-                    {home ?? "–"}
-                    {home !== null ? (row.suffix ?? "") : ""}
-                  </span>
-                  <span className="flex-1 text-center text-xs text-[#898781]">{row.label}</span>
-                  <span className="w-16 text-right font-medium tabular-nums text-white">
-                    {away ?? "–"}
-                    {away !== null ? (row.suffix ?? "") : ""}
-                  </span>
-                </div>
-              );
-            })}
+            {statRows.length > 0
+              ? statRows.map((row) => (
+                  <StatCompareRow
+                    key={row.key}
+                    label={row.label}
+                    home={matchStats.home?.[row.key] ?? null}
+                    away={matchStats.away?.[row.key] ?? null}
+                    suffix={row.suffix}
+                  />
+                ))
+              : liveStatRows.map((row) => <StatCompareRow key={row.label} label={row.label} home={row.home} away={row.away} suffix={row.suffix} />)}
           </div>
+          {statRows.length === 0 && liveStatRows.length > 0 && (
+            <p className="mt-3 text-[11px] text-[#5f5e59]">
+              Live-statistik under matchen — den fullständiga lagstatistiken (inkl. xG) läggs till efter matchslut.
+            </p>
+          )}
         </div>
       )}
 
-      <div className="mt-4 rounded-xl border border-white/10 bg-[#1a1a19] p-5">
-        <h2 className="text-sm font-semibold">Matchhändelser</h2>
-        <div className="mt-3">
-          <MatchTimeline events={report.events} />
+      <div className="border-t border-white/5 pt-8">
+        <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+          <span aria-hidden>⏱️</span> Matchhändelser
+        </h2>
+        <div className="mt-5">
+          <MatchTimeline events={report.events} homeName={homeName} awayName={awayName} />
         </div>
       </div>
     </div>
