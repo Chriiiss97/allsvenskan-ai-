@@ -1,13 +1,13 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getPlayerProfile, FootballDataError } from "@/lib/football/tools";
 import { computePlayerDNA } from "@/lib/football/player-dna";
 import { computeAdvancedPlayerDNA } from "@/lib/football/advanced-dna";
 import { computeRatingForPlayer } from "@/lib/football/rating/compute-rating";
-import { getPlayerRatingHistory } from "@/lib/football/rating/rating-store";
+import { getPlayerRatingHistory, getStoredSeasonRatings } from "@/lib/football/rating/rating-store";
 import { buildRatingTrendSummary } from "@/lib/football/rating/rating-trend";
 import { computeAdvancedDevelopment } from "@/lib/football/rating/advanced-development";
+import { computePlayerArchetypes } from "@/lib/football/rating/archetypes";
 import { PlayerRatingHistory } from "@/components/data/PlayerRatingHistory";
 import { AdvancedDevelopment } from "@/components/data/AdvancedDevelopment";
 import { getPlayerLineupRoleProfile } from "@/lib/football/lineup-role";
@@ -16,24 +16,45 @@ import { PlayerRadarChart } from "@/components/data/PlayerRadarChart";
 import { PlayerDNA } from "@/components/data/PlayerDNA";
 import { AdvancedDNA } from "@/components/data/AdvancedDNA";
 import { PlayerRating } from "@/components/data/PlayerRating";
-import { PlayerAvatar } from "@/components/data/PlayerAvatar";
+import { StatBar } from "@/components/data/StatBar";
 import { translatePosition } from "@/lib/i18n/sv";
 import { addToShortlist, removeFromShortlist } from "../../shortlist/actions";
 import { computeAgeAdjustedZScores } from "@/lib/football/rating/scout-intelligence-zscore";
 import { computeConsistencyCoefficients } from "@/lib/football/rating/scout-intelligence-consistency";
 import { computeRegressionToMean } from "@/lib/football/rating/scout-intelligence-regression";
 import { ScoutIntelligenceCard } from "@/components/scout/ScoutIntelligenceCard";
+import { getCareerTimeline } from "@/lib/football/career-timeline";
+import { getPlayerMatchLog } from "@/lib/football/player-match-log";
+import { aggregatePlayerCardExtraMetrics } from "@/lib/football/rating/player-card-extra-metrics";
+import { listTeamsWithSeasonSummary } from "@/lib/football/catalog";
+import { getPositionGroup } from "@/lib/football/position-group";
+import { PlayerCardHeader } from "@/components/scout/player-card/PlayerCardHeader";
+import { PlayerSnapshot, type SnapshotRow } from "@/components/scout/player-card/PlayerSnapshot";
+import { ContextBanner } from "@/components/scout/player-card/ContextBanner";
+import { CareerTimelineSection } from "@/components/scout/player-card/CareerTimelineSection";
+import { MatchLogSection } from "@/components/scout/player-card/MatchLogSection";
+import { ExtraMetricsPanel } from "@/components/scout/player-card/ExtraMetricsPanel";
+import { ScoutInsightSection, type ScoutInsightItem } from "@/components/scout/player-card/ScoutInsightSection";
+import { PercentileHighlights, type PercentileHighlightRow } from "@/components/scout/player-card/PercentileHighlights";
+import { CollapsibleSection } from "@/components/scout/player-card/CollapsibleSection";
+import Link from "next/link";
 
 /**
- * Fas 14.4 (plans/humble-giggling-biscuit.md) — Scouts FULLA spelarprofil.
- * Innehållet här är exakt det som Fas 14.3 tog bort från den gratis
- * /spelare/[id] (samma "flytt, inte kopiering"-princip som Lag-DNA):
- * Player Rating med full kategori-/kontributionsnedbrytning,
- * Utveckling (OVR-historik), "varför" (Fas 12), Player DNA, Advancerad
- * DNA (Sportmonks 2024+) och percentil-radarn. Grundstatistik (bio,
- * hero-siffror, per-90-paneler, roll i laget) stannar KVAR gratis på
- * /spelare/[id] — den sidan länkar hit via en Scout-CTA.
+ * Fas 15 (plans/humble-giggling-biscuit.md) — Complete Scout Player Card.
+ * Ombyggd från en lodrät kort-stapel (Fas 14.4) till en sammanhållen
+ * produkt: Header → Snapshot → Identity → Performance/Context → Career →
+ * Development → Percentiler → Scout Insight → Jämför. Anropar SAMMA
+ * befintliga analysfunktioner som innan (Player Rating, Player DNA,
+ * Advancerad DNA, Advanced Development, Scout Intelligence) plus tre NYA,
+ * fristående datakällor (career-timeline.ts, player-match-log.ts,
+ * player-card-extra-metrics.ts) — se planen för fullständig
+ * datainventering och vad som INTE rörs (OVR-formeln, original-DNA,
+ * Allsvensk peer-pool).
  */
+
+function per90SafeLookup(metrics: { label: string; playerValue: number }[] | undefined, label: string): number | null {
+  return metrics?.find((m) => m.label === label)?.playerValue ?? null;
+}
 
 export default async function ScoutPlayerProfilePage({
   params,
@@ -58,6 +79,9 @@ export default async function ScoutPlayerProfilePage({
   }
 
   const age = calculateAge(profile.player.birthDate);
+  const positionGroupInfo = getPositionGroup(profile.player.position);
+  const isGoalkeeper = positionGroupInfo?.group === "goalkeeper";
+
   const dna = profile.season ? await computePlayerDNA(supabase, { playerId: profile.player.id, season: profile.season }) : null;
   const advancedDna =
     profile.season && [2024, 2025, 2026].includes(profile.season)
@@ -75,37 +99,64 @@ export default async function ScoutPlayerProfilePage({
   const ratingTrend = buildRatingTrendSummary(ratingHistory);
 
   let lineupRole: Awaited<ReturnType<typeof getPlayerLineupRoleProfile>> = null;
+  let seasonId: number | null = null;
   if (profile.season) {
     const { data: seasonRow } = await supabase.from("season").select("id").eq("year", profile.season).maybeSingle();
     if (seasonRow) {
+      seasonId = seasonRow.id;
       lineupRole = await getPlayerLineupRoleProfile(supabase, { playerId: profile.player.id, seasonId: seasonRow.id });
     }
   }
-  const heroQuote = dna?.summary ? dna.summary.split(". ")[0].replace(/\.$/, "") + "." : null;
 
-  // Scout Intelligence (separat mini-fas, 2026-08-22) — tre kompletterande
-  // mått, se lib/football/rating/scout-intelligence-*.ts. Batch-funktioner
-  // (hela ligan i en genomgång) — slår bara upp DEN HÄR spelaren ur
-  // resultatet, samma mönster som resten av Scout-lagret (aldrig N+1).
+  // Scout Intelligence (separat mini-fas, 2026-08-22).
   let zScoreResult = null;
   let consistencyResult = null;
   let regressionResult = null;
-  if (profile.season) {
-    const { data: seasonForIntelligence } = await supabase.from("season").select("id").eq("year", profile.season).maybeSingle();
-    if (seasonForIntelligence) {
-      const [zScores, consistencies, regression] = await Promise.all([
-        computeAgeAdjustedZScores(supabase, { seasonId: seasonForIntelligence.id, seasonYear: profile.season }),
-        computeConsistencyCoefficients(supabase, { seasonId: seasonForIntelligence.id }),
-        computeRegressionToMean(supabase, { currentSeasonYear: profile.season }),
-      ]);
-      zScoreResult = zScores.get(profile.player.id) ?? null;
-      consistencyResult = consistencies.get(profile.player.id) ?? null;
-      regressionResult = regression.results.get(profile.player.id) ?? null;
+  if (seasonId && profile.season) {
+    const [zScores, consistencies, regression] = await Promise.all([
+      computeAgeAdjustedZScores(supabase, { seasonId, seasonYear: profile.season }),
+      computeConsistencyCoefficients(supabase, { seasonId }),
+      computeRegressionToMean(supabase, { currentSeasonYear: profile.season }),
+    ]);
+    zScoreResult = zScores.get(profile.player.id) ?? null;
+    consistencyResult = consistencies.get(profile.player.id) ?? null;
+    regressionResult = regression.results.get(profile.player.id) ?? null;
+  }
+
+  // Fas 15 — NY data: huvudarketyp (för headern), karriärtidslinje,
+  // match-för-match-logg, övriga Sportmonks-fält, lagets tabellplacering.
+  let mainArchetypeLabel: string | null = null;
+  if (seasonId) {
+    const storedRatings = await getStoredSeasonRatings(supabase, seasonId);
+    const own = storedRatings?.find((r) => r.playerId === profile.player.id);
+    if (own) {
+      const archetypes = computePlayerArchetypes(
+        { positionGroup: own.positionGroup, categoryScores: own.categoryScores, metricValues: own.metricValues },
+        own.confidenceTier
+      );
+      mainArchetypeLabel = archetypes[0]?.label ?? null;
     }
   }
 
-  // Shortlist — stjärnmärkt eller inte för den inloggade användaren
-  // (RLS-scopad, se migration 20260822120000_scout_shortlist.sql).
+  const careerTimeline = await getCareerTimeline(supabase, { playerId: profile.player.id });
+  const matchLog = seasonId
+    ? await getPlayerMatchLog(supabase, { playerId: profile.player.id, seasonId, position: profile.player.position })
+    : { available: false, isGoalkeeper, entries: [] };
+  const extraMetrics =
+    seasonId && profile.season && [2024, 2025, 2026].includes(profile.season)
+      ? (await aggregatePlayerCardExtraMetrics(supabase, { seasonId })).get(profile.player.id) ?? null
+      : null;
+
+  let standingsLabel: string | null = null;
+  if (profile.season && profile.player.team) {
+    const teams = await listTeamsWithSeasonSummary(supabase, { season: profile.season });
+    const own = teams.find((t) => t.id === profile.player.team!.id);
+    if (own?.rank !== null && own?.rank !== undefined) {
+      standingsLabel = `${profile.player.team.name} — ${own.rank}:a (${own.points ?? "—"} p)`;
+    }
+  }
+
+  // Shortlist.
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -121,97 +172,142 @@ export default async function ScoutPlayerProfilePage({
   }
   const returnTo = `/scout/spelare/${id}${profile.season ? `?season=${profile.season}` : ""}`;
 
+  // --- Snapshot (positionsanpassad, se plans/humble-giggling-biscuit.md §4) ---
+  const ovrValue = rating?.rating.available ? rating.rating.ovr : null;
+  const snapshotRows: SnapshotRow[] = [];
+  if (ovrValue !== null) snapshotRows.push({ label: "OVR", value: String(ovrValue) });
+  if (age !== null) snapshotRows.push({ label: "Ålder", value: String(age) });
+  snapshotRows.push({ label: "Matcher", value: String(profile.stats.appearances) });
+  snapshotRows.push({ label: "Minuter", value: String(profile.stats.minutesPlayed) });
+
+  if (isGoalkeeper && rating?.kind === "goalkeeper" && rating.rating.available) {
+    const gk = rating.rating;
+    const savePct = gk.metrics.find((m) => m.key === "savePct")?.playerValue;
+    const gcPer90 = gk.metrics.find((m) => m.key === "goalsConcededPer90")?.playerValue;
+    const csPct = gk.metrics.find((m) => m.key === "cleanSheetPct")?.playerValue;
+    if (savePct !== undefined) snapshotRows.push({ label: "Räddningsprocent", value: `${savePct}%` });
+    if (gcPer90 !== undefined) snapshotRows.push({ label: "Insläppta/90", value: String(gcPer90) });
+    if (csPct !== undefined) snapshotRows.push({ label: "Clean sheet", value: `${csPct}%` });
+  } else if (!isGoalkeeper) {
+    snapshotRows.push({ label: "Mål", value: String(profile.stats.goals) });
+    snapshotRows.push({ label: "Assist", value: String(profile.stats.assists) });
+    if (positionGroupInfo?.group === "attacker") {
+      const xg = per90SafeLookup(advancedDna?.categories.avslutningskvalitet.metrics, "xG");
+      if (xg !== null) snapshotRows.push({ label: "xG/90", value: String(xg) });
+    } else if (positionGroupInfo?.group === "midfielder") {
+      const recov = per90SafeLookup(advancedDna?.categories.bollatervinning.metrics, "Bollåtervinningar");
+      if (recov !== null) snapshotRows.push({ label: "Bollåterv./90", value: String(recov) });
+    } else if (positionGroupInfo?.group === "defender") {
+      const aerial = advancedDna?.categories.luftspel.metrics.find((m) => m.label === "Luftduellandel")?.playerValue;
+      if (aerial !== undefined) snapshotRows.push({ label: "Luftduellandel", value: `${aerial}%` });
+    }
+  }
+
+  // --- Scout Insight: aggregering av redan regelbaserade insikter ---
+  const scoutInsightItems: ScoutInsightItem[] = [
+    ...(dna?.insights.map((i) => ({ type: i.type, text: i.text, source: "DNA" as const })) ?? []),
+    ...(advancedDna?.insights.map((i) => ({ type: i.type, text: i.text, source: "Advancerad DNA" as const })) ?? []),
+  ];
+
+  // --- Percentile-highlights: mest avvikande mått bland DNA + Advancerad DNA ---
+  const allMetrics: PercentileHighlightRow[] = [];
+  if (dna?.available) {
+    for (const cat of Object.values(dna.categories)) {
+      for (const m of cat.metrics) allMetrics.push({ label: m.label, percentile: m.percentile, peerLabel: dna.confidence!.peerLabel });
+    }
+  }
+  if (advancedDna?.available) {
+    for (const cat of Object.values(advancedDna.categories)) {
+      for (const m of cat.metrics) allMetrics.push({ label: m.label, percentile: m.percentile, peerLabel: `${advancedDna.confidence!.peerLabel} (2024+)` });
+    }
+  }
+  const percentileHighlights = allMetrics.sort((a, b) => Math.abs(b.percentile - 50) - Math.abs(a.percentile - 50)).slice(0, 6);
+
   return (
-    <div>
+    <div className="space-y-4">
       <Link href="/scout/spelare" className="text-xs text-[#898781] hover:text-white">
         ← Scout
       </Link>
 
-      {/* Bio-kort */}
-      <div className="mt-4 flex flex-wrap items-center gap-4 rounded-xl border border-white/10 bg-[#1a1a19] p-5">
-        <PlayerAvatar
-          name={profile.player.name}
-          teamExternalId={profile.player.team?.external_id}
-          size={72}
-          photoUrl={profile.player.photoUrl}
-        />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold tracking-tight">{profile.player.name}</h1>
-            <form action={isShortlisted ? removeFromShortlist : addToShortlist}>
-              <input type="hidden" name="playerId" value={profile.player.id} />
-              <input type="hidden" name="returnTo" value={returnTo} />
-              <button
-                type="submit"
-                title={isShortlisted ? "Ta bort från shortlist" : "Lägg till i shortlist"}
-                className={`text-lg leading-none transition-colors ${isShortlisted ? "text-[#d9a526]" : "text-[#5f5e59] hover:text-[#d9a526]"}`}
-              >
-                {isShortlisted ? "★" : "☆"}
-              </button>
-            </form>
+      <PlayerCardHeader
+        name={profile.player.name}
+        photoUrl={profile.player.photoUrl}
+        teamExternalId={profile.player.team?.external_id}
+        teamName={profile.player.team?.name ?? null}
+        position={profile.player.position}
+        age={age}
+        nationality={profile.player.nationality}
+        ovr={ovrValue}
+        mainArchetypeLabel={mainArchetypeLabel}
+        isShortlisted={isShortlisted}
+        shortlistAction={isShortlisted ? removeFromShortlist : addToShortlist}
+        playerId={profile.player.id}
+        returnTo={returnTo}
+        availableSeasons={profile.availableSeasons}
+        season={profile.season}
+        freeProfileHref={`/spelare/${id}${profile.season ? `?season=${profile.season}` : ""}`}
+      />
+
+      <PlayerSnapshot rows={snapshotRows} confidence={dna?.confidence?.tier ?? regressionResult?.confidence ?? null} />
+
+      <ContextBanner
+        confidence={dna?.confidence?.tier ?? regressionResult?.confidence ?? null}
+        appearances={profile.stats.appearances}
+        minutesPlayed={profile.stats.minutesPlayed}
+        season={profile.season}
+        standingsLabel={standingsLabel}
+      />
+
+      {/* Identity — vad är det här för spelare (DNA + Advancerad DNA, kompakt). */}
+      {dna && <PlayerDNA dna={dna} compact />}
+      {advancedDna && <AdvancedDNA dna={advancedDna} compact />}
+
+      {/* Performance — Player Rating-nedbrytningen (positionsanpassad redan
+          via computeRatingForPlayer/PlayerRating.tsx: målvakt får sin egen
+          3-måttsmodell, utespelare shooting/passing/dribbling/defending). */}
+      {rating && profile.season && <PlayerRating data={rating} season={profile.season} />}
+
+      {/* Rå box score-statistik (per 90) — samma paneler som gratis
+          /spelare/[id] redan visar, men saknades helt i Scout tidigare. */}
+      {!isGoalkeeper && (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
+            <h2 className="text-sm font-semibold">Anfall</h2>
+            <p className="mb-2 text-[11px] text-[#898781]">Per 90 min · orange = snitt {profile.peerGroup.label}</p>
+            <StatBar label="Mål" value={profile.per90.goals} peerAverage={profile.positionAveragePer90.goals} peerLabel={`Snitt ${profile.peerGroup.label}`} />
+            <StatBar label="Skott" value={profile.per90.shotsTotal} peerAverage={null} />
+            <StatBar label="Skott på mål" value={profile.per90.shotsOnTarget} peerAverage={null} />
           </div>
-          <p className="mt-0.5 text-sm text-[#c3c2b7]">
-            {profile.player.team?.name ?? "—"}{" "}
-            {profile.player.position && `· ${translatePosition(profile.player.position)}`}
-            {age !== null && ` · ${age} år`}
-            {profile.player.nationality && ` · ${profile.player.nationality}`}
-          </p>
-          {heroQuote && <p className="mt-1.5 text-sm italic text-[#898781]">&ldquo;{heroQuote}&rdquo;</p>}
-          <Link href={`/spelare/${id}`} className="mt-1.5 inline-block text-xs text-[#3987e5] hover:underline">
-            Grundstatistik (gratis profil) →
-          </Link>
-        </div>
-
-        {/* Säsongsväljare */}
-        <div className="flex gap-1 rounded-lg border border-white/10 bg-black/20 p-1">
-          {profile.availableSeasons.map((y) => (
-            <Link
-              key={y}
-              href={`/scout/spelare/${id}?season=${y}`}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                y === profile.season ? "bg-white/10 text-white" : "text-[#898781] hover:text-white"
-              }`}
-            >
-              {y}
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      {rating && profile.season && (
-        <div className="mt-4">
-          <PlayerRating data={rating} season={profile.season} />
+          <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
+            <h2 className="text-sm font-semibold">Skapande</h2>
+            <p className="mb-2 text-[11px] text-[#898781]">Per 90 min · orange = snitt {profile.peerGroup.label}</p>
+            <StatBar label="Assist" value={profile.per90.assists} peerAverage={profile.positionAveragePer90.assists} peerLabel={`Snitt ${profile.peerGroup.label}`} />
+            <StatBar label="Nyckelpassningar" value={profile.per90.passesKey} peerAverage={profile.positionAveragePer90.passesKey} peerLabel={`Snitt ${profile.peerGroup.label}`} />
+          </div>
+          <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
+            <h2 className="text-sm font-semibold">Bollspel</h2>
+            <p className="mb-2 text-[11px] text-[#898781]">Per 90 min · orange = snitt {profile.peerGroup.label}</p>
+            <StatBar label="Passningar" value={profile.per90.passesTotal} peerAverage={profile.positionAveragePer90.passesTotal} peerLabel={`Snitt ${profile.peerGroup.label}`} />
+            <StatBar label="Passningssäkerhet" value={profile.stats.passesAccuracy} peerAverage={null} suffix="%" />
+            <StatBar label="Lyckade dribblingar" value={profile.per90.dribblesSuccess} peerAverage={profile.positionAveragePer90.dribblesSuccess} peerLabel={`Snitt ${profile.peerGroup.label}`} />
+          </div>
+          <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
+            <h2 className="text-sm font-semibold">Försvar</h2>
+            <p className="mb-2 text-[11px] text-[#898781]">Per 90 min · orange = snitt {profile.peerGroup.label}</p>
+            <StatBar label="Tacklingar" value={profile.per90.tacklesTotal} peerAverage={profile.positionAveragePer90.tacklesTotal} peerLabel={`Snitt ${profile.peerGroup.label}`} />
+            <StatBar label="Interceptions" value={profile.per90.tacklesInterceptions} peerAverage={profile.positionAveragePer90.tacklesInterceptions} peerLabel={`Snitt ${profile.peerGroup.label}`} />
+            <StatBar label="Vinstprocent dueller" value={profile.duelsWinRate} peerAverage={null} suffix="%" />
+          </div>
         </div>
       )}
 
-      <div className="mt-4">
-        <PlayerRatingHistory history={ratingHistory} trend={ratingTrend} />
-      </div>
+      <ExtraMetricsPanel data={extraMetrics} />
 
-      {advancedDevelopment.available && (
-        <div className="mt-4">
-          <AdvancedDevelopment development={advancedDevelopment} />
-        </div>
-      )}
-
-      <div className="mt-4">
-        <ScoutIntelligenceCard zScore={zScoreResult} consistency={consistencyResult} regression={regressionResult} />
-      </div>
-
-      {dna && (
-        <div className="mt-4">
-          <PlayerDNA dna={dna} />
-        </div>
-      )}
-
-      {advancedDna && (
-        <div className="mt-4">
-          <AdvancedDNA dna={advancedDna} />
-        </div>
-      )}
+      {/* Scout Intelligence — Z-score/konsistens/regression (egen fas). */}
+      <ScoutIntelligenceCard zScore={zScoreResult} consistency={consistencyResult} regression={regressionResult} />
 
       {lineupRole && (
-        <div className="mt-4 rounded-xl border border-white/10 bg-[#1a1a19] p-5">
+        <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
           <h2 className="text-sm font-semibold">Roll i laget — {profile.season}</h2>
           <div className="mt-3 flex flex-wrap justify-center gap-x-8 gap-y-3 text-center sm:justify-start sm:text-left">
             <div>
@@ -232,16 +328,46 @@ export default async function ScoutPlayerProfilePage({
         </div>
       )}
 
-      <div className="mt-4 rounded-xl border border-white/10 bg-[#1a1a19] p-5">
-        <h2 className="text-sm font-semibold">Jämförelse mot positionssnitt</h2>
-        <div className="mt-3">
-          <PlayerRadarChart
-            per90={profile.per90}
-            positionAveragePer90={profile.positionAveragePer90}
-            peerGroup={profile.peerGroup}
-          />
+      <MatchLogSection entries={matchLog.entries} isGoalkeeper={matchLog.isGoalkeeper} />
+
+      <CareerTimelineSection entries={careerTimeline} />
+
+      {/* Development — OVR-historik + "vad drev det" (2024+), samma
+          befintliga komponenter, bara omgrupperade under en gemensam rubrik. */}
+      <CollapsibleSection title="Utveckling" icon="📈" defaultOpen>
+        <div className="space-y-4">
+          <PlayerRatingHistory history={ratingHistory} trend={ratingTrend} />
+          {advancedDevelopment.available && <AdvancedDevelopment development={advancedDevelopment} />}
         </div>
-      </div>
+      </CollapsibleSection>
+
+      {/* Percentiler — radar + vardagsspråk. */}
+      <CollapsibleSection title="Percentiler" icon="📊" defaultOpen>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+            <PlayerRadarChart per90={profile.per90} positionAveragePer90={profile.positionAveragePer90} peerGroup={profile.peerGroup} />
+          </div>
+          <PercentileHighlights rows={percentileHighlights} />
+        </div>
+      </CollapsibleSection>
+
+      <ScoutInsightSection items={scoutInsightItems} />
+
+      <Link
+        href={`/scout/compare?mode=spelare&a=${profile.player.id}${profile.season ? `&season=${profile.season}` : ""}`}
+        className="flex items-center justify-between gap-3 rounded-xl border border-[#a78bfa]/30 bg-[#a78bfa]/10 p-4 text-sm transition-colors hover:bg-[#a78bfa]/15"
+      >
+        <span>
+          <span className="font-semibold text-[#a78bfa]">🔍 Jämför spelaren</span>
+          <span className="ml-1 text-[#c3c2b7]">— välj en annan spelare att jämföra mot.</span>
+        </span>
+        <span className="text-[#a78bfa]">→</span>
+      </Link>
+
+      <p className="pt-1 text-center text-[10px] text-[#5f5e59]">
+        {translatePosition(profile.player.position ?? "")} · Player Card visar all verifierad data vi har — se varje sektions
+        egen text för underlag och tolkning.
+      </p>
     </div>
   );
 }
