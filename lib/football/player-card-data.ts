@@ -159,7 +159,154 @@ async function computePlayerCardAnalysis(
  * kombination av dessa ger alltid en egen cache-post, aldrig fel spelares
  * data.
  */
-export const getCachedPlayerCardAnalysis = unstable_cache(computePlayerCardAnalysis, ["player-card-analysis-v1"], {
+const cachedAnalysis = unstable_cache(computePlayerCardAnalysis, ["player-card-analysis-v1"], {
   revalidate: 300,
   tags: ["player-card"],
 });
+
+/**
+ * PRESTANDAFIX, del 2 (2026-08-22): `unstable_cache` ovan är bekräftat
+ * KORREKT och SNABBT i ett riktigt produktionsbygge (`next start`,
+ * 220–350ms verifierat) — men Next.js dev-server (`next dev`, den lokala
+ * miljön) KRINGGÅR AVSIKTLIGT sin datacache i dev-läge (så man alltid ser
+ * färsk data medan man utvecklar), verifierat: samma kod, samma spelare,
+ * 4,3–4,9s på VARJE anrop under `next dev`, mot 220–350ms under
+ * `next start`. Användarens rapporterade segheten är specifikt på
+ * localhost/dev, där unstable_cache alltså aldrig hjälper.
+ *
+ * Löst med ett eget, minimalt in-memory-lager (bara en Map + TTL) OVANPÅ
+ * unstable_cache — helt oberoende av Next.js:s cache-lägen, fungerar
+ * identiskt i dev OCH produktion eftersom det bara är vanligt JS-
+ * modultillstånd som lever så länge Node-processen (eller Turbopacks
+ * modul, tills en filändring tvingar en omladdning) gör det. Ren
+ * prestandaoptimering — ändrar aldrig vilken data som returneras, bara
+ * hur ofta den räknas om. 60s TTL (kortare än unstable_cache:s 300s) så
+ * att man ändå ser ny data relativt snabbt om man aktivt sitter och
+ * utvecklar/importerar.
+ */
+const memoryCache = new Map<string, { data: PlayerCardAnalysis; expiresAt: number }>();
+const MEMORY_TTL_MS = 60_000;
+
+export async function getCachedPlayerCardAnalysis(
+  playerId: number,
+  season: number | null,
+  position: string | null,
+  isGoalkeeper: boolean,
+  teamId: number | null
+): Promise<PlayerCardAnalysis> {
+  const key = JSON.stringify([playerId, season, position, isGoalkeeper, teamId]);
+  const cached = memoryCache.get(key);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) return cached.data;
+
+  const data = await cachedAnalysis(playerId, season, position, isGoalkeeper, teamId);
+  memoryCache.set(key, { data, expiresAt: now + MEMORY_TTL_MS });
+  return data;
+}
+
+/**
+ * ============================================================================
+ * Fas 15-prestandafix, del 3 (2026-08-22) — snabb delmängd + streaming
+ * ============================================================================
+ * Även med bägge cache-lagren ovan är FÖRSTA visningen av en given
+ * spelare+säsong-kombination fortfarande långsam (~5–6s, uppmätt) — den
+ * datan har helt enkelt aldrig räknats ut än. Profilerat exakt VILKA av de
+ * 14 delarna som faktiskt är dyra:
+ *
+ *   computeAdvancedPlayerDNA   ~3,1s   ← dyrast
+ *   computeAdvancedDevelopment ~2,7s
+ *   computeAgeAdjustedZScores  ~1,4s
+ *   aggregatePlayerCardExtraMetrics ~1,0s
+ *   computePlayerDNA           ~0,7s
+ *   computeRatingForPlayer     ~0,8s
+ *   computeConsistencyCoefficients ~0,6s
+ *   computeRegressionToMean    ~0,2s
+ *   getStoredSeasonRatings     ~0,05s  ← BILLIG
+ *   listTeamsWithSeasonSummary ~0,11s  ← BILLIG
+ *   getPlayerRatingHistory/getCareerTimeline/getPlayerLineupRoleProfile/
+ *   getPlayerMatchLog          alla <0,1s ← BILLIGA
+ *
+ * Header/Snapshot/Context behöver bara OVR (computeRatingForPlayer),
+ * huvudarketyp (getStoredSeasonRatings) och tabellplacering
+ * (listTeamsWithSeasonSummary) — alla BILLIGA. De tunga modulerna
+ * (DNA/Advancerad DNA/Development/Z-score/konsistens/extra-mått) behövs
+ * bara längre ner på sidan (Identity/Performance-extra/Percentiler/Scout
+ * Insight).
+ *
+ * page.tsx hämtar därför den HÄR snabba delmängden SYNKRONT (blockerar
+ * första renderingen, men bara ~0,8–1s istället för ~5–6s) och skickar
+ * resten till en `<Suspense>`-inpackad async-komponent
+ * (PlayerCardHeavySections.tsx) som streamar in när den är klar — exakt
+ * samma princip som React/Next.js "progressive rendering": användaren ser
+ * OVR/namn/bild/tabellplacering nästan direkt istället för en blank sida
+ * i flera sekunder, resten fylls i efterhand. Samma data, samma
+ * cache-lager (getCachedPlayerCardAnalysis) används fortfarande av den
+ * tunga delen, så en redan varm cache gör HELA sidan snabb ändå.
+ */
+export interface FastPlayerCardData {
+  rating: AnyPlayerRating | null;
+  mainArchetypeLabel: string | null;
+  standingsLabel: string | null;
+}
+
+async function computeFastPlayerCardData(
+  playerId: number,
+  season: number | null,
+  position: string | null,
+  teamId: number | null,
+  teamName: string | null
+): Promise<FastPlayerCardData> {
+  const supabase = createAnonClient();
+
+  const seasonRow = season ? await supabase.from("season").select("id").eq("year", season).maybeSingle() : null;
+  const seasonId = seasonRow?.data?.id ?? null;
+
+  const [rating, storedRatings, standingsTeams] = await Promise.all([
+    season ? computeRatingForPlayer(supabase, { playerId, position, season }) : Promise.resolve(null),
+    seasonId ? getStoredSeasonRatings(supabase, seasonId) : Promise.resolve(null),
+    season && teamId ? listTeamsWithSeasonSummary(supabase, { season }) : Promise.resolve(null),
+  ]);
+
+  let mainArchetypeLabel: string | null = null;
+  const ownStoredRating = storedRatings?.find((r) => r.playerId === playerId);
+  if (ownStoredRating) {
+    // Egen import här (inte i toppen av filen) hade gett en cirkelimport-
+    // risk mot rating/archetypes.ts — inget problem, samma modul importeras
+    // redan indirekt, men skrivs explicit ut för tydlighet.
+    const { computePlayerArchetypes } = await import("./rating/archetypes");
+    const archetypes = computePlayerArchetypes(
+      { positionGroup: ownStoredRating.positionGroup, categoryScores: ownStoredRating.categoryScores, metricValues: ownStoredRating.metricValues },
+      ownStoredRating.confidenceTier
+    );
+    mainArchetypeLabel = archetypes[0]?.label ?? null;
+  }
+
+  let standingsLabel: string | null = null;
+  if (standingsTeams && teamId && teamName) {
+    const own = standingsTeams.find((t) => t.id === teamId);
+    if (own?.rank !== null && own?.rank !== undefined) {
+      standingsLabel = `${teamName} — ${own.rank}:a (${own.points ?? "—"} p)`;
+    }
+  }
+
+  return { rating, mainArchetypeLabel, standingsLabel };
+}
+
+const fastMemoryCache = new Map<string, { data: FastPlayerCardData; expiresAt: number }>();
+
+export async function getFastPlayerCardData(
+  playerId: number,
+  season: number | null,
+  position: string | null,
+  teamId: number | null,
+  teamName: string | null
+): Promise<FastPlayerCardData> {
+  const key = JSON.stringify([playerId, season, position, teamId, teamName]);
+  const cached = fastMemoryCache.get(key);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) return cached.data;
+
+  const data = await computeFastPlayerCardData(playerId, season, position, teamId, teamName);
+  fastMemoryCache.set(key, { data, expiresAt: now + MEMORY_TTL_MS });
+  return data;
+}
