@@ -68,7 +68,14 @@ export function MatchLogSection({ entries, isGoalkeeper }: { entries: PlayerMatc
               <tr key={m.fixtureId} className="border-b border-white/5 text-[#c3c2b7]">
                 <td className="py-1.5 whitespace-nowrap">{formatDate(m.kickoffAt)}</td>
                 <td className="py-1.5 truncate">
-                  {m.isHome ? "" : "@ "}
+                  {!m.isHome && (
+                    <span
+                      className="mr-1.5 inline-flex h-4 w-4 items-center justify-center rounded bg-white/5 text-[9px] font-semibold text-[#7d7c76]"
+                      title="Bortamatch"
+                    >
+                      B
+                    </span>
+                  )}
                   {m.opponentName}
                 </td>
                 <td className="py-1.5 text-center tabular-nums">

@@ -53,7 +53,7 @@ export default async function ScoutSearchPage({
   return (
     <div>
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#a78bfa]">Scout Network</p>
-      <h1 className="mt-1 text-3xl font-bold tracking-tight">Search</h1>
+      <h1 className="mt-1 text-3xl font-bold tracking-tight">Sök</h1>
       <p className="mt-1 max-w-xl text-sm text-[#898781]">
         Kombinera position, ålder och Sportmonks-mått (råvärde eller percentil bland samma positionsgrupp) för att hitta
         spelartyper — inte bara bläddra.

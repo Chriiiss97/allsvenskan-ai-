@@ -170,6 +170,15 @@ export interface Database {
           current_team_id: number | null;
           /** Sportmonks eget spelar-id. Sätts BARA från godkända sportmonks_player_mapping_candidate-rader (Fas 3) — aldrig direkt av ett importscript. */
           sportmonks_id: number | null;
+          /** Fas 17 — avstämningsflagga för player_career_stint/player_trophy-importen (scripts/import/import-player-career.ts). Null = ännu inte körd. */
+          career_synced_at: string | null;
+          /** Fas 17b — senaste klubbytet enligt api-football /transfers, sparat i samma import. Jämförs mot current_team_id i UI:t för att flagga "har lämnat" — skriver ALDRIG över current_team_id självt. */
+          latest_transfer_date: string | null;
+          latest_transfer_team_name: string | null;
+          latest_transfer_team_logo_url: string | null;
+          latest_transfer_team_external_id: number | null;
+          /** Fas 17c — rå transfertyp/-summa från api-football ("Free"/"Loan"/"€ 1.5M"/"N/A"). */
+          latest_transfer_type: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -322,6 +331,79 @@ export interface Database {
         };
         Insert: Partial<Database["public"]["Tables"]["referee"]["Row"]> & { full_name: string };
         Update: Partial<Database["public"]["Tables"]["referee"]["Row"]>;
+        Relationships: [];
+      };
+      player_transfer_event: {
+        Row: {
+          id: number;
+          player_id: number;
+          transfer_date: string;
+          from_team_name: string | null;
+          from_team_external_id: number | null;
+          from_team_logo_url: string | null;
+          to_team_name: string;
+          to_team_external_id: number | null;
+          to_team_logo_url: string | null;
+          transfer_type: string | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["player_transfer_event"]["Row"]> & {
+          player_id: number;
+          transfer_date: string;
+          to_team_name: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["player_transfer_event"]["Row"]>;
+        Relationships: [];
+      };
+      player_trophy: {
+        Row: {
+          id: number;
+          player_id: number;
+          league_name: string;
+          country: string | null;
+          season: string;
+          place: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["player_trophy"]["Row"]> & {
+          player_id: number;
+          league_name: string;
+          season: string;
+          place: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["player_trophy"]["Row"]>;
+        Relationships: [];
+      };
+      player_career_stint: {
+        Row: {
+          id: number;
+          player_id: number;
+          team_name: string;
+          team_logo_url: string | null;
+          team_external_id: number | null;
+          league_name: string;
+          league_country: string | null;
+          league_logo_url: string | null;
+          league_external_id: number;
+          season_year: number;
+          appearances: number | null;
+          lineups: number | null;
+          minutes_played: number | null;
+          goals: number | null;
+          assists: number | null;
+          yellow_cards: number | null;
+          red_cards: number | null;
+          rating: number | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["player_career_stint"]["Row"]> & {
+          player_id: number;
+          team_name: string;
+          league_name: string;
+          league_external_id: number;
+          season_year: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["player_career_stint"]["Row"]>;
         Relationships: [];
       };
       fixture_lineup: {

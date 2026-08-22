@@ -109,3 +109,193 @@ export function translatePosition(position: string | null): string | null {
   if (!position) return null;
   return POSITION_LABELS[position] ?? position;
 }
+
+/**
+ * Fas 17 (2026-08-22) — samma princip som translatePosition ovan: fixture.round
+ * kommer rått från api-football på engelska ("Regular Season - 18",
+ * "Relegation Round") och visades tidigare oöversatt på matchsidans hero.
+ * Allsvenskan är en ren serie utan gruppspel, så "Regular Season - N" blir
+ * bara "Omgång N" — enda specialfallet är "Relegation Round" (kvalspel om
+ * kontraktet i seriens slutskede). Ett okänt mönster visas rått hellre än
+ * att gissa en översättning — se filens huvudprincip.
+ */
+const REGULAR_SEASON_ROUND = /^Regular Season - (\d+)$/;
+
+export function translateRound(round: string | null): string | null {
+  if (!round) return null;
+  const match = round.match(REGULAR_SEASON_ROUND);
+  if (match) return `Omgång ${match[1]}`;
+  if (round === "Relegation Round") return "Kvalspel om kontraktet";
+  return round;
+}
+
+/**
+ * Fas 17 — samma princip för fixture.status (api-football-koder). Bara
+ * FT/NS förekommer i vår data idag (verifierat), men badgen som visar den
+ * här texten kan i teorin träffa ett terminalt läge som PST/CANC/ABD om
+ * en match ställs in — täcker det kända api-football-facit istället för
+ * att bara hantera de två vi råkar ha. Ett okänt/framtida kodord visas
+ * rått hellre än att gissa en översättning.
+ */
+const STATUS_LABELS: Record<string, string> = {
+  NS: "Ej startad",
+  FT: "Slutspelad",
+  AET: "Efter förlängning",
+  PEN: "Efter straffar",
+  PST: "Uppskjuten",
+  CANC: "Inställd",
+  ABD: "Avbruten",
+  AWD: "Walkover",
+  WO: "Walkover",
+};
+
+export function translateStatus(status: string | null): string | null {
+  if (!status) return null;
+  return STATUS_LABELS[status] ?? status;
+}
+
+/**
+ * Fas 17 — player.nationality kommer rått från api-football på engelska
+ * ("Scotland", "Côte d'Ivoire", "China PR") — samma princip som ovan.
+ * Täcker alla 114 landsnamn som faktiskt förekommer i player-tabellen
+ * (verifierat mot HELA databasen med paginering 2026-08-22 — ett första
+ * försök missade 42 av dem pga Supabase-klientens default-tak på 1000
+ * rader per fråga, samma fälla som redan är dokumenterad i
+ * [[verify-tool-bugs-via-live-path]]). Ett nytt, okänt landsnamn visas
+ * rått hellre än att gissa en översättning.
+ */
+const NATIONALITY_LABELS: Record<string, string> = {
+  Afghanistan: "Afghanistan",
+  Albania: "Albanien",
+  Angola: "Angola",
+  Argentina: "Argentina",
+  Armenia: "Armenien",
+  Australia: "Australien",
+  Austria: "Österrike",
+  Azerbaijan: "Azerbajdzjan",
+  Belarus: "Vitryssland",
+  Belgium: "Belgien",
+  Benin: "Benin",
+  Bolivia: "Bolivia",
+  "Bosnia and Herzegovina": "Bosnien och Hercegovina",
+  Brazil: "Brasilien",
+  Bulgaria: "Bulgarien",
+  "Burkina Faso": "Burkina Faso",
+  Burundi: "Burundi",
+  Cameroon: "Kamerun",
+  Canada: "Kanada",
+  "Cape Verde": "Kap Verde",
+  Chile: "Chile",
+  "China PR": "Kina",
+  "Chinese Taipei": "Taiwan",
+  Comoros: "Komorerna",
+  Congo: "Kongo-Brazzaville",
+  "Congo DR": "Kongo-Kinshasa",
+  "Costa Rica": "Costa Rica",
+  Croatia: "Kroatien",
+  Curaçao: "Curaçao",
+  Cyprus: "Cypern",
+  "Czech Republic": "Tjeckien",
+  Czechia: "Tjeckien",
+  "Côte d'Ivoire": "Elfenbenskusten",
+  Denmark: "Danmark",
+  Egypt: "Egypten",
+  England: "England",
+  Eritrea: "Eritrea",
+  Estonia: "Estland",
+  Ethiopia: "Etiopien",
+  "Faroe Islands": "Färöarna",
+  Finland: "Finland",
+  France: "Frankrike",
+  Gabon: "Gabon",
+  Gambia: "Gambia",
+  Georgia: "Georgien",
+  Germany: "Tyskland",
+  Ghana: "Ghana",
+  Greece: "Grekland",
+  Guinea: "Guinea",
+  "Guinea-Bissau": "Guinea-Bissau",
+  Haiti: "Haiti",
+  Honduras: "Honduras",
+  Hungary: "Ungern",
+  Iceland: "Island",
+  Iran: "Iran",
+  Iraq: "Irak",
+  Israel: "Israel",
+  Italy: "Italien",
+  "Ivory Coast": "Elfenbenskusten",
+  Jamaica: "Jamaica",
+  Japan: "Japan",
+  Jordan: "Jordanien",
+  Kenya: "Kenya",
+  "Korea Republic": "Sydkorea",
+  Kosovo: "Kosovo",
+  Lebanon: "Libanon",
+  Liberia: "Liberia",
+  Luxembourg: "Luxemburg",
+  Mali: "Mali",
+  Mayotte: "Mayotte",
+  Montenegro: "Montenegro",
+  Montserrat: "Montserrat",
+  Morocco: "Marocko",
+  Netherlands: "Nederländerna",
+  "New Zealand": "Nya Zeeland",
+  Niger: "Niger",
+  Nigeria: "Nigeria",
+  "North Macedonia": "Nordmakedonien",
+  "Northern Ireland": "Nordirland",
+  Norway: "Norge",
+  Pakistan: "Pakistan",
+  Palestine: "Palestina",
+  Peru: "Peru",
+  Philippines: "Filippinerna",
+  Poland: "Polen",
+  Portugal: "Portugal",
+  "Republic of Ireland": "Irland",
+  Russia: "Ryssland",
+  Rwanda: "Rwanda",
+  Scotland: "Skottland",
+  Senegal: "Senegal",
+  Serbia: "Serbien",
+  "Sierra Leone": "Sierra Leone",
+  "Sint Maarten": "Sint Maarten",
+  Slovakia: "Slovakien",
+  Slovenia: "Slovenien",
+  "South Africa": "Sydafrika",
+  Spain: "Spanien",
+  Suriname: "Surinam",
+  Sweden: "Sverige",
+  Switzerland: "Schweiz",
+  Syria: "Syrien",
+  Tanzania: "Tanzania",
+  Thailand: "Thailand",
+  Togo: "Togo",
+  Tunisia: "Tunisien",
+  Türkiye: "Turkiet",
+  USA: "USA",
+  Uganda: "Uganda",
+  Ukraine: "Ukraina",
+  Uruguay: "Uruguay",
+  Wales: "Wales",
+  Zambia: "Zambia",
+  Zimbabwe: "Zimbabwe",
+};
+
+/**
+ * Fas 17c — api-football:s /transfers `type`-fält: antingen en kategori
+ * ("Free"/"Loan"/"N/A") eller en verklig summa som rå sträng ("€ 1.5M") —
+ * bara kategorierna översätts, en summa visas som den är (redan
+ * språkneutral). "N/A" (källan själv saknar uppgift) visas inte alls —
+ * hellre ingen rad än en missvisande "okänt".
+ */
+export function translateTransferType(type: string | null): string | null {
+  if (!type || type === "N/A") return null;
+  if (type === "Free") return "Gratis övergång";
+  if (type === "Loan") return "Lån";
+  return type; // t.ex. "€ 1.5M" — redan språkneutralt, visas rått
+}
+
+export function translateNationality(nationality: string | null): string | null {
+  if (!nationality) return null;
+  return NATIONALITY_LABELS[nationality] ?? nationality;
+}

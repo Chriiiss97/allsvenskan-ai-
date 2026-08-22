@@ -7,6 +7,7 @@ import { FormBadges } from "@/components/data/FormBadges";
 import { PlayerCard } from "@/components/data/PlayerCard";
 import { BackButton } from "@/components/nav/BackButton";
 import { getTeamAccent } from "@/lib/data/team-colors";
+import { translateRound } from "@/lib/i18n/sv";
 import Link from "next/link";
 
 /**
@@ -193,7 +194,7 @@ export default async function TeamProfilePage({
                         {new Date(next.fixture.date).toLocaleDateString("sv-SE")}
                         {" · "}
                         {new Date(next.fixture.date).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}
-                        {next.fixture.round ? ` · ${next.fixture.round}` : ""}
+                        {next.fixture.round ? ` · ${translateRound(next.fixture.round)}` : ""}
                       </p>
                     </div>
                   )}

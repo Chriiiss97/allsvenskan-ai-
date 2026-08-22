@@ -5,12 +5,16 @@ import { createClient } from "@/lib/supabase/server";
 import { PremiumGate } from "@/components/scout/PremiumGate";
 import { hasScoutAccess } from "@/lib/auth/premium";
 
+// Fas 18 (användarfeedback: "kom ihåg bara svenska") — samma hårda regel
+// som PROJEKT_BRIEF.md:s "Språk"-avsnitt: inga engelska ord i UI:t, inte
+// heller i nav-etiketter.
 const SCOUT_NAV = [
   { href: "/scout/spelare", label: "Spelare" },
   { href: "/scout/lag", label: "Lag" },
-  { href: "/scout/search", label: "Search" },
-  { href: "/scout/compare", label: "Compare" },
-  { href: "/scout/shortlist", label: "Shortlist" },
+  { href: "/scout/efter-allsvenskan", label: "Efter Allsvenskan" },
+  { href: "/scout/search", label: "Sök" },
+  { href: "/scout/compare", label: "Jämför" },
+  { href: "/scout/shortlist", label: "Bevakningslista" },
 ];
 
 /**
@@ -49,7 +53,10 @@ export default async function ScoutLayout({ children }: { children: ReactNode })
             </span>
             <span className="text-sm font-bold tracking-wide text-white">SCOUT</span>
           </Link>
-          <Link href="/" className="text-xs text-[#898781] hover:text-white">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5 text-xs text-[#898781] transition-colors hover:border-[#3987e5]/40 hover:text-[#3987e5]"
+          >
             ⚽ Till Fotboll
           </Link>
         </div>

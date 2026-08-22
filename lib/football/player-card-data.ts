@@ -6,7 +6,9 @@ import { computeAdvancedPlayerDNA, type AdvancedPlayerDNA } from "./advanced-dna
 import { computeAdvancedDevelopment, type AdvancedDevelopmentSummary } from "./rating/advanced-development";
 import { computeRatingForPlayer, type AnyPlayerRating } from "./rating/compute-rating";
 import { getPlayerRatingHistory, getStoredSeasonRatings, type SeasonRatingPoint, type StoredSeasonRating } from "./rating/rating-store";
-import { getCareerTimeline, type CareerTimelineEntry } from "./career-timeline";
+import { getCareerTimeline, getForeignCareerStints, type CareerTimelineEntry, type ForeignCareerStint } from "./career-timeline";
+import { getPlayerTrophies, type PlayerTrophy } from "./player-trophies";
+import { getCareerJourney, type CareerJourney } from "./career-journey";
 import { computeRegressionToMean, type RegressionPrediction } from "./rating/scout-intelligence-regression";
 import { listTeamsWithSeasonSummary, type TeamOverviewRow } from "./catalog";
 import { getPlayerLineupRoleProfile, type PlayerLineupRoleProfile } from "./lineup-role";
@@ -68,6 +70,9 @@ export interface PlayerCardAnalysis {
   rating: AnyPlayerRating | null;
   ratingHistory: SeasonRatingPoint[];
   careerTimeline: CareerTimelineEntry[];
+  foreignCareerStints: ForeignCareerStint[];
+  trophies: PlayerTrophy[];
+  careerJourney: CareerJourney;
   regressionResult: RegressionPrediction | null;
   standingsTeams: TeamOverviewRow[] | null;
   lineupRole: PlayerLineupRoleProfile | null;
@@ -100,6 +105,9 @@ async function computePlayerCardAnalysis(
     rating,
     ratingHistory,
     careerTimeline,
+    foreignCareerStints,
+    trophies,
+    careerJourney,
     regressionBatch,
     standingsTeams,
     lineupRole,
@@ -115,6 +123,9 @@ async function computePlayerCardAnalysis(
     season ? computeRatingForPlayer(supabase, { playerId, position, season }) : Promise.resolve(null),
     getPlayerRatingHistory(supabase, playerId),
     getCareerTimeline(supabase, { playerId }),
+    getForeignCareerStints(supabase, { playerId }),
+    getPlayerTrophies(supabase, { playerId }),
+    getCareerJourney(supabase, { playerId }),
     season ? computeRegressionToMean(supabase, { currentSeasonYear: season }) : Promise.resolve(null),
     season && teamId ? listTeamsWithSeasonSummary(supabase, { season }) : Promise.resolve(null),
     seasonId ? getPlayerLineupRoleProfile(supabase, { playerId, seasonId }) : Promise.resolve(null),
@@ -134,6 +145,9 @@ async function computePlayerCardAnalysis(
     rating,
     ratingHistory,
     careerTimeline,
+    foreignCareerStints,
+    trophies,
+    careerJourney,
     // `unstable_cache` serialiserar returvärdet (INTE en strukturerad klon) —
     // en Map (regressionBatch.results) hade tappat sin prototyp och blivit
     // ett vanligt objekt utan .get(), vilket kraschade sidan i produktion

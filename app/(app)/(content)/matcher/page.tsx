@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getAvailableSeasons, listTeams } from "@/lib/football/catalog";
+import { translateRound } from "@/lib/i18n/sv";
 
 interface FixtureRow {
   id: number;
@@ -196,7 +197,7 @@ export default async function MatchesPage({
       <div className="mt-6 flex flex-col gap-6">
         {[...rounds.entries()].map(([roundName, roundFixtures]) => (
           <div key={roundName}>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-[#7d7c76]">{roundName}</p>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-[#7d7c76]">{translateRound(roundName) ?? roundName}</p>
             <ul className="space-y-1.5">
               {roundFixtures.map((f) => (
                 <li key={f.id}>

@@ -5,6 +5,7 @@ import { resolvePlayer } from "./resolve-player";
 import { hasPlayedSeason } from "./active-player";
 import { getPositionGroup, selectPeers, type PeerGroupSummary } from "./position-group";
 import { computeEventsComplete } from "./match-completeness";
+import { displayPlayerName } from "./player-name";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -436,6 +437,8 @@ export async function getLiveMatches(supabase: Supabase) {
 interface PlayerBioRow {
   id: number;
   full_name: string;
+  first_name: string | null;
+  last_name: string | null;
   position: string | null;
   birth_date: string | null;
   nationality: string | null;
@@ -518,12 +521,36 @@ export async function getPlayerProfile(supabase: Supabase, params: PlayerProfile
   const { data: bio, error: bioError } = await supabase
     .from("player")
     .select(
-      "id, full_name, position, birth_date, nationality, photo_url, " +
+      "id, full_name, first_name, last_name, position, birth_date, nationality, photo_url, " +
         "current_team:current_team_id(id, name, logo_url, external_id)"
     )
     .eq("id", resolved.id)
     .single<PlayerBioRow>();
   if (bioError || !bio) throw new FootballDataError(`Kunde inte hämta spelarbio för "${params.player}".`);
+
+  // Fas 17b — EGEN, separat, felresistent fråga för de nya
+  // latest_transfer_*-kolumnerna (migration 20260822140000). Medvetet
+  // ISOLERAD från bio-frågan ovan: om migrationen inte körts än (kolumnerna
+  // saknas) ska INTE hela spelarprofilen krascha — bara transferflaggan
+  // utebli. `.select("*")` hade läckt hela raden i onödan; en explicit
+  // kolumnlista + tyst fallback till null är säkrare.
+  let latestTransfer: {
+    latest_transfer_date: string | null;
+    latest_transfer_team_name: string | null;
+    latest_transfer_team_logo_url: string | null;
+    latest_transfer_team_external_id: number | null;
+    latest_transfer_type: string | null;
+  } | null = null;
+  try {
+    const { data, error: transferError } = await supabase
+      .from("player")
+      .select("latest_transfer_date, latest_transfer_team_name, latest_transfer_team_logo_url, latest_transfer_team_external_id, latest_transfer_type")
+      .eq("id", resolved.id)
+      .maybeSingle();
+    latestTransfer = transferError ? null : data;
+  } catch {
+    latestTransfer = null;
+  }
 
   const { data: allStats, error: statsError } = await supabase
     .from("statistics")
@@ -609,12 +636,42 @@ export async function getPlayerProfile(supabase: Supabase, params: PlayerProfile
   return {
     player: {
       id: bio.id,
-      name: bio.full_name,
+      name: displayPlayerName(bio.first_name, bio.last_name, bio.full_name),
       position: bio.position,
       birthDate: bio.birth_date,
       nationality: bio.nationality,
       photoUrl: bio.photo_url,
       team: bio.current_team,
+      // Fas 17b — "har spelaren redan lämnat?" Sant bara om senaste kända
+      // klubbytet (api-football /transfers, se import-player-career.ts) gick
+      // till en ANNAN klubb än den vi har registrerad som current_team_id —
+      // ALDRIG skrivet över current_team_id självt, se migrationens
+      // kommentar. Null om vi inte har någon transferdata alls för
+      // spelaren (karriärimporten inte körd än) — INTE detsamma som "har
+      // inte lämnat".
+      hasLeftCurrentTeam:
+        latestTransfer?.latest_transfer_team_external_id != null
+          ? latestTransfer.latest_transfer_team_external_id !== bio.current_team?.external_id
+          : null,
+      latestTransferTeamName: latestTransfer?.latest_transfer_team_name ?? null,
+      latestTransferTeamLogoUrl: latestTransfer?.latest_transfer_team_logo_url ?? null,
+      latestTransferDate: latestTransfer?.latest_transfer_date ?? null,
+      latestTransferType: latestTransfer?.latest_transfer_type ?? null,
+      // Fas 17c (användarfeedback: "det ska inte stå att han spelar för
+      // klubben" när spelaren bevisligen redan lämnat) — VILKET lag som
+      // visas i UI:t som "spelar för". Bytt till senaste kända klubben när
+      // hasLeftCurrentTeam är sant, annars den registrerade Allsvenska
+      // klubben som förut. `team` (current_team_id) LÄMNAS orört (andra
+      // sidor, t.ex. lagtruppen, behöver fortfarande veta vilken Allsvensk
+      // trupp spelaren senast tillhörde).
+      displayTeamName:
+        latestTransfer?.latest_transfer_team_external_id != null && latestTransfer.latest_transfer_team_external_id !== bio.current_team?.external_id
+          ? latestTransfer.latest_transfer_team_name
+          : (bio.current_team?.name ?? null),
+      displayTeamLogoUrl:
+        latestTransfer?.latest_transfer_team_external_id != null && latestTransfer.latest_transfer_team_external_id !== bio.current_team?.external_id
+          ? latestTransfer.latest_transfer_team_logo_url
+          : (bio.current_team?.logo_url ?? null),
     },
     season: seasonYear,
     availableSeasons,
@@ -1084,8 +1141,9 @@ export async function getMatchReport(supabase: Supabase, fixtureId: number) {
   const { data: fixture, error: fixtureError } = await supabase
     .from("fixture")
     .select(
-      "id, external_id, kickoff_at, status, round, venue_name, home_score, away_score, events_synced_at, " +
-        "home:home_team_id(id, external_id, name, logo_url), away:away_team_id(id, external_id, name, logo_url), season:season_id(year)"
+      "id, external_id, kickoff_at, status, round, venue_name, home_score, away_score, events_synced_at, referee_id, " +
+        "home:home_team_id(id, external_id, name, logo_url), away:away_team_id(id, external_id, name, logo_url), season:season_id(year), " +
+        "referee:referee_id(full_name)"
     )
     .eq("id", fixtureId)
     .single<{
@@ -1098,9 +1156,11 @@ export async function getMatchReport(supabase: Supabase, fixtureId: number) {
       home_score: number | null;
       away_score: number | null;
       events_synced_at: string | null;
+      referee_id: number | null;
       home: { id: number; external_id: number | null; name: string; logo_url: string | null } | null;
       away: { id: number; external_id: number | null; name: string; logo_url: string | null } | null;
       season: { year: number } | null;
+      referee: { full_name: string } | null;
     }>();
 
   if (fixtureError || !fixture) throw new FootballDataError(`Okänd match: ${fixtureId}`);
@@ -1202,6 +1262,7 @@ export async function getMatchReport(supabase: Supabase, fixtureId: number) {
     round: fixture.round,
     status: fixture.status,
     venue: fixture.venue_name,
+    referee: fixture.referee?.full_name ?? null,
     home: fixture.home ? { id: fixture.home.id, name: fixture.home.name, logoUrl: fixture.home.logo_url } : null,
     away: fixture.away ? { id: fixture.away.id, name: fixture.away.name, logoUrl: fixture.away.logo_url } : null,
     homeScore,

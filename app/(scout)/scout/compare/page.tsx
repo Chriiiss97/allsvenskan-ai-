@@ -13,6 +13,7 @@ import { TeamCompareBars } from "@/components/data/TeamCompareBars";
 import { FormBadges } from "@/components/data/FormBadges";
 import { RecordBar } from "@/components/data/RecordBar";
 import { getAvailableSeasons, listTeams } from "@/lib/football/catalog";
+import { translateRound } from "@/lib/i18n/sv";
 
 /**
  * Fas 14.4 (plans/humble-giggling-biscuit.md) — Scout Compare. Flyttar
@@ -429,7 +430,7 @@ async function TeamCompareSection({
                   <span className="text-[#c3c2b7]">
                     {m.home} <span className="font-semibold text-white">{m.homeScore ?? "–"}–{m.awayScore ?? "–"}</span> {m.away}
                   </span>
-                  <span className="text-[#7d7c76]">{m.season} · {m.round}</span>
+                  <span className="text-[#7d7c76]">{m.season} · {translateRound(m.round)}</span>
                 </div>
               ))}
             </div>

@@ -10,6 +10,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { InfoTooltip } from "./InfoTooltip";
 
 interface Per90Stats {
   goals: number | null;
@@ -86,10 +87,26 @@ export function PlayerRadarChart({
 
   return (
     <div>
-      <p className="mb-2 text-xs text-[#898781]">
-        100 = snitt bland {peerGroup.count} andra {peerGroup.label} i Allsvenskan den här säsongen
-        {peerGroup.minMinutesApplied > 0 && ` (minst ${peerGroup.minMinutesApplied} spelade minuter)`}
-      </p>
+      <div className="mb-2 flex items-start gap-1.5">
+        <p className="text-xs text-[#898781]">
+          100 = snitt bland {peerGroup.count} andra {peerGroup.label} i Allsvenskan den här säsongen
+          {peerGroup.minMinutesApplied > 0 && ` (minst ${peerGroup.minMinutesApplied} spelade minuter)`}
+        </p>
+        <InfoTooltip title="Hur diagrammet fungerar">
+          <p>
+            Diagrammet visar spelarens fem huvudmått (per 90 spelade minuter) i förhållande till snittet bland andra spelare i
+            samma positionsgrupp, i Allsvenskan, samma säsong.
+          </p>
+          <p>
+            100 % = exakt snittet för positionen. En axel på 150 % betyder att spelaren ligger 50 % över snittet i det måttet —
+            inte att spelaren är &quot;50 % bättre&quot; i någon absolut mening, bara att talet är högre.
+          </p>
+          <p>
+            Jämförelsegruppen filtreras på ett minimiantal spelade minuter (visas ovan) för att undvika att enstaka
+            minuter-spelare skevar snittet. Ett litet jämförelseunderlag flaggas separat.
+          </p>
+        </InfoTooltip>
+      </div>
       {peerGroup.isLowSample && (
         <p className="mb-2 text-xs text-[#d9a526]">
           ⚠ Litet jämförelseunderlag — bara {peerGroup.count} {peerGroup.label} att jämföra med den här säsongen.

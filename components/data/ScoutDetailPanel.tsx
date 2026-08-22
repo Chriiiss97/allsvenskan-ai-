@@ -4,7 +4,7 @@ import { PlayerRating } from "./PlayerRating";
 import { PlayerDNA } from "./PlayerDNA";
 import { PlayerRatingHistory } from "./PlayerRatingHistory";
 import { ovrColor } from "@/lib/football/rating/ovr-color";
-import { translatePosition } from "@/lib/i18n/sv";
+import { translatePosition, translateNationality } from "@/lib/i18n/sv";
 import type { AnyPlayerRating } from "@/lib/football/rating/compute-rating";
 import type { PlayerDNA as PlayerDNAData } from "@/lib/football/player-dna";
 import type { SeasonRatingPoint } from "@/lib/football/rating/rating-store";
@@ -75,7 +75,7 @@ export function ScoutDetailPanel({
               {player.teamName ?? "—"}
               {player.position && ` · ${translatePosition(player.position)}`}
               {player.age !== null && ` · ${player.age} år`}
-              {player.nationality && ` · ${player.nationality}`}
+              {player.nationality && ` · ${translateNationality(player.nationality)}`}
             </p>
           </div>
         </div>

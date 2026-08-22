@@ -9,6 +9,8 @@ import { AdvancedDNA } from "@/components/data/AdvancedDNA";
 import { StatBar } from "@/components/data/StatBar";
 import { ScoutIntelligenceCard } from "@/components/scout/ScoutIntelligenceCard";
 import { CareerTimelineSection } from "./CareerTimelineSection";
+import { CareerJourneySection } from "./CareerJourneySection";
+import { PlayerTrophiesSection } from "./PlayerTrophiesSection";
 import { MatchLogSection } from "./MatchLogSection";
 import { ExtraMetricsPanel } from "./ExtraMetricsPanel";
 import { ScoutInsightSection, type ScoutInsightItem } from "./ScoutInsightSection";
@@ -46,6 +48,9 @@ export async function PlayerCardHeavySections({
     advancedDevelopment,
     ratingHistory,
     careerTimeline,
+    foreignCareerStints,
+    trophies,
+    careerJourney,
     regressionResult,
     lineupRole,
     zScoresResult: zScoreResult,
@@ -142,7 +147,11 @@ export async function PlayerCardHeavySections({
 
       <MatchLogSection entries={matchLog.entries} isGoalkeeper={matchLog.isGoalkeeper} />
 
-      <CareerTimelineSection entries={careerTimeline} />
+      <CareerJourneySection journey={careerJourney} />
+
+      <CareerTimelineSection entries={careerTimeline} foreignStints={foreignCareerStints} />
+
+      <PlayerTrophiesSection trophies={trophies} />
 
       <CollapsibleSection title="Utveckling" icon="📈" defaultOpen>
         <div className="space-y-4">

@@ -28,6 +28,7 @@ import { importSportmonksMatchDataBackfill, pollSportmonksLiveMatchData } from "
 import { importSportmonksPressure } from "./sportmonks-import-pressure";
 import { importSportmonksMatchFacts } from "./sportmonks-import-match-facts";
 import { fixTeamNameDiacritics } from "./fix-team-name-diacritics";
+import { importPlayerCareer } from "./import-player-career";
 
 config({ path: path.resolve(process.cwd(), ".env.local") });
 
@@ -102,6 +103,14 @@ const STEPS: Record<string, () => Promise<void>> = {
   // Fas 7: Match Facts.
   "sportmonks-match-facts": async () => {
     await importSportmonksMatchFacts();
+  },
+  // Fas 17: spelarens fulla karriär (klubb/liga/land) + troféer, api-football
+  // /transfers + /players + /trophies. Valfritt tredje CLI-argument =
+  // maxPlayersPerRun (default 120 i scriptet självt). Resumable (player.
+  // career_synced_at) — kör om samma steg för att täcka fler spelare.
+  "player-career": async () => {
+    const max = process.argv[3] ? Number(process.argv[3]) : undefined;
+    await importPlayerCareer(max);
   },
   // 'all' kör de billiga stegen (~25 anrop totalt för 2 lag x 3 säsonger).
   // 'events' kör INTE med här — den kostar ett anrop per match och kan

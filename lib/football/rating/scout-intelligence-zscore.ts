@@ -4,6 +4,7 @@ import { aggregatePlayerSeasonStats } from "./rating-aggregates";
 import { aggregateAdvancedPlayerSeasonStats, type AdvancedPlayerSeasonAggregate } from "./advanced-rating-aggregates";
 import { getPositionGroup, type PositionGroupKey } from "../position-group";
 import { tierFromThresholds, worseTier, type ConfidenceTier } from "../confidence";
+import { ageAtSeason } from "../age";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -73,16 +74,9 @@ function ageBracket(age: number): AgeBracket {
   return "veteran";
 }
 
-/** Ålder VID säsongen (1 juli det året) — inte dagens ålder. Se filhuvudet. */
-function ageAtSeason(birthDate: string | null, seasonYear: number): number | null {
-  if (!birthDate) return null;
-  const birth = new Date(birthDate);
-  if (Number.isNaN(birth.getTime())) return null;
-  let age = seasonYear - birth.getUTCFullYear();
-  const hadBirthdayByJuly1 = birth.getUTCMonth() < 6 || (birth.getUTCMonth() === 6 && birth.getUTCDate() <= 1);
-  if (!hadBirthdayByJuly1) age -= 1;
-  return age;
-}
+// ageAtSeason (ålder VID säsongen, 1 juli det året — inte dagens ålder) flyttad
+// till lib/football/age.ts (2026-08-22) så spelarprofilsidorna kan återanvända
+// den istället för att duplicera — se dess egen kommentar.
 
 function per90(value: number, minutes: number): number | null {
   if (minutes <= 0) return null;

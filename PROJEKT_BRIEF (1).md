@@ -23,6 +23,16 @@ Inspirationen: det som gör ChatGPT/Claude/Gemini populära är att det är enke
 ## Språk
 Boten svarar på svenska i v1 (både systemprompter och UI-text). Håll all text samlad (inte utspridd i koden) så det är enkelt att lägga till fler språk senare — inget att bygga för nu, bara en bra vana från start.
 
+**HÅRD REGEL (2026-08-22, tillagd efter användarfeedback): INGA engelska ord får synas
+någonstans i UI:t.** Det gäller inte bara löptext — API-Football/Sportmonks levererar en
+del fält på engelska (positioner, rundnamn som "Regular Season - 18", statusar, med mera).
+Varje sådant fält måste översättas/formatteras VID VISNING (samma mönster som
+`translatePosition` i `lib/i18n/sv.ts`) — ALDRIG visas rått. Konkret exempel som redan
+bröt regeln och fixades: matchsidans rundrad visade "Regular Season - 18" istället för
+"Omgång 18" (se `translateRound` i `lib/i18n/sv.ts`). Innan en ny sida/komponent skeppas:
+sök igenom den för rådata från externa API:er (round/status/type/position-fält m.fl.) och
+bekräfta att allt går genom en översättningsfunktion, inte visas direkt.
+
 ## Tidsplan
 - Idag: mitten av augusti 2026
 - Allsvenskan-säsongen 2026 är i sitt slutskede, avslutas normalt i november

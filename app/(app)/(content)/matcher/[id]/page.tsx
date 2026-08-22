@@ -6,7 +6,10 @@ import { getMatchReport, getRecentFormSequence, FootballDataError } from "@/lib/
 import { getMatchTeamStatsComparison } from "@/lib/football/team-rollup";
 import { getMatchPreview, type MatchFact } from "@/lib/football/match-preview";
 import { translateMatchFact, extractPlayerHighlight, extractComparisonHighlight } from "@/lib/football/match-preview-sv";
-import { buildH2HSummary } from "@/lib/football/match-h2h-summary";
+import { buildH2HSummary, buildRealH2HSummary } from "@/lib/football/match-h2h-summary";
+import { getStandingsTable } from "@/lib/football/catalog";
+import { MatchStandingsSummary } from "@/components/data/MatchStandingsSummary";
+import { translateRound, translateStatus } from "@/lib/i18n/sv";
 import { buildMatchInsight } from "@/lib/football/match-insight";
 import { buildMatchRecap } from "@/lib/football/match-recap";
 import { buildKeyPlayerCategories } from "@/lib/football/match-key-players";
@@ -59,6 +62,24 @@ interface LineupRow {
  * svensk mening när sportmonks_type_id är täckt (lib/football/match-preview-sv.ts),
  * annars den engelska originalmeningen (aldrig en gissad översättning).
  */
+/**
+ * Fas 17 (2026-08-22) — "hur många dagar kvar", bara meningsfullt före
+ * avspark (status NS). Ren datumaritmetik på kickoff_at, ingen ny data.
+ * Rundar till hela dygn (kalenderdagar, inte 24h-block) så "imorgon" känns
+ * rätt även om det bara är någon enstaka timme till midnatt.
+ */
+function daysUntilLabel(kickoffIso: string): string | null {
+  const now = new Date();
+  const kickoff = new Date(kickoffIso);
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfKickoffDay = new Date(kickoff.getFullYear(), kickoff.getMonth(), kickoff.getDate());
+  const diffDays = Math.round((startOfKickoffDay.getTime() - startOfToday.getTime()) / 86_400_000);
+  if (diffDays < 0) return null;
+  if (diffDays === 0) return "Idag";
+  if (diffDays === 1) return "Imorgon";
+  return `Om ${diffDays} dagar`;
+}
+
 function toDisplayFacts(facts: MatchFact[], homeName: string, awayName: string): DisplayFact[] {
   return facts.map((f, i) => {
     const sv = translateMatchFact(f, homeName, awayName);
@@ -225,7 +246,14 @@ export default async function MatchReportPage({
   // lib/football/match-insight.ts:s filhuvud för varför det INTE är ett
   // AI/LLM-anrop). Ingen ny data, ingen ny beräkning bortom enkla
   // jämförelser av redan verifierade tal.
-  const h2hSummary = buildH2HSummary(preview.headToHead);
+  // Fas 17 — h2hSummary faller tillbaka till en RIKTIG H2H räknad direkt på
+  // vår egen fixture-tabell (buildRealH2HSummary) när Sportmonks facts
+  // saknas — vilket de ALLTID gör för en kommande match (se funktionens
+  // egen kommentar). Så länge lagen mötts minst en gång i vår data (i
+  // princip alla etablerade Allsvenskan-matchupper) finns Inbördes möten nu
+  // även före avspark, inte bara efteråt.
+  const h2hSummary =
+    buildH2HSummary(preview.headToHead) ?? (report.home && report.away ? await buildRealH2HSummary(supabase, report.home.id, report.away.id) : null);
   const matchInsight = preview.available ? buildMatchInsight(preview, homeName, awayName) : null;
   const playerHighlights = preview.players.map((f) => extractPlayerHighlight(f, homeName, awayName)).filter((h): h is NonNullable<typeof h> => h !== null);
   // Sällsynta spelarfakta som inte blir ett kort (t.ex. övergångshistorik,
@@ -236,15 +264,22 @@ export default async function MatchReportPage({
     .filter((c): c is NonNullable<typeof c> => c !== null);
   const uncoveredComparisonFacts = preview.leagueComparisons.filter((f) => extractComparisonHighlight(f, homeName, awayName) === null);
 
-  // Fas 16c — "Senaste 5" som en RIKTIG resultatsekvens (W/D/L, kronologisk
+  // Fas 16c/17 — "Senaste 5" som en RIKTIG resultatsekvens (W/D/L, kronologisk
   // ordning), byggd på egen matchdata (fixture.home_score/away_score), inte
   // Sportmonks aggregerade sviter — se lib/football/tools.ts:s
-  // getRecentFormSequence. Bara hämtad när Inför matchen-sektionen faktiskt
-  // visas (samma villkor som preview.available nedan).
+  // getRecentFormSequence. Hämtas nu ALLTID (inte bara när preview.available)
+  // — riktig data, oberoende av Sportmonks facts, ska synas även före avspark.
   const [homeFormRecord, awayFormRecord] =
-    preview.available && report.home && report.away
+    report.home && report.away
       ? await Promise.all([getRecentFormSequence(supabase, report.home.id), getRecentFormSequence(supabase, report.away.id)])
       : [null, null];
+
+  // Fas 17 — tabellplacering just nu, oberoende av Sportmonks facts (samma
+  // standings-tabell /tabell redan visar, uppdateras dagligen). Bara hämtad
+  // om matchen har en känd säsong (alltid fallet i praktiken).
+  const standingsTable = report.season ? await getStandingsTable(supabase, { season: report.season }) : [];
+  const homeStanding = report.home ? (standingsTable.find((s) => s.team.id === report.home!.id) ?? null) : null;
+  const awayStanding = report.away ? (standingsTable.find((s) => s.team.id === report.away!.id) ?? null) : null;
 
   // Fas 16d — "Nyckelspelare": grupperar samma playerHighlights-tal efter
   // VILKEN FRÅGA de svarar på (störst målhot/bäst målchans/bäst betyg)
@@ -307,7 +342,9 @@ export default async function MatchReportPage({
           </div>
         ) : (
           <p className="text-[11px] uppercase tracking-[0.25em] text-[#7d7c76]">
-            {report.season} · {report.round} · {new Date(report.date).toLocaleDateString("sv-SE")}
+            {report.season} · {translateRound(report.round)} · {new Date(report.date).toLocaleDateString("sv-SE")}
+            {" · "}
+            {new Date(report.date).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}
           </p>
         )}
 
@@ -332,9 +369,21 @@ export default async function MatchReportPage({
         </div>
 
         <p className="mt-4 text-xs text-[#898781]">
-          {!report.isLive && <span className="mr-2 rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#7d7c76]">{report.status}</span>}
+          {!report.isLive && (
+            <span className="mr-2 rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#7d7c76]">
+              {translateStatus(report.status)}
+            </span>
+          )}
           {report.venue}
+          {report.referee && <span className="text-[#5f5e59]"> · Domare: {report.referee}</span>}
         </p>
+        {report.status === "NS" &&
+          (() => {
+            const daysLabel = daysUntilLabel(report.date);
+            return daysLabel ? (
+              <p className="mt-2 text-[11px] font-medium uppercase tracking-[0.1em] text-[#7d7c76]">{daysLabel}</p>
+            ) : null;
+          })()}
         {report.isLive && report.liveLastUpdated && <p className="mt-2 text-[11px] text-[#5f5e59]">Uppdaterad {timeAgo(report.liveLastUpdated)}</p>}
 
         {((!report.fullPlayerDetail && report.eventsAvailable) || (report.eventsAvailable && !report.eventsComplete)) && (
@@ -386,20 +435,48 @@ export default async function MatchReportPage({
         </div>
       )}
 
-      {preview.available && (
+      {/* Fas 17 — den här sektionen (tabellplacering/H2H/form/nyckelspelare/
+          ligasnitt) visades tidigare BARA när Sportmonks fixture_match_facts
+          fanns (preview.available) — vilket ALDRIG är fallet för en kommande
+          match (den importen körs bara på redan avslutade matcher, se
+          sportmonks-import-match-facts.ts:s filhuvud). Tabellplacering/H2H/
+          form är nu byggda på egen, alltid tillgänglig data (standings +
+          fixture-tabellen) — så en kommande match får samma "det vi redan
+          vet"-sektion som en spelad match, bara utan Nyckelspelare/Ligasnitt
+          (de kräver fortfarande Sportmonks per-spelare-fakta). */}
+      {(preview.available || homeStanding || awayStanding || h2hSummary || (homeFormRecord && homeFormRecord.played > 0) || (awayFormRecord && awayFormRecord.played > 0)) && (
         <div className={matchRecap || preMatchNarrative.length > 0 ? "space-y-10 border-t border-white/5 pt-10" : "space-y-10"}>
-          <div>
-            <FactSection
-              icon="⚔️"
-              title="Inbördes möten"
-              facts={preview.headToHead}
-              homeName={homeName}
-              awayName={awayName}
-              summary={h2hSummary ? <MatchHeadToHeadSummary summary={h2hSummary} homeName={homeName} awayName={awayName} /> : undefined}
-            />
-          </div>
+          {(homeStanding || awayStanding) && (
+            <div>
+              <p className="mb-4 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-[#898781]">
+                <span aria-hidden>🏆</span> Tabellplacering
+              </p>
+              <MatchStandingsSummary home={homeStanding} away={awayStanding} homeName={homeName} awayName={awayName} />
+            </div>
+          )}
 
-          {(homeFormRecord || awayFormRecord || preview.form.length > 0) && (
+          {h2hSummary &&
+            (preview.headToHead.length > 0 ? (
+              <div>
+                <FactSection
+                  icon="⚔️"
+                  title="Inbördes möten"
+                  facts={preview.headToHead}
+                  homeName={homeName}
+                  awayName={awayName}
+                  summary={<MatchHeadToHeadSummary summary={h2hSummary} homeName={homeName} awayName={awayName} />}
+                />
+              </div>
+            ) : (
+              <div>
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-[#898781]">
+                  <span aria-hidden>⚔️</span> Inbördes möten
+                </p>
+                <MatchHeadToHeadSummary summary={h2hSummary} homeName={homeName} awayName={awayName} />
+              </div>
+            ))}
+
+          {((homeFormRecord && homeFormRecord.played > 0) || (awayFormRecord && awayFormRecord.played > 0) || preview.form.length > 0) && (
             <div>
               <p className="mb-4 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-[#898781]">
                 <span aria-hidden>📈</span> Senaste form
@@ -458,10 +535,15 @@ export default async function MatchReportPage({
             </div>
           )}
 
-          <p className="text-[10px] text-[#5f5e59]">
-            Källa: Sportmonks. Rader märkta <span className="rounded border border-white/10 px-1 py-px">EN</span> kunde inte översättas
-            säkert och visas i original.
-          </p>
+          {/* Bara relevant när något av ovan faktiskt kommer från Sportmonks
+              facts — en kommande match utan sådan data (bara tabellplacering/
+              riktig H2H/form) ska inte påstå en källa den inte använder. */}
+          {preview.available && (
+            <p className="text-[10px] text-[#5f5e59]">
+              Källa: Sportmonks. Rader märkta <span className="rounded border border-white/10 px-1 py-px">EN</span> kunde inte översättas
+              säkert och visas i original.
+            </p>
+          )}
         </div>
       )}
 

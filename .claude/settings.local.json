@@ -13,7 +13,9 @@
       "Bash(npm run *)",
       "Bash(npx --yes @next/codemod@canary middleware-to-proxy .)",
       "Bash(mkdir -p \"/c/Users/Chriiss1997/Desktop/Allsvenskan ai/lib/football\" \"/c/Users/Chriiss1997/Desktop/Allsvenskan ai/app/api/teams/[team]/top-scorers\" \"/c/Users/Chriiss1997/Desktop/Allsvenskan ai/app/api/teams/[team]/cards\" \"/c/Users/Chriiss1997/Desktop/Allsvenskan ai/app/api/teams/[team]/facts\" \"/c/Users/Chriiss1997/Desktop/Allsvenskan ai/app/api/teams/[team]/fixtures\" \"/c/Users/Chriiss1997/Desktop/Allsvenskan ai/app/api/league/facts\")",
-      "Bash(node \"/c/Users/CHRIIS~1/AppData/Local/Temp/claude/C--Users-Chriiss1997-Desktop-Allsvenskan-ai/294c5f11-5c35-4b93-914d-e530c17dda1d/scratchpad/fix-regex.js\")"
+      "Bash(node \"/c/Users/CHRIIS~1/AppData/Local/Temp/claude/C--Users-Chriiss1997-Desktop-Allsvenskan-ai/294c5f11-5c35-4b93-914d-e530c17dda1d/scratchpad/fix-regex.js\")",
+      "Bash(node -e \"console.log\\(JSON.stringify\\(require\\('./package.json'\\).scripts,null,1\\)\\)\")",
+      "Bash(npx tsx *)"
     ]
   }
 }

@@ -43,7 +43,7 @@ export default async function ShortlistPage() {
   return (
     <div>
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#a78bfa]">Scout Network</p>
-      <h1 className="mt-1 text-3xl font-bold tracking-tight">Min Shortlist</h1>
+      <h1 className="mt-1 text-3xl font-bold tracking-tight">Min bevakningslista</h1>
       <p className="mt-1 text-sm text-[#898781]">
         {rows.length} {rows.length === 1 ? "spelare" : "spelare"} sparade. Stjärnmärk från en spelares fulla profil i Scout.
       </p>

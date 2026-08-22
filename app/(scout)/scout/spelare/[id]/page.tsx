@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getPlayerProfile, FootballDataError } from "@/lib/football/tools";
 import { PlayerRating } from "@/components/data/PlayerRating";
-import { calculateAge } from "@/lib/football/age";
+import { calculateAge, ageAtSeason } from "@/lib/football/age";
 import { translatePosition } from "@/lib/i18n/sv";
 import { addToShortlist, removeFromShortlist } from "../../shortlist/actions";
 import { getPositionGroup } from "@/lib/football/position-group";
@@ -13,6 +13,7 @@ import { PlayerSnapshot, type SnapshotRow } from "@/components/scout/player-card
 import { ContextBanner } from "@/components/scout/player-card/ContextBanner";
 import { PlayerCardHeavySections } from "@/components/scout/player-card/PlayerCardHeavySections";
 import { PlayerCardSkeleton } from "@/components/scout/player-card/PlayerCardSkeleton";
+import { TransferFlagBanner } from "@/components/data/TransferFlagBanner";
 import Link from "next/link";
 
 /**
@@ -54,7 +55,9 @@ export default async function ScoutPlayerProfilePage({
     throw err;
   }
 
-  const age = calculateAge(profile.player.birthDate);
+  // Fas 17 — åldern ska stämma med säsongen man tittar på, inte dagens
+  // datum (samma fix som /spelare/[id], se lib/football/age.ts).
+  const age = profile.season ? ageAtSeason(profile.player.birthDate, profile.season) : calculateAge(profile.player.birthDate);
   const positionGroupInfo = getPositionGroup(profile.player.position);
   const isGoalkeeper = positionGroupInfo?.group === "goalkeeper";
 
@@ -125,7 +128,7 @@ export default async function ScoutPlayerProfilePage({
         name={profile.player.name}
         photoUrl={profile.player.photoUrl}
         teamExternalId={profile.player.team?.external_id}
-        teamName={profile.player.team?.name ?? null}
+        teamName={profile.player.displayTeamName}
         position={profile.player.position}
         age={age}
         nationality={profile.player.nationality}
@@ -141,6 +144,16 @@ export default async function ScoutPlayerProfilePage({
         season={profile.season}
         freeProfileHref={`/spelare/${id}${profile.season ? `?season=${profile.season}` : ""}`}
       />
+
+      {profile.player.hasLeftCurrentTeam && (
+        <TransferFlagBanner
+          previousTeamName={profile.player.team?.name ?? null}
+          teamName={profile.player.latestTransferTeamName}
+          teamLogoUrl={profile.player.latestTransferTeamLogoUrl}
+          transferDate={profile.player.latestTransferDate}
+          transferType={profile.player.latestTransferType}
+        />
+      )}
 
       <PlayerSnapshot rows={snapshotRows} confidence={ratingConfidenceTier} />
 

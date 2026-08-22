@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
-import { translatePosition } from "@/lib/i18n/sv";
+import { translatePosition, translateNationality } from "@/lib/i18n/sv";
 import { ovrColor } from "@/lib/football/rating/ovr-color";
 import type { ConfidenceTier } from "@/lib/football/confidence";
 import { colors } from "@/lib/design/tokens";
@@ -113,7 +113,7 @@ export function PlayerCardHeader({
             {teamName ?? "—"}
             {position && ` · ${translatePosition(position)}`}
             {age !== null && ` · ${age} år`}
-            {nationality && ` · ${nationality}`}
+            {nationality && ` · ${translateNationality(nationality)}`}
           </p>
 
           {ovr !== null && ovrConfidenceTier === "låg" && (
