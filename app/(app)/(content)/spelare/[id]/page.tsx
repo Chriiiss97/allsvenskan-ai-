@@ -314,7 +314,7 @@ export default async function PlayerProfilePage({
           Utveckling, OVR-nedbrytning) flyttad hit, se /scout/spelare/[id]
           (Fas 14.4). */}
       <Link
-        href={`/scout/spelare?selected=${profile.player.id}`}
+        href={`/scout/spelare/${profile.player.id}${profile.season ? `?season=${profile.season}` : ""}`}
         className="mt-8 flex items-center justify-between gap-3 rounded-xl border border-[#a78bfa]/30 bg-[#a78bfa]/10 p-4 text-sm transition-colors hover:bg-[#a78bfa]/15"
       >
         <span>

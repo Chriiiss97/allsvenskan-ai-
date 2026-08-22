@@ -290,7 +290,7 @@ export default async function ScoutPage({
         tabs={[
           { label: "Scout", href: "/scout/spelare" },
           { label: "Spelare", href: "/spelare" },
-          { label: "Jämför spelare", href: "/spelare/compare" },
+          { label: "Jämför spelare", href: "/scout/compare?mode=spelare" },
           { label: "Topplista", href: "/spelare/rankings" },
         ]}
       />
@@ -528,7 +528,7 @@ export default async function ScoutPage({
                 player={selectedDetail.player}
                 season={seasonYear ?? null}
                 closeHref={buildHref({})}
-                fullProfileHref={`/spelare/${selectedDetail.player.id}${seasonYear ? `?season=${seasonYear}` : ""}`}
+                fullProfileHref={`/scout/spelare/${selectedDetail.player.id}${seasonYear ? `?season=${seasonYear}` : ""}`}
                 rating={selectedDetail.rating}
                 dna={selectedDetail.dna}
                 ratingHistory={selectedDetail.ratingHistory}

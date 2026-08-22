@@ -114,7 +114,7 @@ export default async function PlayersIndexPage({
         tabs={[
           { label: "Scout", href: "/scout/spelare" },
           { label: "Spelare", href: "/spelare" },
-          { label: "Jämför spelare", href: "/spelare/compare" },
+          { label: "Jämför spelare", href: "/scout/compare?mode=spelare" },
           { label: "Topplista", href: "/spelare/rankings" },
         ]}
       />
@@ -128,7 +128,7 @@ export default async function PlayersIndexPage({
           </p>
         </div>
         <Link
-          href="/spelare/compare"
+          href="/scout/compare?mode=spelare"
           className="shrink-0 rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-[#c3c2b7] transition-colors hover:bg-white/5 hover:text-white"
         >
           ⚖️ Jämför två spelare

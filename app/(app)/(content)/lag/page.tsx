@@ -27,7 +27,7 @@ export default async function TeamsOverviewPage({
       <SectionTabs
         tabs={[
           { label: "Alla lag", href: "/lag" },
-          { label: "Lag vs lag", href: "/lag/compare" },
+          { label: "Lag vs lag", href: "/scout/compare?mode=lag" },
         ]}
       />
 

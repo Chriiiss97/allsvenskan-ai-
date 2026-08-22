@@ -1,12 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { getTeamProfile, getNextFixture, FootballDataError } from "@/lib/football/tools";
 import { resolveTeam } from "@/lib/football/resolve-team";
-import { getTeamDNA } from "@/lib/football/team-dna";
 import { getAvailableSeasons, getStandingsTable } from "@/lib/football/catalog";
 import { RecordBar } from "@/components/data/RecordBar";
 import { FormBadges } from "@/components/data/FormBadges";
 import { PlayerCard } from "@/components/data/PlayerCard";
-import { StatBar } from "@/components/data/StatBar";
 import { BackButton } from "@/components/nav/BackButton";
 import { getTeamAccent } from "@/lib/data/team-colors";
 import Link from "next/link";
@@ -24,10 +22,11 @@ import Link from "next/link";
  * flikar (Översikt/Matcher/Trupp/Statistik — samma FotMob-inspirerade
  * struktur som användaren efterfrågade), tabellplacering (NY, från den nu
  * dagligen färska `standings`-tabellen) och en "Nästa match"-widget (NY,
- * getNextFixture, Fas 14.0) på Översikt. Lag-DNA-panelen ligger kvar (inte
- * borttagen) — den flyttas till Scout i Fas 14.4 TILLSAMMANS med att den
- * byggs där, inte innan (ingen period utan att funktionen finns
- * någonstans).
+ * getNextFixture, Fas 14.0) på Översikt.
+ *
+ * Fas 14.4: Lag-DNA flyttat till /scout/lag/[id] (byggd samtidigt, se den
+ * sidan) — Statistik-fliken här är nu en Scout-CTA istället för det
+ * faktiska innehållet.
  */
 
 const TABS = [
@@ -77,8 +76,6 @@ export default async function TeamProfilePage({
   const accent = getTeamAccent(profile?.team.externalId);
   const seasons = await getAvailableSeasons(supabase);
   const isCurrentSeason = profile?.season !== null && profile?.season === seasons[0]?.year;
-
-  const teamDNA = tab === "statistik" && profile?.season ? await getTeamDNA(supabase, { team: id, season: profile.season }) : null;
 
   // Tabellplacering — matchad mot standings via external_id (inte lagets
   // interna id, som getTeamProfile aldrig exponerar) — se filhuvudet.
@@ -358,42 +355,18 @@ export default async function TeamProfilePage({
 
           {tab === "statistik" && (
             <div className="mt-6">
-              {teamDNA?.available && teamDNA.own ? (
-                <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-5">
-                  <h2 className="text-sm font-semibold">Lag-DNA — {profile.season}</h2>
-                  <p className="mt-1 text-xs text-[#898781]">
-                    Snitt över {teamDNA.own.matchesWithStats} matcher, jämfört med ligasnittet den säsongen.
-                  </p>
-
-                  {teamDNA.insights.length > 0 && (
-                    <ul className="mt-3 space-y-1.5 border-b border-white/10 pb-3">
-                      {teamDNA.insights.map((text, i) => (
-                        <li key={i} className="flex items-start gap-2 text-sm text-[#c3c2b7]">
-                          <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full" style={{ backgroundColor: accent }} aria-hidden />
-                          {text}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-
-                  <div className="mt-3">
-                    <StatBar label="Bollinnehav" value={teamDNA.own.possessionPct} peerAverage={teamDNA.leagueAverage?.possessionPct ?? null} peerLabel="Ligasnitt" suffix="%" />
-                    <StatBar label="Skott" value={teamDNA.own.shotsTotal} peerAverage={teamDNA.leagueAverage?.shotsTotal ?? null} peerLabel="Ligasnitt" />
-                    <StatBar label="Skott på mål" value={teamDNA.own.shotsOnTarget} peerAverage={teamDNA.leagueAverage?.shotsOnTarget ?? null} peerLabel="Ligasnitt" />
-                    <StatBar label="Hörnor" value={teamDNA.own.corners} peerAverage={teamDNA.leagueAverage?.corners ?? null} peerLabel="Ligasnitt" />
-                    <StatBar label="Expected goals (xG)" value={teamDNA.own.expectedGoals} peerAverage={teamDNA.leagueAverage?.expectedGoals ?? null} peerLabel="Ligasnitt" />
-                    <StatBar label="Passningssäkerhet" value={teamDNA.own.passesAccuracyPct} peerAverage={teamDNA.leagueAverage?.passesAccuracyPct ?? null} peerLabel="Ligasnitt" suffix="%" />
-                  </div>
-
-                  {teamDNA.mostCommonFormation && (
-                    <p className="mt-3 border-t border-white/10 pt-3 text-xs text-[#898781]">
-                      Vanligaste formation: <span className="font-medium text-white">{teamDNA.mostCommonFormation}</span>
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <p className="text-sm text-[#898781]">Ingen lagstatistik tillgänglig för vald säsong.</p>
-              )}
+              <Link
+                href={`/scout/lag/${id}${profile.season ? `?season=${profile.season}` : ""}`}
+                className="flex items-center justify-between gap-3 rounded-xl border border-[#a78bfa]/30 bg-[#a78bfa]/10 p-4 text-sm transition-colors hover:bg-[#a78bfa]/15"
+              >
+                <span>
+                  <span className="font-semibold text-[#a78bfa]">🧬 Se Lag-DNA</span>
+                  <span className="ml-1 text-[#c3c2b7]">
+                    — bollinnehav, xG, passningssäkerhet m.m. jämfört med ligasnittet, i Scout.
+                  </span>
+                </span>
+                <span className="text-[#a78bfa]">→</span>
+              </Link>
             </div>
           )}
         </>

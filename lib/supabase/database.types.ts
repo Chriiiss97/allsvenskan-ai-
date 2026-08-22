@@ -973,6 +973,21 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["fixture_sportmonks_metadata"]["Row"]>;
         Relationships: [];
       };
+      /** Fas 14.4 (redesign) — /scout/shortlist. RLS-scopad på auth.uid(), ingen delning mellan användare. */
+      scout_shortlist_player: {
+        Row: {
+          id: number;
+          user_id: string;
+          player_id: number;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["scout_shortlist_player"]["Row"]> & {
+          user_id: string;
+          player_id: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["scout_shortlist_player"]["Row"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {

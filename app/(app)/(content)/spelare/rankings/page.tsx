@@ -124,7 +124,7 @@ export default async function PlayerRankingsPage({
         tabs={[
           { label: "Scout", href: "/scout/spelare" },
           { label: "Spelare", href: "/spelare" },
-          { label: "Jämför spelare", href: "/spelare/compare" },
+          { label: "Jämför spelare", href: "/scout/compare?mode=spelare" },
           { label: "Topplista", href: "/spelare/rankings" },
         ]}
       />
