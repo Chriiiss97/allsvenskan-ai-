@@ -3,6 +3,10 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getMatchReport, FootballDataError } from "@/lib/football/tools";
 import { getMatchTeamStatsComparison } from "@/lib/football/team-rollup";
+import { getMatchPreview, type MatchFact } from "@/lib/football/match-preview";
+import { hasScoutAccess } from "@/lib/auth/premium";
+import { PremiumGate } from "@/components/scout/PremiumGate";
+import { colors } from "@/lib/design/tokens";
 import { MatchTimeline } from "@/components/data/MatchTimeline";
 import { BackButton } from "@/components/nav/BackButton";
 
@@ -29,6 +33,31 @@ interface LineupRow {
   team_id: number;
   formation: string | null;
   fixture_lineup_player: LineupPlayerRow[];
+}
+
+/** Fas 14.6 — en grupp Match Preview-fakta (H2H/form/spelare), döljer sig själv helt om tom. */
+function FactGroup({ title, facts, homeName, awayName }: { title: string; facts: MatchFact[]; homeName: string; awayName: string }) {
+  if (facts.length === 0) return null;
+  return (
+    <div>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-[#7d7c76]">{title}</p>
+      <ul className="max-h-80 space-y-1.5 overflow-y-auto pr-1">
+        {facts.map((f, i) => (
+          <li key={i} className="flex items-start gap-2 text-sm text-[#c3c2b7]">
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full" style={{ backgroundColor: colors.accent.matchPreview }} aria-hidden />
+            <span>
+              {f.participant && (
+                <span className="mr-1.5 rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[#898781]">
+                  {f.participant === "home" ? homeName : awayName}
+                </span>
+              )}
+              {f.naturalLanguage}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 export default async function MatchReportPage({
@@ -60,6 +89,20 @@ export default async function MatchReportPage({
   const homeLineup = lineupRows?.find((l) => l.team_id === report.home?.id) ?? null;
   const awayLineup = lineupRows?.find((l) => l.team_id === report.away?.id) ?? null;
 
+  // Fas 14.6 — Match Preview (H2H/form/spelarfakta), gated bakom SAMMA
+  // entitlement som Scout (planen: "bakom samma entitlement-flagga som
+  // Scout men eget visuellt märke") — inte en Scout-yta i sig, se
+  // components/scout/PremiumGate.tsx:s title/accentColor-props nedan.
+  const preview = await getMatchPreview(supabase, Number(fixtureId));
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  let hasPreviewAccess = false;
+  if (user) {
+    const { data: profile } = await supabase.from("profiles").select("role, scout_access").eq("id", user.id).single();
+    hasPreviewAccess = hasScoutAccess(profile);
+  }
+
   return (
     <div>
       <BackButton href="/matcher" label="Alla matcher" />
@@ -86,6 +129,31 @@ export default async function MatchReportPage({
           Vi har inte fullständig händelsedata för den här matchen — resultatet ovan stämmer, men
           tidslinjen kan sakna händelser (en känd lucka i källdatan för äldre matcher).
         </p>
+      )}
+
+      {preview.available && (
+        <div className="mt-4 rounded-xl border p-5" style={{ borderColor: `${colors.accent.matchPreview}33`, backgroundColor: "#101615" }}>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold" style={{ color: colors.accent.matchPreview }}>
+              🔮 Match Preview
+            </span>
+            <span className="text-[10px] uppercase tracking-wide text-[#5f5e59]">Sportmonks · engelska originalcitat</span>
+          </div>
+          <PremiumGate
+            hasAccess={hasPreviewAccess}
+            title="Match Preview"
+            description="Inbördes möten, formsviter och spelarfakta inför matchen — kräver ett Scout-medlemskap."
+            emoji="🔮"
+            accentColor={colors.accent.matchPreview}
+            ctaLabel="Lås upp Match Preview"
+          >
+            <div className="mt-3 flex flex-col gap-5">
+              <FactGroup title="Inbördes möten" facts={preview.headToHead} homeName={report.home?.name ?? "Hemma"} awayName={report.away?.name ?? "Borta"} />
+              <FactGroup title="Senaste form" facts={preview.form} homeName={report.home?.name ?? "Hemma"} awayName={report.away?.name ?? "Borta"} />
+              <FactGroup title="Spelarfakta" facts={preview.players} homeName={report.home?.name ?? "Hemma"} awayName={report.away?.name ?? "Borta"} />
+            </div>
+          </PremiumGate>
+        </div>
       )}
 
       {(homeLineup || awayLineup) && (

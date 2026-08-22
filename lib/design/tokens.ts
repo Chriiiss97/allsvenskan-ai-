@@ -63,6 +63,18 @@ export const colors = {
     football: "#3987e5",
     scout: "#a78bfa",
     admin: "#d9a526",
+    // Fas 14.6 — Match Preview är EN egen premium-yta, medvetet skild från
+    // Scout (planen: "Match Facts ska vara premium men ska inte ligga
+    // under Scout... eget visuellt märke, inte 'Scout'"). En fjärde,
+    // distinkt accentfärg (teal) så den aldrig läses som en Scout-yta.
+    // OBS: det här är en varumärkes-/zonfärg (en logga/rubrik i taget, ALDRIG
+    // visad som angränsande diagram-serier mot de andra tre accenterna) —
+    // dataviz-validatorns kategoriska ΔE-koll gäller inte samma sätt här som
+    // för en riktig flerserie-diagrampalett. Kontrast mot ytan och kroma-
+    // golvet PASSAR (körd: validate_palette.js "#3987e5,#a78bfa,#d9a526,
+    // #2dd4bf" --mode dark) — bara ΔE-avstånd-till-grannen (som antar att
+    // alla fyra visas sida vid sida i EN legend) faller, vilket de aldrig gör.
+    matchPreview: "#2dd4bf",
   },
 
   /** Två-entitets-jämförelser (spelare A/B, lag A/B) — samma par som redan
