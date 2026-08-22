@@ -678,6 +678,70 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["player_season_rating"]["Row"]>;
         Relationships: [];
       };
+      // --- Player Intelligence Engine — shadow mode (2026-08-22, se
+      // supabase/migrations/20260822140000_player_intelligence_engine.sql
+      // och research/player-intelligence-engine, PR #1) — KÖRS VID SIDAN AV
+      // player_season_rating ovan, ersätter den inte. ---
+      player_intelligence_state: {
+        Row: {
+          id: number;
+          player_id: number;
+          position_group: "goalkeeper" | "defender" | "midfielder" | "attacker";
+          /** Kalman-mean, 0–100 (samma percentilskala som Performance) — INTE avrundad, för att inte ackumulera fel mellan matcher. */
+          ovr: number;
+          /** Kalman-sigma (standardavvikelse), samma skala som ovr. */
+          uncertainty_sd: number;
+          last_fixture_id: number | null;
+          last_kickoff_at: string | null;
+          observation_count: number;
+          model_version: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["player_intelligence_state"]["Row"]> & {
+          player_id: number;
+          position_group: "goalkeeper" | "defender" | "midfielder" | "attacker";
+          ovr: number;
+          uncertainty_sd: number;
+          model_version: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["player_intelligence_state"]["Row"]>;
+        Relationships: [];
+      };
+      player_intelligence_history: {
+        Row: {
+          id: number;
+          player_id: number;
+          fixture_id: number;
+          position_group: "goalkeeper" | "defender" | "midfielder" | "attacker";
+          kickoff_at: string;
+          minutes_played: number;
+          /** null om den kausala peer-poolen var för liten (<4) den här matchen — aldrig gissat. */
+          performance: number | null;
+          ovr_before: number;
+          uncertainty_before: number;
+          ovr_after: number;
+          uncertainty_after: number;
+          days_since_last: number | null;
+          anomaly_flag: boolean;
+          anomaly_reason: string | null;
+          model_version: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["player_intelligence_history"]["Row"]> & {
+          player_id: number;
+          fixture_id: number;
+          position_group: "goalkeeper" | "defender" | "midfielder" | "attacker";
+          kickoff_at: string;
+          minutes_played: number;
+          ovr_before: number;
+          uncertainty_before: number;
+          ovr_after: number;
+          uncertainty_after: number;
+          model_version: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["player_intelligence_history"]["Row"]>;
+        Relationships: [];
+      };
       // --- Sportmonks-integration (Fas 0, 20260821150000_sportmonks_foundation.sql) ---
       sportmonks_type: {
         Row: {

@@ -26,7 +26,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../../lib/supabase/database.types";
 import * as fs from "fs";
 import * as path from "path";
-import { runEMA, runCumulative, runStaticBayes, runKalman, type Observation, type TrajectoryPoint } from "./player-intelligence-backtest";
+import { runEMA, runCumulative, runStaticBayes, runKalman, type Observation } from "./player-intelligence-backtest";
 import * as dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 

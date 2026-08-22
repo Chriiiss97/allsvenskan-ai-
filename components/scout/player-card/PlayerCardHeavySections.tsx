@@ -1,6 +1,9 @@
 import type { getPlayerProfile } from "@/lib/football/tools";
+import { createClient } from "@/lib/supabase/server";
 import { getCachedPlayerCardAnalysis } from "@/lib/football/player-card-data";
+import { getPlayerIntelligenceSnapshot } from "@/lib/football/rating/player-intelligence-read";
 import { buildRatingTrendSummary } from "@/lib/football/rating/rating-trend";
+import { PlayerIntelligencePanel } from "./PlayerIntelligencePanel";
 import { PlayerRatingHistory } from "@/components/data/PlayerRatingHistory";
 import { AdvancedDevelopment } from "@/components/data/AdvancedDevelopment";
 import { PlayerRadarChart } from "@/components/data/PlayerRadarChart";
@@ -33,13 +36,11 @@ export async function PlayerCardHeavySections({
   profile: PlayerProfile;
   isGoalkeeper: boolean;
 }) {
-  const analysis = await getCachedPlayerCardAnalysis(
-    profile.player.id,
-    profile.season,
-    profile.player.position,
-    isGoalkeeper,
-    profile.player.team?.id ?? null
-  );
+  const supabase = await createClient();
+  const [analysis, piSnapshot] = await Promise.all([
+    getCachedPlayerCardAnalysis(profile.player.id, profile.season, profile.player.position, isGoalkeeper, profile.player.team?.id ?? null),
+    getPlayerIntelligenceSnapshot(supabase, profile.player.id),
+  ]);
   const {
     dna,
     advancedDna,
@@ -76,6 +77,10 @@ export async function PlayerCardHeavySections({
 
   return (
     <div className="space-y-4">
+      {/* Player Intelligence Engine (Fas 8, shadow mode) — döljer sig helt
+          tills migrationen/backfillen körts. Rör aldrig dagens OVR. */}
+      <PlayerIntelligencePanel snapshot={piSnapshot} />
+
       {/* Identity — vad är det här för spelare (DNA + Advancerad DNA, kompakt). */}
       {dna && <PlayerDNA dna={dna} compact />}
       {advancedDna && <AdvancedDNA dna={advancedDna} compact />}
