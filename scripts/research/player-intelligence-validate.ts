@@ -2,15 +2,20 @@
  * ============================================================================
  * Player Intelligence Engine — VALIDERINGSFAS (prediktiv validitet + verkliga exempel)
  * ============================================================================
- * KRITISKT för att undvika data leakage: modellparametrarna (halveringstid,
- * priorVar/obsVar/qPerDay) är REDAN fastställda i analyze.ts INNAN den här
- * filen körs, och är beräknade från HELA datasetets deskriptiva statistik
- * (inte anpassade mot något specifikt utfall) — se motivering i
- * player-intelligence-analyze.ts. Den här filen använder EXAKT samma,
- * redan-fastställda parametrar och ändrar dem ALDRIG baserat på vad
- * valideringsresultaten visar.
+ * KRITISKT för att undvika data leakage — TVÅ separata kalibreringar:
  *
- * Prediktiv validitet: för varje spelare, ta modellens skattning vid
+ * 1) "VERKLIGA EXEMPEL"-sektionen (vad säger modellen NU) använder
+ *    analyze.ts:s parametrar, kalibrerade på HELA datasetet 2016–2026 —
+ *    korrekt här, det är inget prediktivt test, bara en presentation av
+ *    dagens bästa skattning.
+ * 2) "PREDIKTIV VALIDITET"-sektionen (kan skattningen förutsäga FRAMTIDA
+ *    prestation) kalibrerar OM, lokalt i den här filen, EXAKT samma formel
+ *    men bara på observationer FÖRE cutoff-datumet — så att INTE ens
+ *    brusnivå-parametrarna (obsVar/priorVar/qPerDay) sett något av
+ *    2026-datan innan de "frystes". En strikt simulering av vad en
+ *    produktionsmotor faktiskt skulle ha känt till i augusti 2025.
+ *
+ * Prediktiv validitet, metod: för varje spelare, ta modellens skattning vid
  * SISTA matchen 2025-08-01 eller tidigare (dvs. bygg trajectorien BARA av
  * matcher fram till det datumet — 2026-matcher existerar inte för modellen
  * vid den tidpunkten) och korrelera den mot spelarens FAKTISKA rå
@@ -39,8 +44,10 @@ void meanFull;
 
 const players = Object.entries(raw).map(([id, p]) => ({ playerId: Number(id), ...p }));
 
-// Samma, redan i analyze.ts fastställda (INTE här-omkalibrerade) positions-
-// specifika parametrar — se player-intelligence-analyze.ts:s motivering.
+// Modeller kalibrerade på HELA datasetets deskriptiva statistik (analyze.ts)
+// — används för "VERKLIGA EXEMPEL"-sektionen nedan, som visar "vad säger
+// modellen NU, givet allt vi vet" — INTE ett prediktivt out-of-sample-test,
+// så det finns ingen läckagerisk där.
 const MODELS = {
   EMA: (obs: Observation[]) => runEMA(obs, 10),
   CUMULATIVE: (obs: Observation[]) => runCumulative(obs, 5),
@@ -48,6 +55,20 @@ const MODELS = {
   KALMAN: (obs: Observation[], group: string) => runKalman(obs, priorVar, obsVarByGroup[group], qPerDayByGroup[group]),
 } as const;
 type ModelName = keyof typeof MODELS;
+
+/**
+ * SKÄRPT LÄCKAGEKONTROLL (2026-08-22, uppföljning på användarens uttryckliga
+ * krav i punkt 3): parametrarna ovan (obsVarByGroup/priorVar/qPerDayByGroup)
+ * är beräknade i analyze.ts från HELA datasetet 2016–2026 — inklusive
+ * matcherna i 2026 som används som "framtida" utfall i det prediktiva
+ * testet nedan. Det är INTE en läcka av spelarspecifika UTFALL (parametrarna
+ * är rena brusnivåer, tillpassade mot ingenting), men det är inte heller
+ * en fullständigt ärlig simulering av "vad visste vi vid tidpunkt T" — i
+ * verklig produktion skulle bara 2016–2025 varit kända innan 2026-testet.
+ * Kalibrerar därför HÄR om separat, EXAKT samma formel, men bara på
+ * observationer FÖRE CUTOFF (deklareras nedan) — och använder BARA den
+ * kalibreringen i det prediktiva testet, inte i "verkliga exempel"-sektionen.
+ */
 
 function pearson(xs: number[], ys: number[]): number {
   const n = xs.length;
@@ -70,6 +91,39 @@ async function main() {
   const CUTOFF = new Date("2025-08-01").getTime(); // efter 2025 säsongen är i praktiken klar, före 2026 börjar
   const FUTURE_START = new Date("2026-01-01").getTime();
   const MIN_FUTURE_MATCHES = 3;
+
+  // --- LÄCKAGEFRI kalibrering: EXAKT samma formel som analyze.ts, men bara på
+  // observationer strikt FÖRE CUTOFF (pooled över alla spelare) — motsvarar
+  // vad en produktionsmotor faktiskt skulle ha känt till i augusti 2025.
+  const preCutoffFullMatchPerf = players.flatMap((p) =>
+    p.obs.filter((o) => o.minutes >= 85 && new Date(o.kickoffAt).getTime() <= CUTOFF).map((o) => o.performance)
+  );
+  const preCutoffObsVarByGroup: Record<string, number> = {};
+  const preCutoffQPerDayByGroup: Record<string, number> = {};
+  for (const group of ["attacker", "midfielder", "defender", "goalkeeper"]) {
+    const vals = players
+      .filter((p) => p.positionGroup === group)
+      .flatMap((p) => p.obs.filter((o) => o.minutes >= 85 && new Date(o.kickoffAt).getTime() <= CUTOFF).map((o) => o.performance));
+    const m = vals.reduce((a, b) => a + b, 0) / vals.length;
+    preCutoffObsVarByGroup[group] = vals.reduce((a, b) => a + (b - m) ** 2, 0) / vals.length;
+    preCutoffQPerDayByGroup[group] = preCutoffObsVarByGroup[group] / 5 / 90;
+  }
+  const preCutoffGlobalMean = preCutoffFullMatchPerf.reduce((a, b) => a + b, 0) / preCutoffFullMatchPerf.length;
+  const preCutoffObsVarGlobal =
+    preCutoffFullMatchPerf.reduce((a, b) => a + (b - preCutoffGlobalMean) ** 2, 0) / preCutoffFullMatchPerf.length;
+  const preCutoffPriorVar = preCutoffObsVarGlobal * 4;
+
+  console.log("=== LÄCKAGEFRI (bara pre-2025-08-01-data) kalibrering, jämfört med den fulla-datasetet-kalibreringen ===");
+  for (const group of ["attacker", "midfielder", "defender", "goalkeeper"]) {
+    console.log(
+      `  ${group.padEnd(11)} obsVar: helt dataset=${obsVarByGroup[group].toFixed(1)}  pre-cutoff-only=${preCutoffObsVarByGroup[group].toFixed(1)} (${(((preCutoffObsVarByGroup[group] - obsVarByGroup[group]) / obsVarByGroup[group]) * 100).toFixed(1)}% skillnad)`
+    );
+  }
+
+  const PRECUTOFF_MODELS = {
+    BAYES: (obs: Observation[], group: string) => runStaticBayes(obs, preCutoffPriorVar, preCutoffObsVarByGroup[group]),
+    KALMAN: (obs: Observation[], group: string) => runKalman(obs, preCutoffPriorVar, preCutoffObsVarByGroup[group], preCutoffQPerDayByGroup[group]),
+  } as const;
 
   interface ValRow {
     playerId: number;
@@ -117,8 +171,8 @@ async function main() {
     const modelEstimates = {
       EMA: MODELS.EMA(before)[before.length - 1]?.estimate,
       CUMULATIVE: MODELS.CUMULATIVE(before)[before.length - 1]?.estimate,
-      BAYES: MODELS.BAYES(before, p.positionGroup)[before.length - 1]?.estimate,
-      KALMAN: MODELS.KALMAN(before, p.positionGroup)[before.length - 1]?.estimate,
+      BAYES: PRECUTOFF_MODELS.BAYES(before, p.positionGroup)[before.length - 1]?.estimate,
+      KALMAN: PRECUTOFF_MODELS.KALMAN(before, p.positionGroup)[before.length - 1]?.estimate,
     } as Record<ModelName, number>;
 
     valRows.push({
