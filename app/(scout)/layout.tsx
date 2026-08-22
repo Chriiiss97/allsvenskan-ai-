@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { PremiumGate } from "@/components/scout/PremiumGate";
+import { hasScoutAccess } from "@/lib/auth/premium";
 
 const SCOUT_NAV = [
   { href: "/scout/spelare", label: "Spelare" },
@@ -21,11 +23,11 @@ const SCOUT_NAV = [
  * (Spelare/Lag/Search/Compare/Shortlist), byggd i Fas 14.4 nu när alla fem
  * sidorna faktiskt finns.
  *
- * Samma inloggningskrav som (app) — Scout är tänkt som en betalprodukt, men
- * åtkomstspärren (Fas 14.5: en flagga på profiles, samma mönster som
- * profiles.role redan används för admin) finns INTE än. Fram tills dess är
- * Scout tillgängligt för alla inloggade, precis som resten av appen var
- * innan denna fas.
+ * Samma inloggningskrav som (app). Fas 14.5: premium-gating via
+ * PremiumGate — profiles.scout_access (satt manuellt av admin, ingen
+ * riktig betalning än) ELLER role="admin". En spärrad användare ser ändå
+ * hela Scout-shellen (nav, hubb-kort) — bara children blurras/overlayas av
+ * PremiumGate, inte hela sidan dold.
  */
 export default async function ScoutLayout({ children }: { children: ReactNode }) {
   const supabase = await createClient();
@@ -33,6 +35,9 @@ export default async function ScoutLayout({ children }: { children: ReactNode })
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
+
+  const { data: profile } = await supabase.from("profiles").select("role, scout_access").eq("id", user.id).single();
+  const hasAccess = hasScoutAccess(profile);
 
   return (
     <div className="min-h-screen bg-[#0d0d0d] text-white">
@@ -60,7 +65,9 @@ export default async function ScoutLayout({ children }: { children: ReactNode })
           ))}
         </nav>
       </header>
-      <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
+      <main className="mx-auto max-w-5xl px-4 py-8">
+        <PremiumGate hasAccess={hasAccess}>{children}</PremiumGate>
+      </main>
     </div>
   );
 }

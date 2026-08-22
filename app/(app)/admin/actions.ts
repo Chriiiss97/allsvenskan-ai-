@@ -56,3 +56,25 @@ export async function toggleFeatureFlag(formData: FormData) {
   await supabase.from("feature_flag").update({ enabled }).eq("key", key);
   revalidatePath("/admin");
 }
+
+/**
+ * Fas 14.5 (redesign) — sätter/nollställer profiles.scout_access för EN
+ * användare. Enda skrivvägen tills riktig betalning finns (beslutat med
+ * användaren) — en admin ger manuellt åtkomst, ingen självbetjäning.
+ * profiles har medvetet inga UPDATE-policys (se migration 0001) — skriver
+ * därför via set_scout_access-RPC:n (SECURITY DEFINER + egen is_admin()-
+ * koll), samma smala mönster som set_favorite_team, INTE en bred
+ * "admin kan uppdatera profiles"-policy.
+ */
+export async function toggleScoutAccess(formData: FormData) {
+  const targetId = String(formData.get("userId") ?? "");
+  const enabled = formData.get("enabled") === "true";
+  if (!targetId) return;
+
+  const supabase = await requireAdmin();
+  if (!supabase) return;
+
+  const { error } = await supabase.rpc("set_scout_access", { p_user_id: targetId, p_enabled: enabled });
+  if (error) throw error;
+  revalidatePath(`/admin/users/${targetId}`);
+}

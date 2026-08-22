@@ -22,6 +22,8 @@ export interface Database {
           quota_date: string;
           favorite_team_id: number | null;
           onboarding_completed_at: string | null;
+          /** Fas 14.5 (redesign) — UI-lagrets premium-flagga, satt manuellt av admin (ingen riktig betalning än). */
+          scout_access: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -993,6 +995,11 @@ export interface Database {
     Functions: {
       set_favorite_team: {
         Args: { p_team_id: number | null };
+        Returns: undefined;
+      };
+      /** Fas 14.5 (redesign) — enda skrivvägen till profiles.scout_access, SECURITY DEFINER + is_admin()-koll internt. */
+      set_scout_access: {
+        Args: { p_user_id: string; p_enabled: boolean };
         Returns: undefined;
       };
       increment_message_quota: {

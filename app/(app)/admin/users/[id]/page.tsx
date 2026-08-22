@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { BackButton } from "@/components/nav/BackButton";
 import { timeAgo } from "@/lib/admin/format";
+import { toggleScoutAccess } from "../../actions";
 
 interface TargetProfile {
   id: string;
@@ -10,6 +11,7 @@ interface TargetProfile {
   daily_message_count: number;
   quota_date: string;
   created_at: string;
+  scout_access: boolean;
   favorite_team: { name: string } | null;
 }
 
@@ -57,7 +59,7 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
 
   const { data: target } = await supabase
     .from("profiles")
-    .select("id, email, role, daily_message_count, quota_date, created_at, favorite_team:favorite_team_id(name)")
+    .select("id, email, role, daily_message_count, quota_date, created_at, scout_access, favorite_team:favorite_team_id(name)")
     .eq("id", targetId)
     .maybeSingle<TargetProfile>();
   if (!target) notFound();
@@ -107,7 +109,26 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
             admin
           </span>
         )}
+        {target.scout_access && (
+          <span className="rounded-full bg-[#a78bfa]/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#a78bfa]">
+            scout-medlem
+          </span>
+        )}
       </div>
+
+      {/* Fas 14.5 — manuell Scout-åtkomst tills riktig betalning finns. */}
+      <form action={toggleScoutAccess} className="mt-3">
+        <input type="hidden" name="userId" value={target.id} />
+        <input type="hidden" name="enabled" value={target.scout_access ? "false" : "true"} />
+        <button
+          type="submit"
+          disabled={target.role === "admin"}
+          title={target.role === "admin" ? "Admins har alltid Scout-åtkomst" : undefined}
+          className="rounded-lg border border-[#a78bfa]/30 bg-[#a78bfa]/10 px-3 py-1.5 text-xs font-medium text-[#a78bfa] transition-colors hover:bg-[#a78bfa]/15 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {target.scout_access ? "🧬 Ta bort Scout-åtkomst" : "🧬 Ge Scout-åtkomst"}
+        </button>
+      </form>
 
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-white/10 bg-[#141418] p-4">
