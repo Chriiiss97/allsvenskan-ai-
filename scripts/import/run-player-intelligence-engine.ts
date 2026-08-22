@@ -23,7 +23,14 @@
  * värden om inget i underliggande data ändrats).
  *
  * Körs: npx tsx scripts/import/run-player-intelligence-engine.ts
+ *
+ * (Fristående körning, INTE via scripts/import/run.ts:s stegregister —
+ * det här är en engångs-/shadow-mode-backfill, inte en del av den vanliga
+ * nattliga importkedjan ännu. Laddar .env.local själv, samma mönster som
+ * redan använt i scripts/research/*.ts.)
  */
+import * as dotenv from "dotenv";
+dotenv.config({ path: ".env.local" });
 import { createAdminClient } from "./admin-client";
 import { computeAllMatchPerformancesBulk, type BulkPerformanceRow } from "../../lib/football/rating/player-intelligence-performance";
 import { coldStartState, applyKalmanUpdate, isAnomalousChange, type KalmanState } from "../../lib/football/rating/player-intelligence-state";
