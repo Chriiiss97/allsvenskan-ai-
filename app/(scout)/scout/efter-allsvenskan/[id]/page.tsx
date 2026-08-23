@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getPlayerPostAllsvenskan } from "@/lib/football/post-allsvenskan";
+import { getPlayersWhoLeftAllsvenskan } from "@/lib/football/post-allsvenskan";
+import { computePostAllsvenskanSuccess } from "@/lib/football/post-allsvenskan-success";
 import { getCareerJourney } from "@/lib/football/career-journey";
 import { translateNationality } from "@/lib/i18n/sv";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
@@ -44,8 +45,15 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
   if (Number.isNaN(playerId)) notFound();
 
   const supabase = await createClient();
-  const [player, journey] = await Promise.all([getPlayerPostAllsvenskan(supabase, playerId), getCareerJourney(supabase, { playerId })]);
+  // Hela urvalet behövs ändå: "mest lyckad" är en RELATIV placering, den kan
+  // inte räknas fram ur en ensam spelare. Samma bulk-anrop som listan gör,
+  // så det kostar inget extra utöver den redan cachade beräkningen.
+  const [allPlayers, journey] = await Promise.all([getPlayersWhoLeftAllsvenskan(supabase), getCareerJourney(supabase, { playerId })]);
+  const player = allPlayers.find((p) => p.playerId === playerId);
   if (!player) notFound();
+
+  const { ranked } = computePostAllsvenskanSuccess(allPlayers);
+  const success = ranked.find((e) => e.player.playerId === playerId) ?? null;
 
   const statusMeta = STATUS_META[player.status];
 
@@ -117,6 +125,61 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
       <p className="mt-2 text-[11px] text-[#5f5e59]">
         Total för hela perioden efter att {player.playerName} lämnade Allsvenskan — Allsvensk statistik räknas aldrig med.
       </p>
+
+      {/*
+        Fas 18j (2026-08-23) — spelarens placering i "Mest lyckad efter
+        Allsvenskan" med FULL nedbrytning. Här visas komponenternas
+        percentiler, till skillnad från listsidan där användaren uttryckligen
+        inte ville se poängtal — men den sammanvägda totalpoängen visas ändå
+        aldrig, bara placeringen och vad varje del faktiskt mätte.
+      */}
+      {success && (
+        <div className="mt-8 rounded-xl border border-white/10 border-l-2 border-l-[#d9a526] bg-[#141418] p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#d9a526]">🏆 Mest lyckad efter Allsvenskan</p>
+            <p className="text-xs text-[#898781]">
+              Placering <span className="font-semibold tabular-nums text-white">#{success.rank}</span> av {ranked.length} rankade
+            </p>
+          </div>
+
+          {success.highlights.length > 0 && (
+            <ul className="mt-3 space-y-1.5 text-sm leading-relaxed text-[#c3c2b7]">
+              {success.highlights.map((h) => (
+                <li key={h} className="flex gap-2">
+                  <span className="text-[#d9a526]" aria-hidden>
+                    ·
+                  </span>
+                  <span>{h}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="mt-4 space-y-2.5 border-t border-white/5 pt-4">
+            {success.components.map((c) => (
+              <div key={c.key}>
+                <div className="flex items-baseline justify-between gap-3 text-xs">
+                  <span className="font-semibold text-[#c3c2b7]">
+                    {c.label} <span className="font-normal text-[#5f5e59]">· vikt {c.weight} %</span>
+                  </span>
+                  <span className="shrink-0 tabular-nums text-[#898781]">{Math.round(c.score)}/100</span>
+                </div>
+                <div className="mt-1 h-1 overflow-hidden rounded-full bg-white/5">
+                  <div className="h-full rounded-full bg-[#d9a526]/70" style={{ width: `${Math.max(1, Math.min(100, c.score))}%` }} />
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-[#7d7c76]">{c.detail}</p>
+              </div>
+            ))}
+          </div>
+
+          {success.coverage < 1 && (
+            <p className="mt-3 text-[10px] leading-relaxed text-[#5f5e59]">
+              {Math.round(success.coverage * 100)} % av modellens vikt täcks av verklig data för {player.playerName} — resterande komponenters vikt
+              har fördelats ut på de som finns, aldrig räknats som noll.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Hela karriärresan — samma komponent som /spelare/[id], visar lån/
           permanenta övergångar och Allsvenskan-avgången i sammanhang. */}

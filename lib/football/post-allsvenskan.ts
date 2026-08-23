@@ -4,6 +4,7 @@ import { hasPlayedSeason } from "./active-player";
 import { displayPlayerName } from "./player-name";
 import { normalizeTeamName } from "./team-name-normalize";
 import { getLeagueTier, NON_COMPETITIVE_LEAGUE_IDS } from "./league-tier";
+import { getLeagueStrength, type LeagueStrength } from "./post-allsvenskan-level";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -82,6 +83,33 @@ export interface PostAllsvenskanPlayer {
   longestAbroadStreakFromYear: number;
   longestAbroadStreakToYear: number;
   longestAbroadStreakYears: number;
+  /**
+   * Fas 18j (2026-08-23, "Återvändarprocent"/"flest pendlingar") — antal
+   * gånger spelaren dokumenterat lämnat Allsvenskan (minst 1, per
+   * definition — annars hade hen inte kvalificerat sig). ≥2 = en
+   * "pendlande" karriär (lämnat, kommit tillbaka, lämnat igen).
+   */
+  departureCount: number;
+  /**
+   * Fas 18j (2026-08-23) — spelarens position, rå från `player.position`
+   * ("Attacker"/"Midfielder"/"Defender"/"Goalkeeper"/"Forward"). Behövs för
+   * att "Mest lyckad efter Allsvenskan" ska kunna jämföra mål/assist INOM
+   * positionsgrupp istället för att ställa en ytterback mot en anfallare
+   * (samma princip som position-group.ts redan bygger DNA/percentiler på).
+   */
+  position: string | null;
+  /**
+   * Fas 18j — speltid per liganivå (se post-allsvenskan-level.ts). Bara
+   * LIGA-minuter hamnar här; cup-/kontinental-/oklassade minuter saknar en
+   * egen nivå och utelämnas medvetet (de räknas fortfarande i
+   * `minutesPlayed`). Summan är alltså normalt MINDRE än `minutesPlayed`.
+   */
+  minutesByLevel: Record<LeagueStrength, number>;
+  /**
+   * Högsta nivå spelaren spelat MINST 900 minuter på (~10 matcher) — "nådde
+   * faktiskt dit", inte "hoppade in en gång". null om ingen nivå når dit.
+   */
+  peakLevel: LeagueStrength | null;
   /** Nedbrutet per klubb (grupperat på normaliserat klubbnamn) — grunden för Scouts detaljvy per spelare. */
   byClub: PostAllsvenskanClubBreakdown[];
 }
@@ -158,7 +186,9 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
     fetchAllRows(
       supabase
         .from("player")
-        .select("id, full_name, first_name, last_name, photo_url, latest_transfer_team_name, latest_transfer_team_external_id, latest_transfer_team_logo_url")
+        .select(
+          "id, full_name, first_name, last_name, photo_url, position, latest_transfer_team_name, latest_transfer_team_external_id, latest_transfer_team_logo_url"
+        )
     ),
     // Alla 33 Allsvenska klubbars external_id — grunden för att avgöra om
     // spelarens SENASTE kända övergång gick TILLBAKA till Allsvenskan.
@@ -252,6 +282,23 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
     const hasQualifyingTier = stints.some((s) => getLeagueTier(s.league_external_id) !== null);
     if (!hasQualifyingTier) continue;
 
+    // Fas 18j (2026-08-23, "Återvändarprocent"/"flest pendlingar") — hur
+    // många gånger har spelaren FAKTISKT lämnat Allsvenskan (inte bara
+    // första gången)? Byggs av samma data vi redan har i minnet — en
+    // sammanslagen, kronologisk år-för-år-tidslinje (Allsvensk/utländsk),
+    // och räknar varje övergång FRÅN en Allsvensk år TILL ett utländskt år.
+    // Ett år med både en Allsvensk och en utländsk rad (byte mitt i
+    // säsongen) räknas som Allsvenskt — konservativt, undviker att räkna en
+    // extra "avgång" för en enda övergångssäsong.
+    const yearIsDomestic = new Map<number, boolean>();
+    for (const d of domesticEntries) yearIsDomestic.set(d.year, true);
+    for (const s of stints) if (!yearIsDomestic.has(s.season_year)) yearIsDomestic.set(s.season_year, false);
+    const chronologicalYears = [...yearIsDomestic.entries()].sort((a, b) => a[0] - b[0]);
+    let departureCount = 0;
+    for (let i = 1; i < chronologicalYears.length; i++) {
+      if (chronologicalYears[i - 1][1] === true && chronologicalYears[i][1] === false) departureCount++;
+    }
+
     const player = playerById.get(playerId);
     if (!player) continue;
 
@@ -288,6 +335,28 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
         streakBestLen = streakCurLen;
         streakBestFrom = streakCurFrom;
         streakBestTo = foreignYears[i];
+      }
+    }
+
+    // Fas 18j (2026-08-23) — speltid per LIGANIVÅ, underlaget för nivå-
+    // komponenten i "Mest lyckad efter Allsvenskan". Cup-/kontinental-/
+    // oklassade rader ger `null` från getLeagueStrength och hoppas över här
+    // (de saknar egen nivå — se post-allsvenskan-level.ts:s filhuvud för
+    // varför Champions League-kvalminuter aldrig får räknas som nivå 5).
+    const minutesByLevel: Record<LeagueStrength, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    for (const s of stints) {
+      const level = getLeagueStrength(s.league_external_id);
+      if (level === null) continue;
+      minutesByLevel[level] += s.minutes_played ?? 0;
+    }
+    // "Nådde faktiskt dit" = minst ~10 fulla matcher på nivån, inte ett
+    // enstaka inhopp. Högsta nivån som klarar gränsen vinner.
+    const PEAK_LEVEL_MIN_MINUTES = 900;
+    let peakLevel: LeagueStrength | null = null;
+    for (const level of [5, 4, 3, 2, 1] as const) {
+      if (minutesByLevel[level] >= PEAK_LEVEL_MIN_MINUTES) {
+        peakLevel = level;
+        break;
       }
     }
 
@@ -395,17 +464,15 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
       longestAbroadStreakFromYear: streakBestFrom,
       longestAbroadStreakToYear: streakBestTo,
       longestAbroadStreakYears: streakBestLen,
+      departureCount,
+      position: player.position,
+      minutesByLevel,
+      peakLevel,
       byClub,
     });
   }
 
   return results;
-}
-
-/** Scouts detaljvy per spelare (klick i Efter Allsvenskan-listan) — samma bulk-beräkning, filtrerad till en spelare. */
-export async function getPlayerPostAllsvenskan(supabase: Supabase, playerId: number): Promise<PostAllsvenskanPlayer | null> {
-  const all = await getPlayersWhoLeftAllsvenskan(supabase);
-  return all.find((p) => p.playerId === playerId) ?? null;
 }
 
 export interface ClubAbroadPerformance {
@@ -425,6 +492,22 @@ export interface AbroadStreakEntry {
   years: number;
 }
 
+export interface ExportYearCount {
+  year: number;
+  count: number;
+}
+
+export interface ReturnRateStats {
+  returned: number;
+  total: number;
+  percentage: number;
+}
+
+export interface CyclingCareerEntry {
+  player: PostAllsvenskanPlayer;
+  departureCount: number;
+}
+
 export interface PostAllsvenskanInsights {
   /** null bara om ingen spelare i urvalet har >0 mål/assist — teoretiskt möjligt, aldrig krascha. */
   topGoals: PostAllsvenskanPlayer | null;
@@ -433,6 +516,21 @@ export interface PostAllsvenskanInsights {
   longestAbroadStreak: AbroadStreakEntry | null;
   /** Nästa 4 efter ledaren, för en kompakt "näst bäst"-lista — inte en hel tabell. */
   longestAbroadStreakRunnersUp: AbroadStreakEntry[];
+  /**
+   * Fas 18k (2026-08-23, "Exportkurvan") — antal spelare per `leftYear`,
+   * stigande år. Rent en aggregering av redan filtrerad data (ingen ny
+   * fråga) — visar om exporten ökat/minskat över tid.
+   */
+  exportsByYear: ExportYearCount[];
+  /**
+   * Fas 18k — hur stor andel av de som lämnat är FAKTISKT tillbaka i
+   * Allsvenskan just nu (status === "back_in_allsvenskan"). En spelare som
+   * lämnat, kommit tillbaka och lämnat IGEN räknas inte som "återvänd" här
+   * — se `mostCyclingCareers` för den vinkeln istället.
+   */
+  returnRate: ReturnRateStats;
+  /** Spelare med ≥2 dokumenterade avgångar (lämnat-kommit tillbaka-lämnat igen), flest först. Topp 5. */
+  mostCyclingCareers: CyclingCareerEntry[];
 }
 
 /**
@@ -454,13 +552,94 @@ export function computePostAllsvenskanInsights(players: PostAllsvenskanPlayer[])
     .map((p) => ({ player: p, fromYear: p.longestAbroadStreakFromYear, toYear: p.longestAbroadStreakToYear, years: p.longestAbroadStreakYears }))
     .sort((a, b) => b.years - a.years);
 
+  // "Exportkurvan" — ren aggregering av `leftYear`, ingen ny beräkning.
+  const yearCounts = new Map<number, number>();
+  for (const p of players) yearCounts.set(p.leftYear, (yearCounts.get(p.leftYear) ?? 0) + 1);
+  const exportsByYear = [...yearCounts.entries()].map(([year, count]) => ({ year, count })).sort((a, b) => a.year - b.year);
+
+  // "Återvändarprocent" — andel med status===back_in_allsvenskan just nu.
+  const returned = players.filter((p) => p.status === "back_in_allsvenskan").length;
+  const returnRate: ReturnRateStats = {
+    returned,
+    total: players.length,
+    percentage: players.length > 0 ? Math.round((returned / players.length) * 100) : 0,
+  };
+
+  const mostCyclingCareers: CyclingCareerEntry[] = [...players]
+    .filter((p) => p.departureCount >= 2)
+    .sort((a, b) => b.departureCount - a.departureCount)
+    .slice(0, 5)
+    .map((p) => ({ player: p, departureCount: p.departureCount }));
+
   return {
     topGoals: byGoals[0]?.goals > 0 ? byGoals[0] : null,
     topAssists: byAssists[0]?.assists > 0 ? byAssists[0] : null,
     topMinutes: byMinutes[0]?.minutesPlayed > 0 ? byMinutes[0] : null,
     longestAbroadStreak: byStreak[0] ?? null,
     longestAbroadStreakRunnersUp: byStreak.slice(1, 5),
+    exportsByYear,
+    returnRate,
+    mostCyclingCareers,
   };
+}
+
+export interface DecoratedAbroadEntry {
+  player: PostAllsvenskanPlayer;
+  winCount: number;
+  /** Nyaste säsong först. */
+  trophies: { leagueName: string; country: string | null; season: string }[];
+}
+
+interface TrophyRow {
+  player_id: number;
+  league_name: string;
+  country: string | null;
+  season: string;
+  place: string;
+}
+
+/**
+ * Fas 18k (2026-08-23, "Mest dekorerad efter Allsvenskan") — troféer VUNNA
+ * UTOMLANDS (player_trophy, real data från api-football /trophies, se
+ * player-trophies.ts:s filhuvud). Samma två regler som resten av "Efter
+ * Allsvenskan":
+ *   1. Bara `place === "Winner"` (samma regel som PlayerTrophiesSection —
+ *      en 2:a-plats är ingen titel).
+ *   2. Bara `country !== "Sweden"` — en svensk titel (t.ex. Svenska Cupen
+ *      innan avgången, eller en titel efter en eventuell återkomst till
+ *      Allsvenskan) räknas inte som "efter Allsvenskan". Till skillnad från
+ *      `player_career_stint` har `player_trophy` INGEN klubbkoppling, så en
+ *      exakt säsongs-gräns (samma princip som `stints`-filtret) går inte
+ *      att sätta — men en icke-svensk titel kan per definition bara vinnas
+ *      medan spelaren faktiskt spelade utomlands, så landsfiltret räcker.
+ * Begränsad till spelare som REDAN kvalificerar sig till "Efter
+ * Allsvenskan" (samma pool som resten av sidan — se `players`-parametern).
+ */
+export async function getMostDecoratedAbroad(supabase: Supabase, players: PostAllsvenskanPlayer[], limit = 10): Promise<DecoratedAbroadEntry[]> {
+  const rows = await fetchAllRows<TrophyRow>(
+    supabase.from("player_trophy").select("player_id, league_name, country, season, place").returns<TrophyRow[]>()
+  );
+
+  const qualifyingIds = new Set(players.map((p) => p.playerId));
+  const trophiesByPlayer = new Map<number, { leagueName: string; country: string | null; season: string }[]>();
+  for (const r of rows) {
+    if (!qualifyingIds.has(r.player_id)) continue;
+    if (r.place !== "Winner") continue;
+    if ((r.country ?? "").trim().toLowerCase() === "sweden") continue;
+    const list = trophiesByPlayer.get(r.player_id) ?? [];
+    list.push({ leagueName: r.league_name, country: r.country, season: r.season });
+    trophiesByPlayer.set(r.player_id, list);
+  }
+
+  const playerById = new Map(players.map((p) => [p.playerId, p]));
+  return [...trophiesByPlayer.entries()]
+    .map(([playerId, trophies]) => ({
+      player: playerById.get(playerId)!,
+      winCount: trophies.length,
+      trophies: trophies.sort((a, b) => b.season.localeCompare(a.season)),
+    }))
+    .sort((a, b) => b.winCount - a.winCount)
+    .slice(0, limit);
 }
 
 /** "Vilka klubbars spelare har presterat bäst utomlands" — real summering per f.d. Allsvensk klubb, ingen egen 'framgångspoäng'. */
