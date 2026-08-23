@@ -1015,6 +1015,74 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["fixture_stat_trend"]["Row"]>;
         Relationships: [];
       };
+      // Fas 21 (migration 20260823120000_live_match_hub) — matchhubbens
+      // live-lager: klockan, den löpande kommentaren och full live-statistik.
+      fixture_period: {
+        Row: {
+          id: number;
+          fixture_id: number;
+          sportmonks_period_id: number;
+          type_id: number | null;
+          description: string | null;
+          started_at: string | null;
+          ended_at: string | null;
+          counts_from: number | null;
+          period_length: number | null;
+          time_added: number | null;
+          minutes: number | null;
+          seconds: number | null;
+          ticking: boolean;
+          has_timer: boolean;
+          sort_order: number | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fixture_period"]["Row"]> & {
+          fixture_id: number;
+          sportmonks_period_id: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["fixture_period"]["Row"]>;
+        Relationships: [];
+      };
+      fixture_comment: {
+        Row: {
+          id: number;
+          fixture_id: number;
+          sportmonks_comment_id: number;
+          comment: string;
+          minute: number | null;
+          extra_minute: number | null;
+          is_goal: boolean;
+          is_important: boolean;
+          sort_order: number | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fixture_comment"]["Row"]> & {
+          fixture_id: number;
+          sportmonks_comment_id: number;
+          comment: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["fixture_comment"]["Row"]>;
+        Relationships: [];
+      };
+      fixture_live_team_stat: {
+        Row: {
+          id: number;
+          fixture_id: number;
+          team_id: number | null;
+          sportmonks_team_id: number;
+          type_id: number;
+          value: number | null;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fixture_live_team_stat"]["Row"]> & {
+          fixture_id: number;
+          sportmonks_team_id: number;
+          type_id: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["fixture_live_team_stat"]["Row"]>;
+        Relationships: [];
+      };
       fixture_weather: {
         Row: {
           id: number;

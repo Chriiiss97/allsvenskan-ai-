@@ -1,6 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { IN_PLAY_STATUSES, matchPhase, liveClockLabel, statusShortLabel, type MatchPhase } from "./live-status";
+import type { MatchClockAnchor } from "./match-clock";
+import { liveStatMeta } from "./live-stat-types";
+import { displayPlayerName } from "./player-name";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -43,6 +46,33 @@ export interface LiveFeedStats {
   corners: { home: number | null; away: number | null } | null;
 }
 
+/** En rad ur den löpande matchkommentaren. Texten är engelsk, se migrationen. */
+export interface LiveComment {
+  id: number;
+  comment: string;
+  minute: number | null;
+  extraMinute: number | null;
+  isGoal: boolean;
+  isImportant: boolean;
+}
+
+/** Ett statistikmått med båda lagens värden, färdigt att rita som jämförelse. */
+export interface LiveStatRow {
+  typeId: number;
+  label: string;
+  suffix?: string;
+  decimals?: number;
+  home: number | null;
+  away: number | null;
+}
+
+/** En punkt i momentumkurvan — pressure per minut, per lag. */
+export interface MomentumPoint {
+  minute: number;
+  home: number | null;
+  away: number | null;
+}
+
 export interface LiveFeedMatch {
   fixtureId: number;
   kickoff: string;
@@ -62,6 +92,18 @@ export interface LiveFeedMatch {
   lastUpdated: string | null;
   events: LiveFeedEvent[];
   stats: LiveFeedStats | null;
+  /**
+   * Fas 21 — matchhubbens extradata. Fylls BARA när flödet hämtas för
+   * bestämda matcher (matchvyn), aldrig i dagslistan: kommentarer och
+   * minutupplöst momentum för åtta matcher hade gjort listans svar tiotals
+   * gånger större utan att något av det syns där.
+   */
+  clockAnchor: MatchClockAnchor | null;
+  comments: LiveComment[];
+  liveStats: LiveStatRow[];
+  momentum: MomentumPoint[];
+  /** Sportmonks formation per lag, från metadata type_id 159. */
+  formation: { home: string | null; away: string | null } | null;
 }
 
 export interface LiveFeed {
@@ -135,8 +177,8 @@ interface EventRow {
   minute: number;
   extra_minute: number | null;
   team_id: number | null;
-  player: { id: number; full_name: string } | null;
-  assist: { id: number; full_name: string } | null;
+  player: { id: number; full_name: string; first_name: string | null; last_name: string | null } | null;
+  assist: { id: number; full_name: string; first_name: string | null; last_name: string | null } | null;
 }
 
 /** Ett par (home/away) bara om minst ett av värdena finns — aldrig två null. */
@@ -183,23 +225,191 @@ export async function getLiveFeedForToday(supabase: Supabase): Promise<LiveFeed>
   return buildFeed(supabase, fixtures);
 }
 
-/** Samma flöde, men för en bestämd uppsättning matcher (matchvyns polling). */
+/**
+ * Samma flöde, men för en bestämd uppsättning matcher (matchvyns polling) —
+ * OCH med matchhubbens extradata: klocka, kommentar, full statistik, momentum.
+ */
 export async function getLiveFeedForFixtures(supabase: Supabase, fixtureIds: number[]): Promise<LiveFeed> {
   if (fixtureIds.length === 0) {
     return { matches: [], nextRefreshSeconds: CLIENT_INTERVAL_SECONDS.idle, fetchedAt: new Date().toISOString() };
   }
   const { data, error } = await supabase.from("fixture").select(FIXTURE_SELECT).in("id", fixtureIds).returns<FixtureRow[]>();
   if (error) throw error;
-  return buildFeed(supabase, data ?? []);
+  return buildFeed(supabase, data ?? [], { detail: true });
 }
 
-async function buildFeed(supabase: Supabase, fixtures: FixtureRow[]): Promise<LiveFeed> {
+/**
+ * Fas 21-tabellerna (migration 20260823120000) kan saknas i en miljö där
+ * migrationen inte körts än. Hela matchhubben ska då degradera till Fas 20:s
+ * enklare vy istället för att sidan går sönder — samma hållning som
+ * startsidans live-yta redan har mot fixture_live_snapshots.
+ */
+async function safeSelect<T>(run: () => PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> {
+  try {
+    const { data, error } = await run();
+    if (error || !Array.isArray(data)) return [];
+    return data as T[];
+  } catch {
+    return [];
+  }
+}
+
+interface HubData {
+  clockByFixture: Map<number, MatchClockAnchor>;
+  commentsByFixture: Map<number, LiveComment[]>;
+  statsByFixture: Map<number, LiveStatRow[]>;
+  momentumByFixture: Map<number, MomentumPoint[]>;
+  formationByFixture: Map<number, { home: string | null; away: string | null }>;
+}
+
+/** Hur många kommentarsrader som följer med i flödet. Resten hämtas inte. */
+const COMMENT_LIMIT = 60;
+
+async function loadHubData(supabase: Supabase, fixtures: FixtureRow[]): Promise<HubData> {
+  const ids = fixtures.map((f) => f.id);
+  const empty: HubData = {
+    clockByFixture: new Map(),
+    commentsByFixture: new Map(),
+    statsByFixture: new Map(),
+    momentumByFixture: new Map(),
+    formationByFixture: new Map(),
+  };
+
+  const [periods, comments, stats, pressure, metadata] = await Promise.all([
+    safeSelect<{
+      fixture_id: number;
+      description: string | null;
+      counts_from: number | null;
+      period_length: number | null;
+      time_added: number | null;
+      minutes: number | null;
+      seconds: number | null;
+      ticking: boolean;
+      updated_at: string;
+      sort_order: number | null;
+    }>(() =>
+      supabase
+        .from("fixture_period")
+        .select("fixture_id, description, counts_from, period_length, time_added, minutes, seconds, ticking, updated_at, sort_order")
+        .in("fixture_id", ids)
+        .order("sort_order", { ascending: false })
+    ),
+    safeSelect<{
+      fixture_id: number;
+      id: number;
+      comment: string;
+      minute: number | null;
+      extra_minute: number | null;
+      is_goal: boolean;
+      is_important: boolean;
+      sort_order: number | null;
+    }>(() =>
+      supabase
+        .from("fixture_comment")
+        .select("fixture_id, id, comment, minute, extra_minute, is_goal, is_important, sort_order")
+        .in("fixture_id", ids)
+        .order("sort_order", { ascending: false })
+        .limit(COMMENT_LIMIT * Math.max(1, ids.length))
+    ),
+    safeSelect<{ fixture_id: number; team_id: number | null; type_id: number; value: number | null }>(() =>
+      supabase.from("fixture_live_team_stat").select("fixture_id, team_id, type_id, value").in("fixture_id", ids)
+    ),
+    safeSelect<{ fixture_id: number; team_id: number; minute: number; pressure: number }>(() =>
+      supabase.from("fixture_pressure_index").select("fixture_id, team_id, minute, pressure").in("fixture_id", ids).order("minute")
+    ),
+    safeSelect<{ fixture_id: number; type_id: number; values: unknown }>(() =>
+      supabase.from("fixture_sportmonks_metadata").select("fixture_id, type_id, values").in("fixture_id", ids).eq("type_id", 159)
+    ),
+  ]);
+
+  // Klockan: den period som pågår, annars den senaste. sort_order är
+  // fallande ovan, så första träffen per match är den aktuella.
+  for (const p of periods) {
+    if (empty.clockByFixture.has(p.fixture_id)) continue;
+    empty.clockByFixture.set(p.fixture_id, {
+      description: p.description,
+      countsFrom: p.counts_from ?? 0,
+      periodLength: p.period_length,
+      timeAdded: p.time_added,
+      ticking: p.ticking,
+      minutes: p.minutes,
+      seconds: p.seconds,
+      // Ankaret är när RADEN senast skrevs, inte när vi läste den — det är
+      // den tidpunkt Sportmonks minut/sekund gällde.
+      readAt: p.updated_at,
+    });
+  }
+
+  for (const c of comments) {
+    const list = empty.commentsByFixture.get(c.fixture_id) ?? [];
+    if (list.length >= COMMENT_LIMIT) continue;
+    list.push({
+      id: c.id,
+      comment: c.comment,
+      minute: c.minute,
+      extraMinute: c.extra_minute,
+      isGoal: c.is_goal,
+      isImportant: c.is_important,
+    });
+    empty.commentsByFixture.set(c.fixture_id, list);
+  }
+
+  // Statistiken kommer som en rad per (lag, typ) — vänds till en rad per typ
+  // med båda lagens värden, vilket är hur den ska visas.
+  for (const fixture of fixtures) {
+    const rows = stats.filter((s) => s.fixture_id === fixture.id);
+    const byType = new Map<number, { home: number | null; away: number | null }>();
+    for (const row of rows) {
+      const entry = byType.get(row.type_id) ?? { home: null, away: null };
+      if (row.team_id === fixture.home?.id) entry.home = row.value;
+      else if (row.team_id === fixture.away?.id) entry.away = row.value;
+      byType.set(row.type_id, entry);
+    }
+    const statRows: LiveStatRow[] = [...byType.entries()]
+      .map(([typeId, value]) => {
+        const meta = liveStatMeta(typeId);
+        return { typeId, label: meta.label, suffix: meta.suffix, decimals: meta.decimals, home: value.home, away: value.away };
+      })
+      // En rad där ingen sida har ett värde säger ingenting — visa den aldrig.
+      .filter((r) => r.home != null || r.away != null);
+    if (statRows.length > 0) empty.statsByFixture.set(fixture.id, statRows);
+
+    const pressureRows = pressure.filter((p) => p.fixture_id === fixture.id);
+    if (pressureRows.length > 0) {
+      const byMinute = new Map<number, MomentumPoint>();
+      for (const row of pressureRows) {
+        const point = byMinute.get(row.minute) ?? { minute: row.minute, home: null, away: null };
+        if (row.team_id === fixture.home?.id) point.home = row.pressure;
+        else if (row.team_id === fixture.away?.id) point.away = row.pressure;
+        byMinute.set(row.minute, point);
+      }
+      empty.momentumByFixture.set(
+        fixture.id,
+        [...byMinute.values()].sort((a, b) => a.minute - b.minute)
+      );
+    }
+
+    const meta = metadata.find((m) => m.fixture_id === fixture.id);
+    if (meta && meta.values && typeof meta.values === "object") {
+      const values = meta.values as { home?: unknown; away?: unknown };
+      empty.formationByFixture.set(fixture.id, {
+        home: typeof values.home === "string" ? values.home : null,
+        away: typeof values.away === "string" ? values.away : null,
+      });
+    }
+  }
+
+  return empty;
+}
+
+async function buildFeed(supabase: Supabase, fixtures: FixtureRow[], options: { detail?: boolean } = {}): Promise<LiveFeed> {
   const fetchedAt = new Date().toISOString();
   if (fixtures.length === 0) {
     return { matches: [], nextRefreshSeconds: CLIENT_INTERVAL_SECONDS.idle, fetchedAt };
   }
 
   const ids = fixtures.map((f) => f.id);
+  const hub = options.detail ? await loadHubData(supabase, fixtures) : null;
 
   // Senaste snapshot per match. Supabase saknar "senaste per grupp", så vi
   // sorterar fallande och tar första träffen per fixture_id i JS — samma
@@ -218,7 +428,9 @@ async function buildFeed(supabase: Supabase, fixtures: FixtureRow[]): Promise<Li
 
   const { data: events } = await supabase
     .from("event")
-    .select("fixture_id, type, detail, minute, extra_minute, team_id, player:player_id(id, full_name), assist:assist_player_id(id, full_name)")
+    .select(
+      "fixture_id, type, detail, minute, extra_minute, team_id, player:player_id(id, full_name, first_name, last_name), assist:assist_player_id(id, full_name, first_name, last_name)"
+    )
     .in("fixture_id", ids)
     .order("minute", { ascending: true })
     .returns<EventRow[]>();
@@ -262,9 +474,9 @@ async function buildFeed(supabase: Supabase, fixtures: FixtureRow[]): Promise<Li
         minute: e.minute,
         extraMinute: e.extra_minute,
         side: e.team_id === f.home?.id ? "home" : e.team_id === f.away?.id ? "away" : null,
-        player: e.player?.full_name ?? null,
+        player: e.player ? displayPlayerName(e.player.first_name, e.player.last_name, e.player.full_name) : null,
         playerId: e.player?.id ?? null,
-        assist: e.assist?.full_name ?? null,
+        assist: e.assist ? displayPlayerName(e.assist.first_name, e.assist.last_name, e.assist.full_name) : null,
         assistId: e.assist?.id ?? null,
       })),
       stats:
@@ -276,6 +488,11 @@ async function buildFeed(supabase: Supabase, fixtures: FixtureRow[]): Promise<Li
               corners: pair(snap.home_corners, snap.away_corners),
             }
           : null,
+      clockAnchor: hub?.clockByFixture.get(f.id) ?? null,
+      comments: hub?.commentsByFixture.get(f.id) ?? [],
+      liveStats: hub?.statsByFixture.get(f.id) ?? [],
+      momentum: hub?.momentumByFixture.get(f.id) ?? [],
+      formation: hub?.formationByFixture.get(f.id) ?? null,
     };
   });
 

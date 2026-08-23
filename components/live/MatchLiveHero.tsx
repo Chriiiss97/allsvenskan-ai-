@@ -5,6 +5,7 @@ import { statusLabel } from "@/lib/football/live-status";
 import { timeAgo } from "@/lib/admin/format";
 import { useLiveFeed } from "./useLiveFeed";
 import { LiveDot } from "./LiveIndicator";
+import { LiveClock } from "./LiveClock";
 
 /**
  * Fas 20 (2026-08-23) — matchvyns hero, nu levande.
@@ -79,11 +80,16 @@ export function MatchLiveHero({ initial, fixtureId, contextLine }: HeroProps) {
       {inPlay ? (
         <div className="flex items-center justify-center gap-2">
           <LiveDot phase={match.phase} />
-          <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[#e0645f]">
-            {/* Under spel: minuten. I paus: "Halvtid" — aldrig en fryst
-                45:a som ser ut som att klockan går. */}
-            {match.clock ?? statusLabel(match.status)}
-          </p>
+          {/* Fas 21: riktig matchklocka med sekunder, räknad från Sportmonks
+              periodstart (lib/football/match-clock.ts). Saknas klockan faller
+              vi tillbaka på API-Footballs heltalsminut — sämre upplösning,
+              men sant. I paus visar klockan periodens namn, aldrig en fryst
+              45:a som ser ut som att tiden går. */}
+          <LiveClock
+            anchor={match.clockAnchor}
+            fallback={match.clock ?? statusLabel(match.status)}
+            className="text-[11px] font-semibold uppercase tracking-[0.25em] tabular-nums text-[#e0645f]"
+          />
         </div>
       ) : (
         <p className="text-[11px] uppercase tracking-[0.25em] text-[#7d7c76]">{contextLine}</p>

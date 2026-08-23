@@ -8,6 +8,7 @@ import { createRefereeCache } from "./referee-cache";
 import { ALLSVENSKAN_LEAGUE_EXTERNAL_ID } from "./config";
 import { buildEventRows, syncFixtureEvents } from "./event-sync";
 import { runPostMatchImports } from "./finalize-match";
+import { runSportmonksLiveTick } from "./sportmonks-live";
 import { IN_PLAY_STATUSES, matchPhase } from "../../lib/football/live-status";
 
 /**
@@ -64,6 +65,8 @@ export interface LiveTickResult {
   justFinished: number;
   /** Antal API-Football-anrop ticken förbrukade — loggas, aldrig uppskattat. */
   apiCalls: number;
+  /** Antal Sportmonks-anrop (egen kvot, 2000/timme per entitet). */
+  sportmonksCalls: number;
 }
 
 /**
@@ -287,6 +290,27 @@ export async function runLiveTick(
     );
   }
 
+  // Fas 21: Sportmonks-delen av samma tick — matchklocka (periods), löpande
+  // kommentar (comments), full live-statistik (34 typer) och momentum
+  // (trends/pressure). Körs EFTER API-Football-delen ovan, som redan satt
+  // status/ställning, så de två källorna beskriver samma ögonblick.
+  // Sportmonks är komplementet: går det fel här står grunddatan kvar.
+  let sportmonks: Awaited<ReturnType<typeof runSportmonksLiveTick>> | null = null;
+  if (allsvenskanLive.length > 0) {
+    try {
+      sportmonks = await runSportmonksLiveTick(supabase);
+      if (sportmonks.missingTables) {
+        console.warn(
+          "  ! Matchhubbens tabeller saknas — kör migration 20260823120000_live_match_hub.sql. Live-flödet fungerar ändå, men utan klocka/kommentar/full statistik."
+        );
+      } else if (sportmonks.fixtures > 0) {
+        console.log(`  ✓ Sportmonks: ${sportmonks.fixtures} match(er), ${sportmonks.comments} kommentarsrader, ${sportmonks.stats} statistikvärden.`);
+      }
+    } catch (err) {
+      console.warn(`  ! Sportmonks live-tick misslyckades helt: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   // Fas 20: slutsignal → full post-match-import DIREKT. Samma fyra steg som
   // finalize-cronen kör kl 03:00, men nu medan matchen fortfarande är
   // intressant. Stegen filtrerar själva på "avslutad + inte redan synkad",
@@ -302,6 +326,9 @@ export async function runLiveTick(
     inPlay: allsvenskanLive.length,
     minutesToNextKickoff: nextKickoff,
     justFinished,
+    // Sportmonks har en EGEN kvot (2000/timme per entitet) och blandas
+    // medvetet inte in i API-Footballs anropsräknare — de mäter olika tak.
     apiCalls,
+    sportmonksCalls: sportmonks?.apiCalls ?? 0,
   };
 }
