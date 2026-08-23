@@ -186,6 +186,47 @@ function pair(home: number | null, away: number | null) {
   return home != null || away != null ? { home, away } : null;
 }
 
+/**
+ * Det svenska dygnets gränser, uttryckta som verkliga tidpunkter.
+ *
+ * Första versionen byggde strängen `${svensktDatum}T00:00:00` och lät
+ * Date tolka den. En sådan sträng saknar tidszon och tolkas därför i
+ * SERVERNS zon — rätt på en svensk utvecklingsmaskin, men två timmar fel på
+ * Vercel, som kör UTC. Fönstret för "Idag" blev då 00:00Z–24:00Z i stället
+ * för 22:00Z–22:00Z: en match som sparkar igång strax efter svensk midnatt
+ * hade missats, och en som hör till nästa dygn hade räknats med.
+ *
+ * Offseten räknas ut för DEN AKTUELLA tidpunkten i stället för att hårdkodas
+ * till +1/+2, så sommartidsomställningen sköter sig själv.
+ */
+export function swedishDayBounds(now: Date): { dayStart: Date; dayEnd: Date } {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Stockholm",
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const parts = Object.fromEntries(
+    dtf
+      .formatToParts(now)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, Number(part.value)])
+  ) as Record<string, number>;
+
+  // Svensk väggklocka uttryckt som om den vore UTC, minus den verkliga
+  // tidpunkten (avrundad till hel sekund, eftersom väggklockan saknar ms)
+  // = zonens offset just nu.
+  const wallAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour % 24, parts.minute, parts.second);
+  const offsetMs = wallAsUtc - Math.floor(now.getTime() / 1000) * 1000;
+
+  const dayStart = new Date(Date.UTC(parts.year, parts.month - 1, parts.day) - offsetMs);
+  return { dayStart, dayEnd: new Date(dayStart.getTime() + 24 * 60 * 60 * 1000) };
+}
+
 const FIXTURE_SELECT =
   "id, kickoff_at, status, round, home_score, away_score, home:home_team_id(id, name, logo_url), away:away_team_id(id, name, logo_url)";
 
@@ -195,12 +236,7 @@ const FIXTURE_SELECT =
  * midnatt ska inte försvinna ur flödet).
  */
 export async function getLiveFeedForToday(supabase: Supabase): Promise<LiveFeed> {
-  // Dygnsgränserna räknas i svensk lokaltid, inte UTC — annars hamnar en
-  // kvällsmatch fel i förhållande till vad användaren kallar "idag".
-  const now = new Date();
-  const swedishToday = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm" }).format(now);
-  const dayStart = new Date(`${swedishToday}T00:00:00`);
-  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+  const { dayStart, dayEnd } = swedishDayBounds(new Date());
 
   const { data: todays, error } = await supabase
     .from("fixture")
