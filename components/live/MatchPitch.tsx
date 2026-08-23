@@ -106,7 +106,7 @@ export function MatchPitch({
 
       {/* Planen scrollar i sin EGEN behållare på små skärmar — elva spelare
           per lag får inte plats på 390px utan att namnen blir oläsliga. */}
-      <div className="-mx-6 overflow-x-auto px-6 sm:mx-0 sm:px-0">
+      <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
         <div
           className="relative flex min-w-[680px] items-stretch overflow-hidden rounded-xl"
           style={{ backgroundColor: "#12201a", aspectRatio: "16 / 9" }}

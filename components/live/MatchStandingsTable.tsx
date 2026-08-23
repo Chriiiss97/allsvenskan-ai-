@@ -60,7 +60,7 @@ export function MatchStandingsTable({
   const highlight = new Set(highlightTeamIds);
 
   return (
-    <div className="-mx-6 overflow-x-auto px-6 sm:mx-0 sm:px-0">
+    <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
       <table className="w-full min-w-[540px] border-collapse text-sm">
         <thead>
           <tr className="text-[11px] uppercase tracking-wide text-[#7d7c76]">

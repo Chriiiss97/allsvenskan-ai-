@@ -68,7 +68,7 @@ export function MatchTabs({ tabs }: { tabs: MatchTab[] }) {
       <div
         role="tablist"
         aria-label="Matchvyer"
-        className="-mx-6 flex gap-1 overflow-x-auto border-b border-white/10 px-6 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden"
+        className="-mx-4 flex gap-1 overflow-x-auto border-b border-white/10 px-4 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden"
       >
         {visible.map((tab) => {
           const isActive = tab.id === activeId;
