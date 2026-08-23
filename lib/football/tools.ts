@@ -6,7 +6,7 @@ import { hasPlayedSeason } from "./active-player";
 import { getPositionGroup, selectPeers, type PeerGroupSummary } from "./position-group";
 import { computeEventsComplete } from "./match-completeness";
 import { displayPlayerName } from "./player-name";
-import { IN_PLAY_STATUSES, isInPlayStatus } from "./live-status";
+import { IN_PLAY_STATUSES, isInPlayStatus, matchPhase } from "./live-status";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -27,7 +27,7 @@ interface StatRow {
   appearances: number;
   yellow_cards: number;
   red_cards: number;
-  player: { id: number; full_name: string } | null;
+  player: { id: number; full_name: string; first_name: string | null; last_name: string | null } | null;
   season: { year: number } | null;
 }
 
@@ -35,7 +35,7 @@ async function fetchTeamStatistics(supabase: Supabase, teamId: number): Promise<
   const { data, error } = await supabase
     .from("statistics")
     .select(
-      "goals, assists, appearances, yellow_cards, red_cards, player:player_id(id, full_name), season:season_id(year)"
+      "goals, assists, appearances, yellow_cards, red_cards, player:player_id(id, full_name, first_name, last_name), season:season_id(year)"
     )
     .eq("team_id", teamId)
     .returns<StatRow[]>();
@@ -79,7 +79,7 @@ export async function getTopScorers(supabase: Supabase, params: TopScorersParams
     for (const r of rows) {
       if (!r.player) continue;
       const entry = totals.get(r.player.id) ?? {
-        name: r.player.full_name,
+        name: displayPlayerName(r.player.first_name, r.player.last_name, r.player.full_name),
         goals: 0,
         assists: 0,
         appearances: 0,
@@ -108,7 +108,7 @@ export async function getTopScorers(supabase: Supabase, params: TopScorersParams
     .sort((a, b) => b.goals - a.goals)
     .slice(0, limit)
     .map((r) => ({
-      name: r.player!.full_name,
+      name: displayPlayerName(r.player!.first_name, r.player!.last_name, r.player!.full_name),
       goals: r.goals,
       assists: r.assists,
       appearances: r.appearances,
@@ -142,7 +142,7 @@ export async function getCards(supabase: Supabase, params: CardsParams) {
     for (const r of rows) {
       if (!r.player) continue;
       const entry = totals.get(r.player.id) ?? {
-        name: r.player.full_name,
+        name: displayPlayerName(r.player.first_name, r.player.last_name, r.player.full_name),
         yellow_cards: 0,
         red_cards: 0,
       };
@@ -168,7 +168,11 @@ export async function getCards(supabase: Supabase, params: CardsParams) {
     .filter((r) => r.player)
     .sort((a, b) => b[field] - a[field])
     .slice(0, limit)
-    .map((r) => ({ name: r.player!.full_name, yellow_cards: r.yellow_cards, red_cards: r.red_cards }));
+    .map((r) => ({
+      name: displayPlayerName(r.player!.first_name, r.player!.last_name, r.player!.full_name),
+      yellow_cards: r.yellow_cards,
+      red_cards: r.red_cards,
+    }));
 
   return { team: team.name, season, cardType, players };
 }
@@ -532,6 +536,7 @@ export async function getPlayerProfile(supabase: Supabase, params: PlayerProfile
     .eq("id", resolved.id)
     .single<PlayerBioRow>();
   if (bioError || !bio) throw new FootballDataError(`Kunde inte hämta spelarbio för "${params.player}".`);
+  const playerName = displayPlayerName(bio.first_name, bio.last_name, bio.full_name);
 
   // Fas 17b — EGEN, separat, felresistent fråga för de nya
   // latest_transfer_*-kolumnerna (migration 20260822140000). Medvetet
@@ -566,7 +571,7 @@ export async function getPlayerProfile(supabase: Supabase, params: PlayerProfile
 
   const rows = allStats ?? [];
   if (rows.length === 0) {
-    throw new FootballDataError(`Ingen statistik hittad för ${bio.full_name}.`);
+    throw new FootballDataError(`Ingen statistik hittad för ${playerName}.`);
   }
 
   // Bara säsonger spelaren faktiskt spelade (se lib/football/active-player.ts)
@@ -582,13 +587,13 @@ export async function getPlayerProfile(supabase: Supabase, params: PlayerProfile
   ].sort((a, b) => b - a);
 
   if (availableSeasons.length === 0) {
-    throw new FootballDataError(`${bio.full_name} har inte spelat en enda match i någon importerad säsong.`);
+    throw new FootballDataError(`${playerName} har inte spelat en enda match i någon importerad säsong.`);
   }
 
   let seasonYear = params.season ?? availableSeasons[0] ?? null;
   const row = rows.find((r) => r.season?.year === seasonYear);
   if (!row) {
-    throw new FootballDataError(`Ingen statistik för ${bio.full_name} säsong ${seasonYear}.`);
+    throw new FootballDataError(`Ingen statistik för ${playerName} säsong ${seasonYear}.`);
   }
   seasonYear = row.season?.year ?? seasonYear;
 
@@ -641,7 +646,7 @@ export async function getPlayerProfile(supabase: Supabase, params: PlayerProfile
   return {
     player: {
       id: bio.id,
-      name: displayPlayerName(bio.first_name, bio.last_name, bio.full_name),
+      name: playerName,
       position: bio.position,
       birthDate: bio.birth_date,
       nationality: bio.nationality,
@@ -1027,13 +1032,13 @@ export async function getTeamProfile(supabase: Supabase, params: TeamProfilePara
     seasonId
       ? supabase
           .from("statistics")
-          .select("appearances, player:player_id(id, full_name, position, photo_url)")
+          .select("appearances, player:player_id(id, full_name, first_name, last_name, position, photo_url)")
           .eq("team_id", team.id)
           .eq("season_id", seasonId)
           .returns<
-            { appearances: number; player: { id: number; full_name: string; position: string | null; photo_url: string | null } | null }[]
+            { appearances: number; player: { id: number; full_name: string; first_name: string | null; last_name: string | null; position: string | null; photo_url: string | null } | null }[]
           >()
-      : Promise.resolve({ data: [] as { appearances: number; player: { id: number; full_name: string; position: string | null; photo_url: string | null } | null }[] }),
+      : Promise.resolve({ data: [] as { appearances: number; player: { id: number; full_name: string; first_name: string | null; last_name: string | null; position: string | null; photo_url: string | null } | null }[] }),
     getTopScorers(supabase, { team: team.name, season: seasonYear ?? undefined, limit: 50 }),
     getTeamFacts(supabase, team.name),
     supabase.from("team").select("logo_url").eq("id", team.id).single<{ logo_url: string | null }>(),
@@ -1049,13 +1054,18 @@ export async function getTeamProfile(supabase: Supabase, params: TeamProfilePara
   // att de faktiskt spelade.
   const squadByPlayer = new Map<
     number,
-    { id: number; full_name: string; position: string | null; photo_url: string | null }
+    { id: number; name: string; position: string | null; photo_url: string | null }
   >();
   for (const row of squadStatsResult.data ?? []) {
     if (!row.player || !hasPlayedSeason(row.appearances)) continue;
-    squadByPlayer.set(row.player.id, row.player);
+    squadByPlayer.set(row.player.id, {
+      id: row.player.id,
+      name: displayPlayerName(row.player.first_name, row.player.last_name, row.player.full_name),
+      position: row.player.position,
+      photo_url: row.player.photo_url,
+    });
   }
-  const squad = [...squadByPlayer.values()].sort((a, b) => a.full_name.localeCompare(b.full_name, "sv"));
+  const squad = [...squadByPlayer.values()].sort((a, b) => a.name.localeCompare(b.name, "sv"));
 
   const scorers = scorersResult.scorers;
   const topScorer = scorers.length > 0 ? scorers[0] : null;
@@ -1067,7 +1077,7 @@ export async function getTeamProfile(supabase: Supabase, params: TeamProfilePara
     record,
     squad: squad.map((p) => ({
       id: p.id,
-      name: p.full_name,
+      name: p.name,
       position: p.position,
       photoUrl: p.photo_url,
     })),
@@ -1138,8 +1148,8 @@ interface MatchEventRow {
   minute: number;
   extra_minute: number | null;
   team: { id: number; name: string } | null;
-  player: { id: number; full_name: string } | null;
-  assist: { id: number; full_name: string } | null;
+  player: { id: number; full_name: string; first_name: string | null; last_name: string | null } | null;
+  assist: { id: number; full_name: string; first_name: string | null; last_name: string | null } | null;
 }
 
 export async function getMatchReport(supabase: Supabase, fixtureId: number) {
@@ -1176,14 +1186,26 @@ export async function getMatchReport(supabase: Supabase, fixtureId: number) {
   // pågående matchs redan sparade mål/kort/byten visas som "inga händelser
   // än" trots att de finns i databasen.
   const isLive = isFixtureLikelyLive(fixture.status, fixture.kickoff_at);
-  const eventsAvailable = !!fixture.events_synced_at || isLive;
+  // Fas 21-fix (2026-08-23, upptäckt vid slutsignal på IFK–Elfsborg):
+  // villkoret var "events_synced_at satt ELLER matchen pågår", alltså visa
+  // händelser bara efter post-match-importen eller under spel. Det finns ett glapp
+  // mellan de två: i samma sekund som matchen blir FT är isLive falskt, och
+  // events_synced_at sätts först av finalize-körningen. Matchen hade 13
+  // sparade händelser och visade ändå "Inga matchhändelser importerade" —
+  // tills 03:00 nästa dygn.
+  //
+  // Händelserna läses nu ALLTID för en match som startat, och tillgängligheten
+  // avgörs av om det faktiskt FINNS några. Det är en billig fråga (indexerad
+  // på fixture_id) och den kan aldrig ljuga åt något håll: finns inga rader
+  // säger vi det, finns rader visar vi dem.
+  const hasStarted = !!fixture.events_synced_at || isLive || matchPhase(fixture.status) !== "upcoming";
 
   let events: MatchEventRow[] = [];
-  if (eventsAvailable) {
+  if (hasStarted) {
     const { data, error } = await supabase
       .from("event")
       .select(
-        "type, detail, minute, extra_minute, team:team_id(id, name), player:player_id(id, full_name), assist:assist_player_id(id, full_name)"
+        "type, detail, minute, extra_minute, team:team_id(id, name), player:player_id(id, full_name, first_name, last_name), assist:assist_player_id(id, full_name, first_name, last_name)"
       )
       .eq("fixture_id", fixture.id)
       .order("minute", { ascending: true })
@@ -1191,6 +1213,10 @@ export async function getMatchReport(supabase: Supabase, fixtureId: number) {
     if (error) throw new FootballDataError(error.message);
     events = data ?? [];
   }
+
+  // Sant när det faktiskt finns händelser att visa — inte när en flagga
+  // säger att de borde finnas.
+  const eventsAvailable = events.length > 0;
 
   // Samma anledning som ovan: fixture.home_score/away_score sätts bara av
   // post-match-importen. Under pågående spel är källan istället senaste
@@ -1285,9 +1311,9 @@ export async function getMatchReport(supabase: Supabase, fixtureId: number) {
       minute: e.minute,
       extraMinute: e.extra_minute,
       team: e.team?.name ?? null,
-      player: e.player?.full_name ?? null,
+      player: e.player ? displayPlayerName(e.player.first_name, e.player.last_name, e.player.full_name) : null,
       playerId: e.player?.id ?? null,
-      assist: e.assist?.full_name ?? null,
+      assist: e.assist ? displayPlayerName(e.assist.first_name, e.assist.last_name, e.assist.full_name) : null,
       assistId: e.assist?.id ?? null,
     })),
   };
