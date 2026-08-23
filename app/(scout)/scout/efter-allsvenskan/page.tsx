@@ -1,7 +1,14 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { createClient } from "@/lib/supabase/server";
-import { getPlayersWhoLeftAllsvenskan, aggregateByPreviousClub, computePostAllsvenskanInsights, getMostDecoratedAbroad } from "@/lib/football/post-allsvenskan";
+import {
+  getPlayersWhoLeftAllsvenskan,
+  aggregateByPreviousClub,
+  computePostAllsvenskanInsights,
+  getMostDecoratedAbroad,
+  aggregateDestinationLeagues,
+  aggregateDestinationClubs,
+} from "@/lib/football/post-allsvenskan";
 import {
   computePostAllsvenskanSuccess,
   SUCCESS_MIN_APPEARANCES,
@@ -143,6 +150,8 @@ export default async function PostAllsvenskanPage({ searchParams }: { searchPara
   const clubAggregates = aggregateByPreviousClub(players);
   const insights = computePostAllsvenskanInsights(players);
   const decoratedAbroad = await getMostDecoratedAbroad(supabase, players);
+  const destinationLeagues = aggregateDestinationLeagues(players);
+  const destinationClubs = aggregateDestinationClubs(players);
   const maxExportCount = Math.max(1, ...insights.exportsByYear.map((y) => y.count));
   const { ranked, excludedByThreshold } = computePostAllsvenskanSuccess(players);
   const successByPlayerId = new Map(ranked.map((e) => [e.player.playerId, e]));
@@ -475,6 +484,86 @@ export default async function PostAllsvenskanPage({ searchParams }: { searchPara
                     </div>
                   );
                 })}
+              </div>
+            </AnalysisCard>
+          )}
+
+          {/*
+            Fas 19e (2026-08-23, användarkrav) — DESTINATIONSRANKINGARNA.
+            Svarar på scoutfrågorna "vilka ligor/klubbar rekryterar spelare
+            från Allsvenskan?". Räknar bara DIREKTA övergångar (Allsvenskan →
+            destinationen), inte "har någonsin haft en f.d. Allsvensk spelare"
+            — se PostAllsvenskanDeparture. Ligarankingen är per LIGA, inte per
+            land, eftersom skillnaden är avgörande: Norge har 151 spelare men
+            108 av dem gick till Eliteserien och 43 till 1. Division, och
+            England spänner från Premier League till League Two.
+          */}
+          {destinationLeagues.length > 0 && (
+            <AnalysisCard
+              label="🌍 Destinationsligor"
+              hint="Vilka ligor rekryterar flest spelare direkt från Allsvenskan? Klicka för spelarna bakom siffran."
+            >
+              <div className="space-y-0.5">
+                {destinationLeagues.slice(0, 10).map((l, i) => (
+                  <Link
+                    key={l.slug}
+                    href={`/scout/efter-allsvenskan/liga/${l.slug}`}
+                    className="group flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-white/[.03]"
+                  >
+                    <span className="w-4 shrink-0 text-center text-xs font-semibold tabular-nums text-[#5f5e59]">{i + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-white group-hover:underline">{l.label}</p>
+                      {translateClubCountry(l.country) && <p className="text-[11px] text-[#7d7c76]">{translateClubCountry(l.country)}</p>}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <div className="hidden h-1.5 w-24 overflow-hidden rounded-full bg-white/5 sm:block" aria-hidden>
+                        <div
+                          className="h-full rounded-full bg-[#a78bfa]/70"
+                          style={{ width: `${Math.round((l.playerCount / destinationLeagues[0].playerCount) * 100)}%` }}
+                        />
+                      </div>
+                      <span className="w-8 text-right text-sm font-semibold tabular-nums text-[#c3c2b7]">{l.playerCount}</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </AnalysisCard>
+          )}
+
+          {destinationClubs.length > 0 && (
+            <AnalysisCard
+              label="🏟️ Destinationsklubbar"
+              hint="Vilka klubbar har tagit emot flest spelare direkt från Allsvenskan? Klicka för spelarna bakom siffran."
+            >
+              <div className="space-y-0.5">
+                {destinationClubs.slice(0, 10).map((c, i) => (
+                  <Link
+                    key={c.slug}
+                    href={`/scout/efter-allsvenskan/klubb/${c.slug}`}
+                    className="group flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-white/[.03]"
+                  >
+                    <span className="w-4 shrink-0 text-center text-xs font-semibold tabular-nums text-[#5f5e59]">{i + 1}</span>
+                    {c.logoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- extern lagtröjbild
+                      <img src={c.logoUrl} alt="" className="h-6 w-6 shrink-0 object-contain" />
+                    ) : (
+                      <span className="h-6 w-6 shrink-0 rounded-full bg-white/5" aria-hidden />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-white group-hover:underline">{c.label}</p>
+                      {translateClubCountry(c.country) && <p className="text-[11px] text-[#7d7c76]">{translateClubCountry(c.country)}</p>}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <div className="hidden h-1.5 w-24 overflow-hidden rounded-full bg-white/5 sm:block" aria-hidden>
+                        <div
+                          className="h-full rounded-full bg-[#a78bfa]/70"
+                          style={{ width: `${Math.round((c.playerCount / destinationClubs[0].playerCount) * 100)}%` }}
+                        />
+                      </div>
+                      <span className="w-8 text-right text-sm font-semibold tabular-nums text-[#c3c2b7]">{c.playerCount}</span>
+                    </div>
+                  </Link>
+                ))}
               </div>
             </AnalysisCard>
           )}

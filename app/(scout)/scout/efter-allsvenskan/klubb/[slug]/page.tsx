@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getPlayersWhoLeftAllsvenskan, getForeignClubSummary } from "@/lib/football/post-allsvenskan";
+import { getPlayersWhoLeftAllsvenskan, getForeignClubSummary, getDirectArrivalsAtClub } from "@/lib/football/post-allsvenskan";
 import { translateClubCountry } from "@/lib/i18n/sv";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
 
@@ -29,6 +29,8 @@ export default async function ForeignClubPage({ params }: { params: Promise<{ sl
   const supabase = await createClient();
   const players = await getPlayersWhoLeftAllsvenskan(supabase);
   const club = getForeignClubSummary(players, slug);
+  const directArrivals = getDirectArrivalsAtClub(players, slug);
+  const directPlayerIds = new Set(directArrivals.map((a) => a.player.playerId));
   if (!club) notFound();
 
   const country = translateClubCountry(club.country);
@@ -55,6 +57,18 @@ export default async function ForeignClubPage({ params }: { params: Promise<{ sl
             {country ? `${country} · ` : ""}
             {nf(club.players.length)} {club.players.length === 1 ? "spelare" : "spelare"} från Allsvenskan
           </p>
+          {/*
+            Fas 19e — sidan nås nu från TVÅ håll som räknar olika saker, och
+            skillnaden måste stå i klartext i stället för att se ut som en
+            motsägelse: destinationsrankingen räknar spelare som värvades
+            DIREKT hit från Allsvenskan, medan listan nedan visar alla f.d.
+            Allsvenska spelare som spelat här, oavsett vilken väg de tog hit.
+          */}
+          {directArrivals.length > 0 && directArrivals.length !== club.players.length && (
+            <p className="mt-1 text-xs text-[#7d7c76]">
+              varav <span className="font-semibold text-[#a78bfa]">{nf(directArrivals.length)}</span> värvades direkt från en Allsvensk klubb
+            </p>
+          )}
         </div>
       </div>
 
@@ -86,7 +100,14 @@ export default async function ForeignClubPage({ params }: { params: Promise<{ sl
             >
               <PlayerAvatar name={player.playerName} size={44} photoUrl={player.photoUrl} />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-white group-hover:underline">{player.playerName}</p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <p className="truncate text-sm font-semibold text-white group-hover:underline">{player.playerName}</p>
+                  {directPlayerIds.has(player.playerId) && (
+                    <span className="shrink-0 rounded-full bg-[#a78bfa]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#a78bfa]">
+                      Direkt från Allsvenskan
+                    </span>
+                  )}
+                </div>
                 <p className="mt-0.5 truncate text-xs text-[#898781]">
                   Lämnade <span className="text-[#c3c2b7]">{player.previousTeamName}</span> {player.leftYear}
                 </p>

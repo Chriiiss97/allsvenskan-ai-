@@ -119,8 +119,34 @@ export interface PostAllsvenskanPlayer {
    * faktiskt dit", inte "hoppade in en gång". null om ingen nivå når dit.
    */
   peakLevel: LeagueStrength | null;
+  /** Fas 19e — alla dokumenterade DIREKTA övergångar ut ur Allsvenskan, kronologiskt. Grunden för destinationsrankingarna. */
+  departuresAbroad: PostAllsvenskanDeparture[];
   /** Nedbrutet per klubb (grupperat på normaliserat klubbnamn) — grunden för Scouts detaljvy per spelare. */
   byClub: PostAllsvenskanClubBreakdown[];
+}
+
+/**
+ * Fas 19e (2026-08-23) — EN dokumenterad, direkt övergång ut ur Allsvenskan.
+ * "Direkt" är hela poängen: raden finns bara om övergången gick FRÅN en
+ * Allsvensk klubb TILL den utländska klubben. IFK Göteborg → Ajax räknas
+ * som en Ajax-destination; IFK Göteborg → Ajax → Tottenham räknas INTE som
+ * en Tottenham-destination, eftersom det steget inte utgick från Allsvenskan.
+ *
+ * Byggs av samma redan verifierade `departuresAbroad`-logik som
+ * avgångsräkningen använder (fas 19c) — ingen ny parallell heuristik.
+ */
+export interface PostAllsvenskanDeparture {
+  year: number;
+  /** Den Allsvenska klubben spelaren lämnade (visningsnamn från vår team-tabell). */
+  fromTeamName: string;
+  fromTeamLogoUrl: string | null;
+  toTeamName: string;
+  toTeamLogoUrl: string | null;
+  /** Destinationens land/liga, hämtat ur spelarens EGEN matchdata för klubben — aldrig gissat ur klubbnamnet. */
+  toCountry: string | null;
+  toLeagueName: string | null;
+  /** Tier 1/2 för destinationsligan, null för cup/ungdomsliga/oklassad — se league-tier.ts. Rankingen räknar bara klassade ligor. */
+  toLeagueTier: 1 | 2 | null;
 }
 
 export interface PostAllsvenskanClubBreakdown {
@@ -146,6 +172,7 @@ interface StintRow {
   team_name: string;
   team_logo_url: string | null;
   team_external_id: number | null;
+  league_name: string;
   league_country: string | null;
   league_external_id: number | null;
   season_year: number;
@@ -212,7 +239,7 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
       supabase
         .from("player_career_stint")
         .select(
-          "player_id, team_name, team_logo_url, team_external_id, league_country, league_external_id, season_year, appearances, minutes_played, goals, assists, rating"
+          "player_id, team_name, team_logo_url, team_external_id, league_country, league_name, league_external_id, season_year, appearances, minutes_played, goals, assists, rating"
         )
         .returns<StintRow[]>()
     ),
@@ -390,6 +417,30 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
      */
     const foreignClubNames = new Set(stints.map((s) => normalizeTeamName(s.team_name)));
     const departuresAbroad = departures.filter((d) => d.toTeamName !== null && foreignClubNames.has(normalizeTeamName(d.toTeamName)));
+
+    // Fas 19e — berika varje direktövergång med destinationens land/liga.
+    // Hämtas ur spelarens EGNA stint-rader för klubben (aldrig gissat ur
+    // klubbnamnet): den rad som tillhör en tier-klassad liga OCH har flest
+    // minuter vinner, så att en enstaka cuprad ("Türkiye Kupası") inte får
+    // bestämma vilken liga klubben spelar i.
+    const departuresAbroadDetailed: PostAllsvenskanDeparture[] = departuresAbroad.map((d) => {
+      const atClub = stints.filter((s) => normalizeTeamName(s.team_name) === normalizeTeamName(d.toTeamName!));
+      const best = [...atClub].sort(
+        (a, b) =>
+          (getLeagueTier(b.league_external_id) !== null ? 1 : 0) - (getLeagueTier(a.league_external_id) !== null ? 1 : 0) ||
+          (b.minutes_played ?? 0) - (a.minutes_played ?? 0)
+      )[0];
+      return {
+        year: d.year,
+        fromTeamName: d.teamName,
+        fromTeamLogoUrl: d.teamLogoUrl,
+        toTeamName: best?.team_name ?? d.toTeamName!,
+        toTeamLogoUrl: best?.team_logo_url ?? null,
+        toCountry: best?.league_country ?? null,
+        toLeagueName: best?.league_name ?? null,
+        toLeagueTier: best ? getLeagueTier(best.league_external_id) : null,
+      };
+    });
 
     // Fas 18j (2026-08-23, "Återvändarprocent"/"flest pendlingar") — hur
     // många gånger har spelaren FAKTISKT lämnat Allsvenskan (inte bara
@@ -606,6 +657,7 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
       position: player.position,
       minutesByLevel,
       peakLevel,
+      departuresAbroad: departuresAbroadDetailed,
       byClub,
     });
   }
@@ -969,6 +1021,139 @@ export function getForeignClubSummary(players: PostAllsvenskanPlayer[], slug: st
   };
 }
 
+
+/**
+ * Fas 19e (2026-08-23, användarkrav) — DESTINATIONSRANKINGAR: "vilka ligor
+ * respektive klubbar rekryterar flest spelare direkt från Allsvenskan?".
+ *
+ * Bygger UTESLUTANDE på `player.departuresAbroad`, dvs. samma redan
+ * verifierade direktövergångs-logik som avgångsräkningen (fas 19c) — ingen
+ * ny parallell heuristik. Definitionen är strikt DIREKT:
+ *   IFK Göteborg → Ajax             räknas som en Ajax-destination
+ *   IFK Göteborg → Ajax → Tottenham räknas INTE som Tottenham-destination
+ *
+ * Unika SPELARE räknas, inte övergångar: en spelare som lämnat Allsvenskan
+ * två gånger till samma klubb räknas en gång för den klubben (men kan
+ * mycket väl räknas för två olika klubbar/ligor, vilket är korrekt).
+ */
+export interface DestinationRankEntry {
+  slug: string;
+  label: string;
+  /** Landet destinationen ligger i (rått källvärde — översätts vid visning). */
+  country: string | null;
+  logoUrl: string | null;
+  playerCount: number;
+}
+
+export function destinationLeagueSlug(country: string | null, leagueName: string): string {
+  return encodeURIComponent(`${countryKey(country) ?? "okant"}--${normalizeTeamName(leagueName).replace(/\s+/g, "-")}`);
+}
+
+/** Ligor rankade efter antal unika spelare som gått DIREKT dit från Allsvenskan. Bara tier 1/2-ligor — en cup eller ungdomsserie är ingen destination man värvas till. */
+export function aggregateDestinationLeagues(players: PostAllsvenskanPlayer[]): DestinationRankEntry[] {
+  const byLeague = new Map<string, DestinationRankEntry & { playerIds: Set<number> }>();
+  for (const player of players) {
+    for (const d of player.departuresAbroad) {
+      if (d.toLeagueTier === null || !d.toLeagueName) continue;
+      const slug = destinationLeagueSlug(d.toCountry, d.toLeagueName);
+      const existing = byLeague.get(slug) ?? {
+        slug,
+        label: d.toLeagueName,
+        country: d.toCountry,
+        logoUrl: null,
+        playerCount: 0,
+        playerIds: new Set<number>(),
+      };
+      existing.playerIds.add(player.playerId);
+      byLeague.set(slug, existing);
+    }
+  }
+  return [...byLeague.values()]
+    .map((e) => ({ slug: e.slug, label: e.label, country: e.country, logoUrl: e.logoUrl, playerCount: e.playerIds.size }))
+    .sort((a, b) => b.playerCount - a.playerCount || a.label.localeCompare(b.label, "sv"));
+}
+
+/** Klubbar rankade efter antal unika spelare som gått DIREKT dit från Allsvenskan. */
+export function aggregateDestinationClubs(players: PostAllsvenskanPlayer[]): DestinationRankEntry[] {
+  const byClub = new Map<string, DestinationRankEntry & { playerIds: Set<number> }>();
+  for (const player of players) {
+    for (const d of player.departuresAbroad) {
+      const slug = foreignClubSlug(d.toTeamName);
+      const existing = byClub.get(slug) ?? {
+        slug,
+        label: d.toTeamName,
+        country: d.toCountry,
+        logoUrl: d.toTeamLogoUrl,
+        playerCount: 0,
+        playerIds: new Set<number>(),
+      };
+      existing.playerIds.add(player.playerId);
+      existing.logoUrl = existing.logoUrl ?? d.toTeamLogoUrl;
+      existing.country = existing.country ?? d.toCountry;
+      byClub.set(slug, existing);
+    }
+  }
+  return [...byClub.values()]
+    .map((e) => ({ slug: e.slug, label: e.label, country: e.country, logoUrl: e.logoUrl, playerCount: e.playerIds.size }))
+    .sort((a, b) => b.playerCount - a.playerCount || a.label.localeCompare(b.label, "sv"));
+}
+
+export interface DestinationArrival {
+  player: PostAllsvenskanPlayer;
+  /** Den SENASTE direktövergången till destinationen (en spelare kan ha gått dit flera gånger). */
+  departure: PostAllsvenskanDeparture;
+  /** Antal dokumenterade direktövergångar dit — >1 för spelare som återvänt. */
+  moveCount: number;
+}
+
+/**
+ * Deduplicerar per spelare, exakt som rankingarna räknar (unika spelare).
+ * Utan det visade drill-downen fler rader än siffran lovade — verifierat
+ * verkligt fall: Rosenborg rankades som 15 spelare men listade 21 rader,
+ * eftersom H. Wiedesheim-Paul gått dit tre gånger och P. Sletsjøes övergång
+ * dessutom är dubbelregistrerad i api-footballs data.
+ */
+function dedupeArrivals(rows: { player: PostAllsvenskanPlayer; departure: PostAllsvenskanDeparture }[]): DestinationArrival[] {
+  const byPlayer = new Map<number, DestinationArrival>();
+  for (const row of rows) {
+    const existing = byPlayer.get(row.player.playerId);
+    if (!existing) {
+      byPlayer.set(row.player.playerId, { player: row.player, departure: row.departure, moveCount: 1 });
+      continue;
+    }
+    // Dubbletter av SAMMA övergång (samma år, samma avsändarklubb) ska inte
+    // räknas som två flyttar — bara genuint skilda år gör det.
+    const isSameMove = existing.departure.year === row.departure.year && existing.departure.fromTeamName === row.departure.fromTeamName;
+    if (!isSameMove) existing.moveCount += 1;
+    if (row.departure.year > existing.departure.year) existing.departure = row.departure;
+  }
+  return [...byPlayer.values()].sort(
+    (a, b) => b.departure.year - a.departure.year || a.player.playerName.localeCompare(b.player.playerName, "sv")
+  );
+}
+
+/** Spelarna bakom en ligas siffra — drill-down från ligarankingen. Nyast först. */
+export function getDestinationLeagueArrivals(players: PostAllsvenskanPlayer[], slug: string): DestinationArrival[] {
+  const rows: { player: PostAllsvenskanPlayer; departure: PostAllsvenskanDeparture }[] = [];
+  for (const player of players) {
+    for (const d of player.departuresAbroad) {
+      if (d.toLeagueTier === null || !d.toLeagueName) continue;
+      if (destinationLeagueSlug(d.toCountry, d.toLeagueName) === slug) rows.push({ player, departure: d });
+    }
+  }
+  return dedupeArrivals(rows);
+}
+
+/** Spelarna som gick DIREKT från Allsvenskan till en viss klubb — drill-down från klubbrankingen. */
+export function getDirectArrivalsAtClub(players: PostAllsvenskanPlayer[], slug: string): DestinationArrival[] {
+  const rows: { player: PostAllsvenskanPlayer; departure: PostAllsvenskanDeparture }[] = [];
+  for (const player of players) {
+    for (const d of player.departuresAbroad) {
+      if (foreignClubSlug(d.toTeamName) === slug) rows.push({ player, departure: d });
+    }
+  }
+  return dedupeArrivals(rows);
+}
 /** "Vilka klubbars spelare har presterat bäst utomlands" — real summering per f.d. Allsvensk klubb, ingen egen 'framgångspoäng'. */
 export function aggregateByPreviousClub(players: PostAllsvenskanPlayer[]): ClubAbroadPerformance[] {
   const byClub = new Map<string, ClubAbroadPerformance>();
