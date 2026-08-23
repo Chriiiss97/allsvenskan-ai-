@@ -5,6 +5,7 @@ import { calculateAge } from "./age";
 import { computeSeasonOvrMap } from "./rating/compute-rating";
 import { getRatingTrendComparison, getStoredSeasonRatings, getCareerConsistencyMap, type RatingTrendEntry } from "./rating/rating-store";
 import { computePlayerArchetypes, type MatchedArchetype } from "./rating/archetypes";
+import { matchesSearchTokens, tokenizeSearchQuery } from "./player-search";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -233,8 +234,10 @@ export async function listPlayers(supabase: Supabase, params: PlayerListParams):
   }
   if (params.consistencyMinSeasons !== undefined) items = items.filter((p) => p.seasonsAboveThreshold >= params.consistencyMinSeasons!);
   if (params.query) {
-    const needle = params.query.trim().toLowerCase();
-    if (needle) items = items.filter((p) => p.fullName.toLowerCase().includes(needle));
+    // Samma matchning som listvyerna kör i webbläsaren (ord för ord,
+    // ordningsoberoende, diakritokänslig) — se player-search.ts.
+    const tokens = tokenizeSearchQuery(params.query);
+    if (tokens.length > 0) items = items.filter((p) => matchesSearchTokens(tokens, [p.fullName]));
   }
 
   const dir = params.sortDir === "asc" ? 1 : -1;

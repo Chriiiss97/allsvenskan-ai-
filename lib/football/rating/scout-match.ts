@@ -1,5 +1,3 @@
-import type { PlayerListItem, PlayerListParams } from "../player-catalog";
-
 /**
  * Scout Engine Fas 6 (2026-08-21) — "scout-matchning": en transparent
  * procentsats för hur väl en spelare (som REDAN klarat alla hårda filter,
@@ -30,6 +28,44 @@ export interface ScoutMatch {
   criteria: MatchCriterion[];
 }
 
+/**
+ * Egna, minimala in-typer istället för `PlayerListItem`/`PlayerListParams`
+ * (2026-08-23). Funktionen är ren aritmetik och körs numera även i
+ * webbläsaren (components/data/PlayerExplorer.tsx filtrerar klientsidan) —
+ * ett typimport från player-catalog.ts drog in serverlagrets modulgraf i
+ * klientbundeln utan att en enda rad av den faktiskt behövdes.
+ * `PlayerListItem`/`PlayerListParams` är fortfarande strukturellt
+ * kompatibla med de här, så serversidans anrop är oförändrade.
+ */
+export interface ScoutMatchPlayer {
+  position: string | null;
+  age: number | null;
+  rating: number | null;
+  goals: number;
+  assists: number;
+  minutesPlayed: number;
+  ovrDelta: number | null;
+  archetypeKeys: string[];
+  seasonsAboveThreshold: number;
+}
+
+export interface ScoutMatchCriteria {
+  position?: string;
+  teamId?: number;
+  ageMin?: number;
+  ageMax?: number;
+  goalsMin?: number;
+  assistsMin?: number;
+  minutesMin?: number;
+  ratingMin?: number;
+  ratingMax?: number;
+  ovrDeltaMin?: number;
+  ovrDeltaMax?: number;
+  consistencyMinSeasons?: number;
+  archetypeKeys?: string[];
+  query?: string;
+}
+
 /** Samma "hög konfidens"-golv som redan styr Player Rating/DNA överallt annars — inte ett nytt tal. */
 const STRONG_MINUTES = 900;
 /** Samma tröskel som rating-trend.ts:s trend-klassning. */
@@ -39,7 +75,7 @@ const MEANINGFUL_OVR_DELTA = 3;
  * Returnerar `null` om inga relevanta kriterier är aktiva — Scout:s
  * standardvy (inga filter satta) ska inte visa en påhittad "100% match".
  */
-export function computeScoutMatch(item: PlayerListItem, params: PlayerListParams): ScoutMatch | null {
+export function computeScoutMatch(item: ScoutMatchPlayer, params: ScoutMatchCriteria): ScoutMatch | null {
   const criteria: MatchCriterion[] = [];
 
   if (params.position) {
@@ -80,7 +116,7 @@ export function computeScoutMatch(item: PlayerListItem, params: PlayerListParams
     });
   }
   if (params.archetypeKeys && params.archetypeKeys.length > 0) {
-    const matchedCount = item.archetypes.filter((a) => params.archetypeKeys!.includes(a.key)).length;
+    const matchedCount = item.archetypeKeys.filter((key) => params.archetypeKeys!.includes(key)).length;
     criteria.push({
       label: matchedCount > 1 ? `Matchar ${matchedCount} av de valda spelartyperna` : "Matchar vald spelartyp",
       strong: matchedCount > 1,
