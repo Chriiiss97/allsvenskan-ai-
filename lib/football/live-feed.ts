@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { IN_PLAY_STATUSES, matchPhase, liveClockLabel, statusShortLabel, type MatchPhase } from "./live-status";
 import type { MatchClockAnchor } from "./match-clock";
-import { liveStatMeta } from "./live-stat-types";
+import { liveStatMeta, HIDDEN_STAT_TYPE_IDS } from "./live-stat-types";
 import { displayPlayerName } from "./player-name";
 
 type Supabase = SupabaseClient<Database>;
@@ -371,7 +371,9 @@ async function loadHubData(supabase: Supabase, fixtures: FixtureRow[]): Promise<
         return { typeId, label: meta.label, suffix: meta.suffix, decimals: meta.decimals, home: value.home, away: value.away };
       })
       // En rad där ingen sida har ett värde säger ingenting — visa den aldrig.
-      .filter((r) => r.home != null || r.away != null);
+      // Och typer med overifierad innebörd visas inte alls (se
+      // HIDDEN_STAT_TYPE_IDS).
+      .filter((r) => (r.home != null || r.away != null) && !HIDDEN_STAT_TYPE_IDS.has(r.typeId));
     if (statRows.length > 0) empty.statsByFixture.set(fixture.id, statRows);
 
     const pressureRows = pressure.filter((p) => p.fixture_id === fixture.id);

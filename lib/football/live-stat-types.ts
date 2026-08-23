@@ -5,8 +5,9 @@
  * Vi kan inte översätta 1310 typer, och ska inte heller — bara de som
  * faktiskt dyker upp i en live-match. Listan nedan är exakt de 34 typer som
  * observerades i ett riktigt `include=statistics`-svar under IFK Göteborg–
- * Elfsborg 2026-08-23, plus xG (5304) som kommer från samma familj men i
- * eget include. Inget är gissat ur dokumentationen.
+ * Elfsborg 2026-08-23, plus xG-familjen från `include=xgfixture` (samma
+ * type_id-mappning som sportmonks-import-xg.ts redan verifierat). Inget är
+ * gissat ur dokumentationen.
  *
  * En typ som INTE finns här faller tillbaka på Sportmonks engelska namn —
  * samma hållning som lib/i18n/sv.ts har för okända statuskoder och länder:
@@ -69,6 +70,16 @@ export const LIVE_STAT_TYPES: Record<number, LiveStatMeta> = {
   1533: { label: "Inläggsprecision", suffix: "%", polarity: "good" },
   1605: { label: "Dribblingsprecision", suffix: "%", polarity: "good" },
   5304: { label: "Förväntade mål (xG)", polarity: "good", decimals: 2 },
+  5305: { label: "xG på mål (xGOT)", polarity: "good", decimals: 2 },
+  7943: { label: "xG utan straff", polarity: "good", decimals: 2 },
+  7945: { label: "xG öppet spel", polarity: "good", decimals: 2 },
+  7944: { label: "xG fasta situationer", polarity: "good", decimals: 2 },
+  7942: { label: "xG hörnor", polarity: "good", decimals: 2 },
+  7941: { label: "xG frisparkar", polarity: "good", decimals: 2 },
+  7940: { label: "xG straffar", polarity: "good", decimals: 2 },
+  9687: { label: "xG emot", polarity: "bad", decimals: 2 },
+  9686: { label: "xG förhindrat", polarity: "good", decimals: 2 },
+  7939: { label: "Förväntade poäng (xP)", polarity: "good", decimals: 2 },
   27264: { label: "Lyckade långa passningar", polarity: "good" },
   27265: { label: "Långpassningsprecision", suffix: "%", polarity: "good" },
 };
@@ -89,11 +100,25 @@ export const TOP_STAT_TYPE_IDS = [45, 5304, 42, 86, 580, 34] as const;
  * utan kodändring istället för att tyst försvinna.
  */
 export const STAT_GROUPS: { title: string; typeIds: number[] }[] = [
-  { title: "Anfallsspel", typeIds: [5304, 42, 86, 41, 58, 49, 50, 580, 581, 34] },
+  { title: "Förväntade mål (xG)", typeIds: [5304, 7945, 7944, 7943, 5305, 7942, 7941, 7940, 9687, 9686, 7939] },
+  { title: "Anfallsspel", typeIds: [42, 86, 41, 58, 49, 50, 580, 581, 34] },
   { title: "Bollinnehav och passningsspel", typeIds: [45, 80, 81, 82, 117, 98, 99, 1533, 62, 27264, 27265, 124] },
   { title: "Dueller och press", typeIds: [43, 44, 106, 108, 109, 1605, 78, 100, 57] },
   { title: "Disciplin", typeIds: [56, 55, 51, 84, 60, 53] },
 ];
+
+/**
+ * Typer som ALDRIG ska visas, även om Sportmonks skickar dem.
+ *
+ * 9685 "Shooting Performance": migration 20260821150000 dokumenterar den som
+ * "bekräftat befolkad men INNEBÖRD OVERIFIERAD, får inte konsumeras av
+ * analyskod än". Utan den här spärren hade den dykt upp under "Övrigt" på
+ * Statistik-fliken som ett tal utan känd betydelse — precis det produkten
+ * inte får göra.
+ * 9684 "xG difference": överflödig, den är skillnaden mellan två värden vi
+ * redan visar var för sig.
+ */
+export const HIDDEN_STAT_TYPE_IDS = new Set([9685, 9684]);
 
 export function liveStatMeta(typeId: number, fallbackName?: string | null): LiveStatMeta {
   return LIVE_STAT_TYPES[typeId] ?? { label: fallbackName ?? `Typ ${typeId}` };

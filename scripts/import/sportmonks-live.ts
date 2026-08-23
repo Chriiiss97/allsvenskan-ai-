@@ -32,7 +32,11 @@ import { IN_PLAY_STATUSES } from "../../lib/football/live-status";
  * exist on Fixture") — rätt namn är `comments`. Testat, inte gissat.
  */
 
-const LIVE_INCLUDE = "periods;comments;statistics;trends;pressure";
+// OBS: "xgfixture" skrivs i GEMENER. Sportmonks svarsnyckel är
+// skiftlägeskänslig, och "xGFixture" ger tyst undefined i stället för ett
+// fel — ett första försök drog därför felslutet att xG inte fanns live.
+// Samma stavning som sportmonks-import-xg.ts redan använder.
+const LIVE_INCLUDE = "periods;comments;statistics;trends;pressure;xgfixture";
 
 /** Hur länge efter avspark vi fortsätter betrakta en match som möjligen pågående. */
 const LIVE_WINDOW_HOURS = 4;
@@ -85,6 +89,8 @@ interface SportmonksPressure {
 
 interface SportmonksLiveFixture {
   id: number;
+  /** xG-familjen — samma form som statistics, egen include. */
+  xgfixture?: SportmonksStatistic[];
   periods?: SportmonksPeriod[];
   comments?: SportmonksComment[];
   statistics?: SportmonksStatistic[];
@@ -189,7 +195,10 @@ export async function writeLiveDataForFixture(
   }
 
   // --- Live-statistiken ----------------------------------------------------
-  const statistics = data.statistics ?? [];
+  // xG kommer i en EGEN include men har identisk form (type_id/participant_id/
+  // data.value) och hör hemma i samma tabell — Toppstatistiken vill visa
+  // bollinnehav och xG bredvid varandra, inte hämta dem från två ställen.
+  const statistics = [...(data.statistics ?? []), ...(data.xgfixture ?? [])];
   if (statistics.length > 0) {
     const rows = statistics.map((s) => ({
       fixture_id: fixture.id,
