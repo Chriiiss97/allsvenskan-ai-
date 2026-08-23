@@ -77,7 +77,7 @@ interface TransferEventRow {
 
 
 export async function getCareerJourney(supabase: Supabase, params: { playerId: number }): Promise<CareerJourney> {
-  const [domesticEntries, foreignStints, transferEventsResult] = await Promise.all([
+  const [domesticEntries, foreignStints, transferEventsResult, allsvenskaTeamRows] = await Promise.all([
     getCareerTimeline(supabase, { playerId: params.playerId }),
     getForeignCareerStints(supabase, { playerId: params.playerId }),
     // Felresistent (samma skäl som övriga Fas 17/18-frågor): migration
@@ -92,6 +92,20 @@ export async function getCareerJourney(supabase: Supabase, params: { playerId: n
       .then(
         (r) => r.data ?? [],
         () => []
+      ),
+    // Fas 19d (2026-08-23) — ALLA Allsvenska klubbnamn, inte bara de
+    // spelaren själv hunnit representera efter 2016. Behovet är mätt, inte
+    // antaget: av de 34 spelare vars milstolpe flyttas av fixen nedan kräver
+    // 15 den här globala listan (t.ex. M. Johansson, som lämnade Kalmar FF
+    // 2012 och aldrig återvände dit — klubben finns alltså inte i hans egen
+    // tidslinje). ~33 rader, felresistent som frågan ovan.
+    supabase
+      .from("team")
+      .select("name")
+      .not("external_id", "is", null)
+      .then(
+        (r) => (r.data ?? []) as { name: string }[],
+        () => [] as { name: string }[]
       ),
   ]);
 
@@ -178,15 +192,34 @@ export async function getCareerJourney(supabase: Supabase, params: { playerId: n
     i = j;
   }
 
-  const firstForeignIndex = steps.findIndex((s, idx) => !s.isAllsvenskan && idx > 0 && steps[idx - 1].isAllsvenskan);
-  const leftAllsvenskanAtStepIndex = firstForeignIndex >= 0 ? firstForeignIndex : steps.some((s) => !s.isAllsvenskan) && !steps[0].isAllsvenskan ? -1 : null;
+  /**
+   * Fas 19d (2026-08-23, användarrapport: T. Sana) — milstolpen satt på FEL
+   * steg. Den krävde att FÖREGÅENDE steg i tidslinjen var Allsvenskt, men
+   * vår Allsvenska matchdata börjar 2016: Sanas IFK Göteborg-tid låg före
+   * det, så hans Ajax-period 2012 blev tidslinjens FÖRSTA steg utan något
+   * Allsvenskt steg framför sig. Markören hamnade därför på nästa avgång
+   * (Aarhus 2017) — flera år efter att han faktiskt lämnade.
+   *
+   * Samma bevisprincip som post-allsvenskan.ts (fas 19c): en DOKUMENTERAD
+   * övergång från en Allsvensk klubb (`arrivedVia.fromTeamName`) räknas som
+   * lika giltigt bevis som ett föregående Allsvenskt steg. Kan bara flytta
+   * markören TIDIGARE eller sätta en där ingen fanns — aldrig markera en
+   * spelare som KOM till Allsvenskan utifrån, eftersom hens första
+   * utlandsperiod per definition inte har en Allsvensk avsändarklubb.
+   */
+  const allsvenskaTeamNames = new Set(allsvenskaTeamRows.map((t) => normalizeTeamName(t.name)));
+  const leftIndex = steps.findIndex(
+    (s, idx) =>
+      !s.isAllsvenskan &&
+      ((idx > 0 && steps[idx - 1].isAllsvenskan) ||
+        (s.arrivedVia?.fromTeamName != null && allsvenskaTeamNames.has(normalizeTeamName(s.arrivedVia.fromTeamName))))
+  );
 
   return {
     steps,
-    // -1 (spelaren har BARA icke-Allsvensk data importerad, ingen känd
-    // Allsvensk period före den) visas inte som en "lämnade"-milstolpe i
-    // UI:t — bara en genuin Allsvenskan→utland-övergång räknas.
-    leftAllsvenskanAtStepIndex: leftAllsvenskanAtStepIndex === -1 ? null : leftAllsvenskanAtStepIndex,
+    // null = ingen känd Allsvenskan→utland-övergång (t.ex. en spelare vi
+    // bara har utländsk data för) — då visas ingen milstolpe alls i UI:t.
+    leftAllsvenskanAtStepIndex: leftIndex >= 0 ? leftIndex : null,
     lastKnownYear: Math.max(...steps.map((s) => s.endYear)),
   };
 }
