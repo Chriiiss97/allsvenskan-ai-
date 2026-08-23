@@ -122,7 +122,11 @@ export async function buildRealH2HSummary(supabase: Supabase, homeTeamId: number
   }
 
   return {
-    windowLabel: "Alla möten",
+    // Fas 21: hette "Alla möten", vilket var missvisande — vår fixture-
+    // tabell börjar 2016, så aggregatet är alla möten VI HAR, inte alla som
+    // spelats. (Kontroll mot FotMob 2026-08-23: de visar 34 möten för
+    // IFK–Elfsborg, vi 21. Våra 21 stämmer exakt, urvalet är bara kortare.)
+    windowLabel: "Möten i vår data",
     totalMatches: meetings.length,
     homeWins,
     awayWins,
@@ -131,4 +135,73 @@ export async function buildRealH2HSummary(supabase: Supabase, homeTeamId: number
     homeGoalsPerMatch: homeGoals / meetings.length,
     awayGoalsPerMatch: awayGoals / meetings.length,
   };
+}
+
+/**
+ * Fas 21 (2026-08-23) — de faktiska mötena, inte bara aggregatet.
+ *
+ * "Mot varandra"-fliken visade tidigare enbart en sammanfattning ("7 vinster
+ * / 13 oavgjorda / 14 vinster"). Det en läsare faktiskt vill se är
+ * matcherna: datum, ställning, vem som spelade hemma. Datan har alltid
+ * funnits i vår egen fixture-tabell — den lästes bara aldrig ut.
+ *
+ * Samma avgränsning som buildRealH2HSummary: bara avslutade möten med båda
+ * målen satta räknas, aldrig en halvimporterad rad. Nyast först, eftersom
+ * det senaste mötet är det mest relevanta.
+ */
+export interface HeadToHeadMeeting {
+  fixtureId: number;
+  kickoff: string;
+  season: number | null;
+  round: string | null;
+  status: string;
+  homeName: string | null;
+  awayName: string | null;
+  homeScore: number | null;
+  awayScore: number | null;
+}
+
+export async function getHeadToHeadMeetings(
+  supabase: Supabase,
+  homeTeamId: number,
+  awayTeamId: number,
+  limit = 10
+): Promise<HeadToHeadMeeting[]> {
+  const { data, error } = await supabase
+    .from("fixture")
+    .select(
+      "id, kickoff_at, status, round, home_score, away_score, home:home_team_id(name), away:away_team_id(name), season:season_id(year)"
+    )
+    .or(`and(home_team_id.eq.${homeTeamId},away_team_id.eq.${awayTeamId}),and(home_team_id.eq.${awayTeamId},away_team_id.eq.${homeTeamId})`)
+    .in("status", ["FT", "AET", "PEN"])
+    .order("kickoff_at", { ascending: false })
+    .limit(limit)
+    .returns<
+      {
+        id: number;
+        kickoff_at: string;
+        status: string;
+        round: string | null;
+        home_score: number | null;
+        away_score: number | null;
+        home: { name: string } | null;
+        away: { name: string } | null;
+        season: { year: number } | null;
+      }[]
+    >();
+  if (error) throw error;
+
+  return (data ?? [])
+    .filter((f) => f.home_score !== null && f.away_score !== null)
+    .map((f) => ({
+      fixtureId: f.id,
+      kickoff: f.kickoff_at,
+      season: f.season?.year ?? null,
+      round: f.round,
+      status: f.status,
+      homeName: f.home?.name ?? null,
+      awayName: f.away?.name ?? null,
+      homeScore: f.home_score,
+      awayScore: f.away_score,
+    }));
 }

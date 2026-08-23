@@ -6,10 +6,13 @@ import { getMatchReport, getRecentFormSequence, FootballDataError } from "@/lib/
 import { getMatchTeamStatsComparison } from "@/lib/football/team-rollup";
 import { getMatchPreview, type MatchFact } from "@/lib/football/match-preview";
 import { translateMatchFact, extractPlayerHighlight, extractComparisonHighlight } from "@/lib/football/match-preview-sv";
-import { buildH2HSummary, buildRealH2HSummary } from "@/lib/football/match-h2h-summary";
+import { buildH2HSummary, buildRealH2HSummary, getHeadToHeadMeetings } from "@/lib/football/match-h2h-summary";
 import { getStandingsTable } from "@/lib/football/catalog";
 import { displayPlayerName } from "@/lib/football/player-name";
 import { MatchStandingsSummary } from "@/components/data/MatchStandingsSummary";
+import { MatchStandingsTable } from "@/components/live/MatchStandingsTable";
+import { MatchInfoPanel } from "@/components/live/MatchInfoPanel";
+import { HeadToHeadMatchList } from "@/components/data/HeadToHeadMatchList";
 import { translateRound } from "@/lib/i18n/sv";
 import { buildMatchInsight } from "@/lib/football/match-insight";
 import { buildMatchRecap } from "@/lib/football/match-recap";
@@ -27,7 +30,7 @@ import { MatchFormSequence } from "@/components/data/MatchFormSequence";
 import { MatchLeagueComparisons } from "@/components/data/MatchLeagueComparisons";
 import { StatCompareRow } from "@/components/data/StatCompareRow";
 import { MatchRecapCard } from "@/components/data/MatchRecapCard";
-import { FormationPitch } from "@/components/data/FormationPitch";
+import { MatchPitch } from "@/components/live/MatchPitch";
 import { buildPitchPlayers } from "@/lib/football/formation-pitch";
 import { buildPreMatchNarrative, buildPostMatchNarrative } from "@/lib/football/match-narrative";
 import { MatchNarrativeCard } from "@/components/data/MatchNarrativeCard";
@@ -62,6 +65,8 @@ interface LineupPlayerRow {
 interface LineupRow {
   team_id: number;
   formation: string | null;
+  /** Fas 21: tränaren visas under planen på Lag-fliken, som i referensappen. */
+  coach: { full_name: string } | null;
   fixture_lineup_player: LineupPlayerRow[];
 }
 
@@ -216,7 +221,9 @@ export default async function MatchReportPage({
   // steg 4 av Ultra-plan-projektet, men aldrig visade i UI:t förrän nu.
   const { data: lineupRows } = await supabase
     .from("fixture_lineup")
-    .select("team_id, formation, fixture_lineup_player(is_starter, shirt_number, position, grid, player:player_id(id, full_name, first_name, last_name, photo_url))")
+    .select(
+      "team_id, formation, coach:coach_id(full_name), fixture_lineup_player(is_starter, shirt_number, position, grid, player:player_id(id, full_name, first_name, last_name, photo_url))"
+    )
     .eq("fixture_id", Number(fixtureId))
     .returns<LineupRow[]>();
   const homeLineup = lineupRows?.find((l) => l.team_id === report.home?.id) ?? null;
@@ -294,6 +301,31 @@ export default async function MatchReportPage({
   const standingsTable = report.season ? await getStandingsTable(supabase, { season: report.season }) : [];
   const homeStanding = report.home ? (standingsTable.find((s) => s.team.id === report.home!.id) ?? null) : null;
   const awayStanding = report.away ? (standingsTable.find((s) => s.team.id === report.away!.id) ?? null) : null;
+
+  // Fas 21 — kringfakta till Fakta-flikens infopanel. Arenauppgifterna
+  // (kapacitet/underlag/stad) ligger i venue-tabellen, inte i fixture-radens
+  // venue_name-text, och vädret i fixture_weather. Båda är valfria: saknas
+  // de utelämnas raderna helt.
+  const [venueResult, weatherResult] = await Promise.all([
+    supabase
+      .from('fixture')
+      .select('venue:venue_id(name, city, capacity, surface)')
+      .eq('id', Number(fixtureId))
+      .maybeSingle<{ venue: { name: string; city: string | null; capacity: number | null; surface: string | null } | null }>(),
+    supabase
+      .from('fixture_weather')
+      .select('temperature_day, description')
+      .eq('fixture_id', Number(fixtureId))
+      .maybeSingle<{ temperature_day: number | null; description: string | null }>(),
+  ]);
+  const venueRow = venueResult.data?.venue ?? null;
+  const weatherRow = weatherResult.data ?? null;
+
+  // Fas 21 — de faktiska mötena till "Mot varandra"-fliken. Aggregatet
+  // (h2hSummary) svarar på "hur brukar det gå"; listan svarar på "hur gick
+  // det senast", vilket är den fråga man faktiskt ställer.
+  const h2hMeetings =
+    report.home && report.away ? await getHeadToHeadMeetings(supabase, report.home.id, report.away.id, 10) : [];
 
   // Fas 16d — "Nyckelspelare": grupperar samma playerHighlights-tal efter
   // VILKEN FRÅGA de svarar på (störst målhot/bäst målchans/bäst betyg)
@@ -429,57 +461,78 @@ export default async function MatchReportPage({
     </div>
   );
 
+  /* Fas 21 — Lag-fliken: båda lagen på EN plan (som i referensappen),
+     tränare under, och bänken som en egen sektion med båda lagen bredvid
+     varandra. Går planen inte att rita (någon startspelare saknar
+     grid-koordinat) faller vi tillbaka på den gamla listvyn per lag —
+     aldrig en halv uppställning. */
+  const homeStarters = homeLineup?.fixture_lineup_player.filter((p) => p.is_starter) ?? [];
+  const awayStarters = awayLineup?.fixture_lineup_player.filter((p) => p.is_starter) ?? [];
+  const homePitch = buildPitchPlayers(homeStarters);
+  const awayPitch = buildPitchPlayers(awayStarters);
+
   const lineupsTab = (
-    <div className="grid gap-8 sm:grid-cols-2">
-      {[
-        { team: homeName, lineup: homeLineup, formation: liveMatch?.formation?.home ?? null },
-        { team: awayName, lineup: awayLineup, formation: liveMatch?.formation?.away ?? null },
-      ].map(({ team, lineup, formation }) => (
-        <div key={team}>
-          <div className="flex items-baseline justify-between">
-            <p className="text-base font-bold text-white">{team}</p>
-            {/* Formationen kommer i första hand från vår egen lineup-rad och
-                i andra hand från Sportmonks metadata (type_id 159) — saknas
-                båda visas ingenting alls, aldrig en gissad uppställning. */}
-            {(lineup?.formation ?? formation) && (
-              <p className="text-xs font-medium tabular-nums text-[#898781]">{lineup?.formation ?? formation}</p>
-            )}
-          </div>
-          {lineup ? (
-            <>
-              {(() => {
-                const starters = lineup.fixture_lineup_player.filter((p) => p.is_starter);
-                const pitchPlayers = buildPitchPlayers(starters);
-                return pitchPlayers ? (
-                  <div className="mt-3">
-                    <FormationPitch players={pitchPlayers} />
-                  </div>
-                ) : (
-                  <ul className="mt-3 space-y-2">
-                    {starters.map((p, i) => (
-                      <LineupPlayerRow key={i} player={p.player} shirtNumber={p.shirt_number} />
+    <div className="space-y-10">
+      {homePitch && awayPitch ? (
+        <MatchPitch
+          home={homePitch}
+          away={awayPitch}
+          homeFormation={homeLineup?.formation ?? liveMatch?.formation?.home ?? null}
+          awayFormation={awayLineup?.formation ?? liveMatch?.formation?.away ?? null}
+          homeName={homeName}
+          awayName={awayName}
+          homeCoach={homeLineup?.coach?.full_name ?? null}
+          awayCoach={awayLineup?.coach?.full_name ?? null}
+        />
+      ) : (
+        <div className="grid gap-8 sm:grid-cols-2">
+          {[
+            { team: homeName, lineup: homeLineup, starters: homeStarters },
+            { team: awayName, lineup: awayLineup, starters: awayStarters },
+          ].map(({ team, lineup, starters }) => (
+            <div key={team}>
+              <div className="flex items-baseline justify-between">
+                <p className="text-base font-bold text-white">{team}</p>
+                {lineup?.formation && <p className="text-xs font-medium tabular-nums text-[#898781]">{lineup.formation}</p>}
+              </div>
+              {lineup ? (
+                <ul className="mt-3 space-y-2">
+                  {starters.map((p, i) => (
+                    <LineupPlayerRow key={i} player={p.player} shirtNumber={p.shirt_number} />
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 text-xs text-[#7d7c76]">Ingen laguppställning sparad för den här matchen.</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(homeLineup?.fixture_lineup_player.some((p) => !p.is_starter) || awayLineup?.fixture_lineup_player.some((p) => !p.is_starter)) && (
+        <div className="border-t border-white/5 pt-8">
+          <p className="mb-4 text-xs font-semibold uppercase tracking-[0.15em] text-[#898781]">Bänk</p>
+          <div className="grid gap-8 sm:grid-cols-2">
+            {[
+              { team: homeName, lineup: homeLineup },
+              { team: awayName, lineup: awayLineup },
+            ].map(({ team, lineup }) => {
+              const subs = lineup?.fixture_lineup_player.filter((p) => !p.is_starter) ?? [];
+              if (subs.length === 0) return <div key={team} />;
+              return (
+                <div key={team}>
+                  <p className="mb-2 text-sm font-semibold text-white">{team}</p>
+                  <ul className="space-y-2">
+                    {subs.map((p, i) => (
+                      <LineupPlayerRow key={i} player={p.player} shirtNumber={p.shirt_number} dim />
                     ))}
                   </ul>
-                );
-              })()}
-              {lineup.fixture_lineup_player.some((p) => !p.is_starter) && (
-                <>
-                  <p className="mb-2 mt-4 text-[10px] font-semibold uppercase tracking-wide text-[#7d7c76]">Avbytare</p>
-                  <ul className="space-y-2">
-                    {lineup.fixture_lineup_player
-                      .filter((p) => !p.is_starter)
-                      .map((p, i) => (
-                        <LineupPlayerRow key={i} player={p.player} shirtNumber={p.shirt_number} dim />
-                      ))}
-                  </ul>
-                </>
-              )}
-            </>
-          ) : (
-            <p className="mt-2 text-xs text-[#7d7c76]">Ingen laguppställning sparad för den här matchen.</p>
-          )}
+                </div>
+              );
+            })}
+          </div>
         </div>
-      ))}
+      )}
     </div>
   );
 
@@ -527,6 +580,27 @@ export default async function MatchReportPage({
             <MatchHeadToHeadSummary summary={h2hSummary} homeName={homeName} awayName={awayName} />
           </div>
         ))}
+
+      {/* Fas 21 — de faktiska mötena. Aggregatet ovan säger hur det BRUKAR
+          gå; listan säger hur det faktiskt gick, match för match. */}
+      {h2hMeetings.length > 0 && (
+        <div className={h2hSummary ? "border-t border-white/5 pt-10" : ""}>
+          <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-[#898781]">
+            <span aria-hidden>📋</span> Senaste mötena
+          </p>
+          <HeadToHeadMatchList
+            matches={h2hMeetings.map((m) => ({
+              season: m.season,
+              round: m.round,
+              status: m.status,
+              home: m.homeName,
+              away: m.awayName,
+              homeScore: m.homeScore,
+              awayScore: m.awayScore,
+            }))}
+          />
+        </div>
+      )}
 
       {((homeFormRecord && homeFormRecord.played > 0) || (awayFormRecord && awayFormRecord.played > 0) || preview.form.length > 0) && (
         <div className={h2hSummary ? "border-t border-white/5 pt-10" : ""}>
@@ -616,6 +690,17 @@ export default async function MatchReportPage({
                     )}
                   </div>
                 </div>
+                <MatchInfoPanel
+                  info={{
+                    venueName: venueRow?.name ?? report.venue,
+                    venueCity: venueRow?.city ?? null,
+                    venueCapacity: venueRow?.capacity ?? null,
+                    venueSurface: venueRow?.surface ?? null,
+                    referee: report.referee,
+                    weatherDescription: weatherRow?.description ?? null,
+                    temperature: weatherRow?.temperature_day ?? null,
+                  }}
+                />
               </div>
             ),
           },
@@ -647,7 +732,17 @@ export default async function MatchReportPage({
             id: "tabell",
             label: "Tabell",
             hidden: !homeStanding && !awayStanding,
-            content: <MatchStandingsSummary home={homeStanding} away={awayStanding} homeName={homeName} awayName={awayName} />,
+            content: (
+              <div className="space-y-8">
+                <MatchStandingsSummary home={homeStanding} away={awayStanding} homeName={homeName} awayName={awayName} />
+                {/* Hela tabellen under de två korten — "vilken plats?" besvaras
+                    av korten, "hur ser det ut runt dem?" av tabellen. */}
+                <MatchStandingsTable
+                  rows={standingsTable}
+                  highlightTeamIds={[report.home?.id, report.away?.id].filter((id): id is number => typeof id === "number")}
+                />
+              </div>
+            ),
           },
           {
             id: "statistik",
@@ -666,7 +761,10 @@ export default async function MatchReportPage({
             id: "h2h",
             label: "Mot varandra",
             hidden:
-              !h2hSummary && !(homeFormRecord && homeFormRecord.played > 0) && !(awayFormRecord && awayFormRecord.played > 0),
+              !h2hSummary &&
+              h2hMeetings.length === 0 &&
+              !(homeFormRecord && homeFormRecord.played > 0) &&
+              !(awayFormRecord && awayFormRecord.played > 0),
             content: headToHeadTab,
           },
         ]}
