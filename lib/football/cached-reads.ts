@@ -47,7 +47,7 @@ export const getCachedPostAllsvenskanPlayers = cachedRead(
  * Allsvenskan, identisk för alla besökare mellan importkörningar.
  */
 export const getCachedIncomingTransfers = cachedRead(
-  "incoming-transfers-v1",
+  "incoming-transfers-v2",
   async (): Promise<IncomingSigning[]> => getIncomingTransfers(createAnonClient()),
   { tags: ["post-allsvenskan", "players"] }
 );

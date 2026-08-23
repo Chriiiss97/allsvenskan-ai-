@@ -4,6 +4,7 @@ import { fetchAllRows } from "@/lib/supabase/paginate";
 import { displayPlayerName } from "./player-name";
 import { getLeagueTier, NON_COMPETITIVE_LEAGUE_IDS } from "./league-tier";
 import { getLeagueStrength, type LeagueStrength } from "./post-allsvenskan-level";
+import { getClubCountry } from "./club-country";
 import { countryKey } from "@/lib/i18n/sv";
 
 type Supabase = SupabaseClient<Database>;
@@ -15,19 +16,22 @@ type Supabase = SupabaseClient<Database>;
  * spelare, och vilka värvningar lyckas?".
  *
  * ── MÄTT INNAN DEN BYGGDES (användarkrav) ────────────────────────────────
- * Underlaget inventerades mot den riktiga databasen INNAN en rad UI skrevs.
- * Utfallet, steg för steg:
+ * Underlaget inventerades mot den riktiga databasen INNAN en rad UI skrevs,
+ * och mättes om efter fas 22b (klubbarnas land, se punkt 2 nedan):
  *
  *   player_transfer_event totalt                              12 022 rader
  *   → med en av våra 33 Allsvenska klubbar som DESTINATION      4 382
  *   → varav avsändaren är en klubb utanför Allsvenskan          2 431
- *   → varav avsändarens LAND gick att verifiera, och är utländskt  1 304
- *   → varav spelaren FAKTISKT spelade allsvenskt för klubben     1 022
- *   → varav ankomsten skedde direkt (samma eller nästa säsong)      965
+ *      · varav svensk klubb (Superettan/Ettan/lägre) — bort         907
+ *      · varav okänt land — bort                                      0
+ *   → verifierat UTLÄNDSK avsändare                             1 524
+ *   → varav spelaren FAKTISKT spelade allsvenskt för klubben     1 172
+ *   → varav ankomsten skedde direkt (samma eller nästa säsong)   1 099
+ *   → unika spelare+klubb (lån + permanent = EN värvning)          935
  *
- * 965 verifierade värvningar, 32 klubbar, 61 länder, 120 avsändarligor.
- * Fördelningen är rimlig och känns igen: Norge 249, Danmark 197,
- * Nederländerna 86, England 81, Finland 77 (räknat på steg 4).
+ * 935 verifierade värvningar, 32 klubbar, 74 länder, 78 avsändarligor.
+ * Fördelningen är rimlig och känns igen: Norge 142, Danmark 128,
+ * Nederländerna 60, England 58, USA 37, Finland 36.
  *
  * ── DEFINITIONEN, OCH VARFÖR DEN ÄR SÅ STRIKT ────────────────────────────
  * Uttryckligt användarkrav: en spelare får bara räknas om vi kan BEVISA en
@@ -39,13 +43,16 @@ type Supabase = SupabaseClient<Database>;
  *     /transfers) där destinationen är en av våra Allsvenska klubbar
  *     (`team.external_id`). Ingen härledning ur statistik — den faktiska
  *     övergångshändelsen ska finnas.
- *  2. VERIFIERAT UTLÄNDSK AVSÄNDARE. Avsändarklubbens land avgörs INTE av
- *     klubbnamnet utan av `player_career_stint`: i första hand spelarens
- *     EGEN säsong i den klubben (då vet vi exakt vilken liga hen kom ifrån),
- *     i andra hand klubbens vanligaste dokumenterade liga. Går landet inte
- *     att verifiera räknas övergången INTE — hellre färre rader än en
- *     påhittad ursprungsliga. Sverige exkluderas här, vilket samtidigt
- *     täcker "Superettan → Allsvenskan".
+ *  2. VERIFIERAT UTLÄNDSK AVSÄNDARE. Avsändarklubbens land slås upp i
+ *     `club-country.ts` — api-footballs egen landsuppgift per klubb, för
+ *     VARJE klubb som förekommer i vår transfer-/karriärdata. Går landet
+ *     inte att verifiera räknas övergången INTE. Sverige exkluderas här,
+ *     vilket samtidigt täcker "Superettan → Allsvenskan".
+ *     LIGAN är däremot bara analysdata och får saknas: den härleds ur
+ *     `player_career_stint` (i första hand spelarens EGEN säsong i klubben,
+ *     i andra hand klubbens vanligaste dokumenterade liga) och är null när
+ *     ingen av dem finns. Ligarankingen utelämnar de raderna; alla andra
+ *     vyer räknar dem fullt ut.
  *  3. SPELADE FAKTISKT. Spelaren har minst en `statistics`-rad (Allsvenskan,
  *     league_id=1) för DEN KLUBB som värvade hen, med `appearances > 0` och
  *     säsong ≥ övergångsåret. En värvning som aldrig blev en allsvensk match
@@ -60,18 +67,29 @@ type Supabase = SupabaseClient<Database>;
  *     dokumenterat samma fälla åt andra hållet).
  *
  * ── ÅTERVÄNDARE ──────────────────────────────────────────────────────────
- * 315 av de kvalificerade hade allsvenskt spel FÖRE övergången: svenskar som
- * kommer hem, eller utländska spelare som varit här tidigare. De är
- * fortfarande äkta inkommande utlandsvärvningar och räknas därför med — men
- * de MÄRKS (`isReturnee`) och går att filtrera bort i UI:t, så "vilka
- * nyförvärv utifrån lyckas bäst?" kan ställas utan att Viktor Claesson-typen
+ * En stor del av de kvalificerade var i Allsvenskan redan före övergången:
+ * svenskar som kommer hem, eller utländska spelare som varit här tidigare.
+ * De är fortfarande äkta inkommande utlandsvärvningar och räknas därför med
+ * — men de MÄRKS (`isReturnee`) och går att filtrera bort i UI:t, så "vilka
+ * nyförvärv utifrån lyckas bäst?" kan ställas utan att en hemvändare
  * blandas in.
+ *
+ * Se {@link hadEarlierAllsvenskanSpell} för varför flaggan behöver TVÅ
+ * bevisspår, och vilket verkligt fall som avslöjade att ett inte räckte.
  *
  * ── PRESTANDA ────────────────────────────────────────────────────────────
  * Fem bulk-frågor + JS-aggregering (samma mönster som post-allsvenskan.ts),
  * alla parallella och sidnumrerade via fetchAllRows. Cachas av
  * cached-reads.ts — den här funktionen ska aldrig köras per besökare.
  */
+
+/**
+ * api-football använder `1926-01-01` som platshållare när ett riktigt
+ * övergångsdatum saknas (39 rader i vår data, alla uppenbart moderna
+ * övergångar — se samma konstant i post-allsvenskan.ts). Ett sådant datum
+ * får aldrig räknas som "spelaren var i Allsvenskan redan då".
+ */
+const EARLIEST_PLAUSIBLE_TRANSFER_YEAR = 1990;
 
 /** Övergången ska ha lett till allsvenskt spel samma säsong eller nästa. */
 export const MAX_ARRIVAL_DELAY_SEASONS = 1;
@@ -99,16 +117,17 @@ export interface IncomingSigning {
   /** Klubben spelaren kom ifrån. */
   fromClubName: string;
   fromClubLogoUrl: string | null;
-  /** Verifierat land (rått api-football-namn, översätts i UI:t). */
+  /** Verifierat land (rått api-football-namn, översätts i UI:t). Alltid satt — det är kvalificeringen. */
   fromCountry: string;
-  fromLeagueName: string;
-  fromLeagueExternalId: number;
+  /** Avsändarligan. NULL när klubbens land är känt men ingen liga är dokumenterad hos oss. */
+  fromLeagueName: string | null;
+  fromLeagueExternalId: number | null;
   /** 1 = högsta divisionen, 2 = etablerad andradivision (league-tier.ts). */
   fromLeagueTier: 1 | 2 | null;
   /** Ligans styrka 1–5 (post-allsvenskan-level.ts), null för ligor utanför skalan. */
   fromLeagueStrength: LeagueStrength | null;
-  /** Hur säkert avsändarligan är bestämd — visas aldrig som en siffra, men styr formuleringen. */
-  sourceBasis: "player_stint" | "club_history";
+  /** Hur avsändarligan bestämdes, null när ingen liga kunde bestämmas. */
+  sourceBasis: "player_stint" | "club_history" | null;
 
   transferDate: string;
   transferYear: number;
@@ -272,6 +291,44 @@ export async function getIncomingTransfers(supabase: Supabase): Promise<Incoming
     else allsvenskanByPlayer.set(row.player_id, [row]);
   }
 
+  /**
+   * Fas 22b (2026-08-23, VERIFIERAT verkligt fall: Isaac Kiese Thelin) —
+   * `statistics` täcker bara 2016–2026. Kiese Thelin spelade för IFK
+   * Norrköping 2011–2014 och Malmö FF 2014 innan han gick till Bordeaux
+   * 2015, men eftersom inget av det ligger i `statistics` såg lånet tillbaka
+   * till Malmö 2020 ut som hans FÖRSTA allsvenska klubb — han märktes "Ny i
+   * Allsvenskan". Exakt samma fälla som Efter Allsvenskan redan gått i en
+   * gång (fas 19c, T. Sana/Ajax), med samma lösning: en övergång FRÅN eller
+   * TILL en allsvensk klubb är ett lika giltigt bevis för att spelaren var
+   * här som en statistikrad, och `player_transfer_event` går tillbaka till
+   * 2001 för de äldsta raderna.
+   *
+   * Kartan innehåller därför varje datum då spelaren bevisligen var knuten
+   * till en allsvensk klubb, oavsett vilket av de två spåren beviset kom
+   * ifrån.
+   */
+  const allsvenskanTransferDatesByPlayer = new Map<number, string[]>();
+  for (const row of transferRows) {
+    const touchesAllsvenskan =
+      (row.from_team_external_id != null && allsvenskanTeamByExternalId.has(row.from_team_external_id)) ||
+      (row.to_team_external_id != null && allsvenskanTeamByExternalId.has(row.to_team_external_id));
+    if (!touchesAllsvenskan) continue;
+    const list = allsvenskanTransferDatesByPlayer.get(row.player_id);
+    if (list) list.push(row.transfer_date);
+    else allsvenskanTransferDatesByPlayer.set(row.player_id, [row.transfer_date]);
+  }
+
+  /** Var spelaren bevisligen i Allsvenskan redan FÖRE den här övergången? */
+  function hadEarlierAllsvenskanSpell(playerId: number, transferDate: string, transferYear: number): boolean {
+    const played = (allsvenskanByPlayer.get(playerId) ?? []).some(
+      (row) => row.appearances > 0 && (row.season?.year ?? 0) < transferYear
+    );
+    if (played) return true;
+    return (allsvenskanTransferDatesByPlayer.get(playerId) ?? []).some(
+      (date) => date < transferDate && Number(date.slice(0, 4)) >= EARLIEST_PLAUSIBLE_TRANSFER_YEAR
+    );
+  }
+
   const signings: IncomingSigning[] = [];
   // Samma spelare kan ha flera transferrader till samma klubb (t.ex. en
   // lånerad + en permanent). Den FÖRSTA ankomsten är värvningen.
@@ -287,9 +344,12 @@ export async function getIncomingTransfers(supabase: Supabase): Promise<Incoming
     const transferYear = Number(transfer.transfer_date.slice(0, 4));
     if (!Number.isFinite(transferYear)) continue;
 
-    const source = resolveSourceLeague(transfer.player_id, transfer.from_team_external_id, transferYear);
-    if (!source) continue; // kunde inte verifiera varifrån — räknas inte
-    if (countryKey(source.row.league_country) === countryKey("Sweden")) continue; // svensk avsändare, inte en utlandsvärvning
+    // LANDET är kvalificeringen (utländsk avsändare eller inte). LIGAN är
+    // analysdata och får saknas — se filhuvudets fas 22b-avsnitt.
+    const league = resolveSourceLeague(transfer.player_id, transfer.from_team_external_id, transferYear);
+    const country = getClubCountry(transfer.from_team_external_id) ?? league?.row.league_country ?? null;
+    if (!country) continue; // klubbens land går inte att verifiera — räknas inte
+    if (countryKey(country) === countryKey("Sweden")) continue; // svensk avsändare, inte en utlandsvärvning
 
     const clubSeasons = (allsvenskanByPlayer.get(transfer.player_id) ?? []).filter(
       (row) => row.team_id === club.id && row.appearances > 0 && (row.season?.year ?? 0) >= transferYear
@@ -316,9 +376,7 @@ export async function getIncomingTransfers(supabase: Supabase): Promise<Incoming
     const avgRating = ratingWeight > 0 ? rated.reduce((sum, row) => sum + Number(row.rating) * row.appearances, 0) / ratingWeight : null;
 
     const seasonYears = clubSeasons.map((row) => row.season!.year);
-    const isReturnee = (allsvenskanByPlayer.get(transfer.player_id) ?? []).some(
-      (row) => row.appearances > 0 && (row.season?.year ?? 0) < transferYear
-    );
+    const isReturnee = hadEarlierAllsvenskanSpell(transfer.player_id, transfer.transfer_date, transferYear);
 
     signings.push({
       playerId: transfer.player_id,
@@ -333,12 +391,12 @@ export async function getIncomingTransfers(supabase: Supabase): Promise<Incoming
 
       fromClubName: transfer.from_team_name ?? "Okänd klubb",
       fromClubLogoUrl: transfer.from_team_logo_url,
-      fromCountry: source.row.league_country!,
-      fromLeagueName: source.row.league_name ?? "Okänd liga",
-      fromLeagueExternalId: source.row.league_external_id,
-      fromLeagueTier: getLeagueTier(source.row.league_external_id),
-      fromLeagueStrength: getLeagueStrength(source.row.league_external_id),
-      sourceBasis: source.basis,
+      fromCountry: country,
+      fromLeagueName: league?.row.league_name ?? null,
+      fromLeagueExternalId: league?.row.league_external_id ?? null,
+      fromLeagueTier: league ? getLeagueTier(league.row.league_external_id) : null,
+      fromLeagueStrength: league ? getLeagueStrength(league.row.league_external_id) : null,
+      sourceBasis: league?.basis ?? null,
 
       transferDate: transfer.transfer_date,
       transferYear,
@@ -440,10 +498,16 @@ export function aggregateByCountry(signings: IncomingSigning[]): IncomingGroup[]
     .sort((a, b) => b.signings - a.signings || b.points - a.points);
 }
 
-/** ...och per avsändarliga, den mest scoutbara nivån av samma fråga. */
+/**
+ * ...och per avsändarliga, den mest scoutbara nivån av samma fråga.
+ * Värvningar där klubbens LAND är verifierat men ligan inte är dokumenterad
+ * hos oss utelämnas här (de finns kvar i alla andra vyer) — hellre en
+ * ofullständig ligaranking än en påhittad "Okänd liga"-rad som konkurrerar
+ * med Eliteserien.
+ */
 export function aggregateByLeague(signings: IncomingSigning[]): IncomingGroup[] {
-  return [...groupBy(signings, (s) => String(s.fromLeagueExternalId)).entries()]
-    .map(([key, rows]) => buildGroup(key, rows[0].fromLeagueName, null, rows[0].fromCountry, rows))
+  return [...groupBy(signings, (s) => (s.fromLeagueExternalId == null ? null : String(s.fromLeagueExternalId))).entries()]
+    .map(([key, rows]) => buildGroup(key, rows[0].fromLeagueName ?? "Okänd liga", null, rows[0].fromCountry, rows))
     .sort((a, b) => b.signings - a.signings || b.points - a.points);
 }
 

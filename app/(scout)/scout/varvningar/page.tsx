@@ -51,6 +51,18 @@ const ORIGIN_OPTIONS: { key: Origin; label: string }[] = [
   { key: "atervandare", label: "Återvändare" },
 ];
 
+/**
+ * Alla värvningar här kommer från en utländsk klubb. Skillnaden är om
+ * spelaren varit i Allsvenskan NÅGON gång tidigare — Isaac Kiese Thelin kom
+ * från Anderlecht 2020, men hade spelat för IFK Norrköping och Malmö FF före
+ * utlandsflytten, och är alltså en återvändare.
+ */
+const ORIGIN_HINT: Record<Origin, string> = {
+  alla: "Alla värvningar från en utländsk klubb — både spelare som är nya i Allsvenskan och de som varit här förut.",
+  nya: "Spelare vars första allsvenska klubb var den här värvningen — de hade aldrig spelat i Allsvenskan tidigare.",
+  atervandare: "Spelare som varit i Allsvenskan förut, lämnat landet och sedan värvats hit igen.",
+};
+
 type View = "spelare" | "analys";
 
 /** Samma fönsterstorlek som Efter Allsvenskan — se den sidans prestandanot. */
@@ -114,7 +126,11 @@ function OriginLines({ signing }: { signing: IncomingSigning }) {
         <span className="text-[#c3c2b7]">{signing.fromClubName}</span>
       </p>
       <p className="mt-0.5 truncate text-[11px] text-[#7d7c76]">
-        {country} · {signing.fromLeagueName} · {signing.transferYear}
+        {/* Ligan kan saknas även när landet är verifierat (se
+            incoming-transfers.ts) — då skrivs den inte ut alls, hellre än
+            som "Okänd liga". */}
+        {country}
+        {signing.fromLeagueName ? ` · ${signing.fromLeagueName}` : ""} · {signing.transferYear}
       </p>
     </>
   );
@@ -437,9 +453,15 @@ export default async function IncomingTransfersPage({
                 allsvensk klubb — aldrig härlett ur att spelaren råkar ha utländsk statistik.
               </li>
               <li>
-                <span className="font-semibold text-white">Verifierat utländsk avsändare.</span> Avsändarklubbens land avgörs av importerad
-                karriärdata (i första hand spelarens egen säsong i klubben), inte av klubbnamnet. Går landet inte att verifiera räknas
-                övergången inte alls. Svenska avsändare exkluderas, vilket också stänger dörren för &quot;utlandet → Superettan → Allsvenskan&quot;.
+                <span className="font-semibold text-white">Verifierat utländsk avsändare.</span> Avsändarklubbens land slås upp per klubb ur
+                api-footballs egen lagdata — inte gissat ur klubbnamnet. Går landet inte att verifiera räknas övergången inte alls. Svenska
+                avsändare exkluderas, vilket också stänger dörren för &quot;utlandet → Superettan → Allsvenskan&quot;. Vilken LIGA klubben
+                spelade i är analysdata och får saknas; de värvningarna räknas överallt utom i ligarankingen.
+              </li>
+              <li>
+                <span className="font-semibold text-white">Ny eller återvändare.</span> &quot;Återvändare&quot; betyder att spelaren bevisligen
+                var i Allsvenskan redan före övergången — antingen genom allsvenska matcher hos oss, eller genom ett dokumenterat klubbyte
+                till eller från en allsvensk klubb tidigare. Övriga räknas som nya i Allsvenskan.
               </li>
               <li>
                 <span className="font-semibold text-white">Spelade faktiskt.</span> Spelaren har allsvenskt spel för den värvande klubben efter
@@ -491,6 +513,11 @@ export default async function IncomingTransfersPage({
               </Link>
             ))}
           </div>
+
+          {/* Fas 22b (2026-08-23, användarfråga: "vad betyder nya i Allsvenskan
+              och återvändare?") — etiketterna förklarade sig inte själva.
+              Meningen byts med valet, så den beskriver det man faktiskt ser. */}
+          <p className="mt-1.5 text-[11px] leading-relaxed text-[#5f5e59]">{ORIGIN_HINT[origin]}</p>
 
           {(clubFilter || countryFilter) && (
             <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-[#a78bfa]/25 bg-[#a78bfa]/[0.06] px-3 py-2 text-xs">
