@@ -29,6 +29,7 @@ import { importSportmonksPressure } from "./sportmonks-import-pressure";
 import { importSportmonksMatchFacts } from "./sportmonks-import-match-facts";
 import { fixTeamNameDiacritics } from "./fix-team-name-diacritics";
 import { importPlayerCareer } from "./import-player-career";
+import { importPlayerCareerSportmonks } from "./import-player-career-sportmonks";
 
 config({ path: path.resolve(process.cwd(), ".env.local") });
 
@@ -111,6 +112,16 @@ const STEPS: Record<string, () => Promise<void>> = {
   "player-career": async () => {
     const max = process.argv[3] ? Number(process.argv[3]) : undefined;
     await importPlayerCareer(max);
+  },
+  // Fas 18m: FALLBACK för spelare där api-football-steget ovan misslyckats/
+  // inte hunnits med men som redan har en godkänd sportmonks_id-mappning.
+  // Skriver bara player_career_stint (ingen transfer-/troféimport, se
+  // filhuvudet i import-player-career-sportmonks.ts för varför). Kör EFTER
+  // "player-career", aldrig istället för den (api-football har mycket bättre
+  // täckning och ger status/transferdata som den här varianten inte kan).
+  "player-career-sportmonks": async () => {
+    const max = process.argv[3] ? Number(process.argv[3]) : undefined;
+    await importPlayerCareerSportmonks(max);
   },
   // 'all' kör de billiga stegen (~25 anrop totalt för 2 lag x 3 säsonger).
   // 'events' kör INTE med här — den kostar ett anrop per match och kan

@@ -36,6 +36,15 @@
  * räknas ALDRIG, oavsett kvalificering).
  */
 
+/**
+ * Fas 18m (2026-08-23) — se kommentaren vid `LEAGUE_TIER`s Sportmonks-block
+ * nedan för varför dessa syntetiska sentinelvärden behövs. Deklarerade
+ * FÖRE `LEAGUE_TIER` eftersom de används som computed keys i den — annars
+ * en TDZ-krasch (const använd innan den är initierad).
+ */
+export const SPORTMONKS_TIER1_SENTINEL_LEAGUE_ID = 900_000_001;
+export const SPORTMONKS_TIER2_SENTINEL_LEAGUE_ID = 900_000_002;
+
 export const LEAGUE_TIER: Record<number, 1 | 2> = {
   // ── Norden ──────────────────────────────────────────────────────────
   103: 1, // Norge — Eliteserien
@@ -179,6 +188,21 @@ export const LEAGUE_TIER: Record<number, 1 | 2> = {
 
   // ── Oceanien ────────────────────────────────────────────────────────
   188: 1, // Australien — A-League
+
+  // ── Sportmonks-fallback (fas 18m) ──────────────────────────────────
+  // Syntetiska sentinel-ID:n, INTE riktiga api-football-ID:n. Sportmonks
+  // och api-football använder helt olika, inkompatibla numeriska
+  // ID-rymder för samma liga — ett Sportmonks-ID skulle annars kunna
+  // KOLLIDERA med ett existerande api-football-ID och tysta klassificera
+  // fel liga. import-player-career-sportmonks.ts avgör tier via NAMN+LAND
+  // (se league-tier-by-name.ts, samma verkliga klassificering som ovan,
+  // bara nyckel på text istället för ID) INNAN en rad ens skrivs, och
+  // skriver sedan en av dessa två sentinelvärden som `league_external_id`
+  // — det gör att `getLeagueTier` nedan (och därmed hela kvalificerings-
+  // spärren i post-allsvenskan.ts, OFÖRÄNDRAD) automatiskt känner igen
+  // raden som redan verifierad tier 1/2, utan att den filen behöver röras.
+  [SPORTMONKS_TIER1_SENTINEL_LEAGUE_ID]: 1,
+  [SPORTMONKS_TIER2_SENTINEL_LEAGUE_ID]: 2,
 };
 
 /**
