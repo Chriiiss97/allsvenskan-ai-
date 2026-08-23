@@ -6,6 +6,7 @@ import { computePostAllsvenskanSuccess } from "@/lib/football/post-allsvenskan-s
 import { getCareerJourney } from "@/lib/football/career-journey";
 import { translateClubCountry } from "@/lib/i18n/sv";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
+import { StatSortTabs, parseStatSort, sortByStat } from "@/components/scout/StatSortTabs";
 import { CareerJourneySection } from "@/components/scout/player-card/CareerJourneySection";
 import { colors } from "@/lib/design/tokens";
 
@@ -54,8 +55,16 @@ const STATUS_COLOR: Record<keyof typeof STATUS_META, string> = {
 /** Tusentalsavgränsare med mellanslag, enligt användarens uttryckliga önskemål ("17 431", inte "17431"). */
 const nf = (n: number) => n.toLocaleString("sv-SE");
 
-export default async function PostAllsvenskanPlayerPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function PostAllsvenskanPlayerPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ sortera?: string }>;
+}) {
   const { id } = await params;
+  const { sortera } = await searchParams;
+  const sort = parseStatSort(sortera);
   const playerId = Number(id);
   if (Number.isNaN(playerId)) notFound();
 
@@ -79,9 +88,9 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
   const isBackHome = player.status === "back_in_allsvenskan" || player.status === "back_in_sweden";
 
   const totals: { label: string; value: string; accent?: boolean }[] = [
+    { label: "Matcher", value: nf(player.appearances) },
     { label: "Mål", value: nf(player.goals) },
     { label: "Assist", value: nf(player.assists) },
-    { label: "Matcher", value: nf(player.appearances) },
     { label: "Minuter", value: nf(player.minutesPlayed) },
     ...(player.avgRating !== null ? [{ label: "Snittbetyg", value: String(player.avgRating), accent: true }] : []),
   ];
@@ -295,12 +304,16 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
         <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-[#898781]">
           <span aria-hidden>🌍</span> Fördelning per klubb
         </p>
-        <p className="mb-3 text-xs text-[#5f5e59]">
-          Var {player.playerName}s siffror ovan kommer ifrån — bara klubbar efter Allsvenskan. Klicka på en klubb för alla f.d. Allsvenska spelare
-          där.
-        </p>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-[#5f5e59]">
+            Var {player.playerName}s siffror ovan kommer ifrån — bara klubbar efter Allsvenskan. Klicka på en klubb för alla f.d. Allsvenska
+            spelare där.
+          </p>
+          {/* Fas 19f — samma delade sorteringskomponent som klubbvyn. */}
+          <StatSortTabs current={sort} hrefFor={(key) => `/scout/efter-allsvenskan/${player.playerId}?sortera=${key}`} />
+        </div>
         <div className="space-y-2">
-          {player.byClub.map((c) => (
+          {sortByStat(player.byClub, sort, (c) => c).map((c) => (
             <div key={c.teamName} className="rounded-xl border border-white/5 bg-[#141418]/40 p-4">
               <Link href={`/scout/efter-allsvenskan/klubb/${foreignClubSlug(c.teamName)}`} className="group flex items-center gap-3">
                 {c.teamLogoUrl ? (
@@ -321,11 +334,11 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
                   mitt i sifferkolumnerna på mobil. */}
               <div className="mt-3 grid grid-cols-4 gap-2 border-t border-white/5 pt-3 sm:grid-cols-5">
                 {[
+                  { label: "Matcher", value: nf(c.appearances), accent: false },
                   { label: "Mål", value: nf(c.goals), accent: false },
                   { label: "Assist", value: nf(c.assists), accent: false },
-                  { label: "Matcher", value: nf(c.appearances), accent: false },
                   { label: "Minuter", value: nf(c.minutesPlayed), accent: false },
-                  ...(c.avgRating !== null ? [{ label: "Betyg", value: String(c.avgRating), accent: true }] : []),
+                  ...(c.avgRating !== null ? [{ label: "Snittbetyg", value: String(c.avgRating), accent: true }] : []),
                 ].map((s) => (
                   <div key={s.label} className="text-center">
                     <p className={`text-sm font-semibold tabular-nums ${s.accent ? "text-[#d9a526]" : "text-white"}`}>{s.value}</p>

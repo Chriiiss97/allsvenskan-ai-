@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getPlayersWhoLeftAllsvenskan, getForeignClubSummary, getDirectArrivalsAtClub } from "@/lib/football/post-allsvenskan";
 import { translateClubCountry } from "@/lib/i18n/sv";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
+import { StatSortTabs, parseStatSort, sortByStat } from "@/components/scout/StatSortTabs";
 
 /**
  * Fas 19c (2026-08-23, användarkrav: "man ska kunna trycka på lagen
@@ -24,14 +25,26 @@ import { PlayerAvatar } from "@/components/data/PlayerAvatar";
 
 const nf = (n: number) => n.toLocaleString("sv-SE");
 
-export default async function ForeignClubPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function ForeignClubPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ sortera?: string }>;
+}) {
   const { slug } = await params;
+  const { sortera } = await searchParams;
+  const sort = parseStatSort(sortera);
   const supabase = await createClient();
   const players = await getPlayersWhoLeftAllsvenskan(supabase);
   const club = getForeignClubSummary(players, slug);
   const directArrivals = getDirectArrivalsAtClub(players, slug);
   const directPlayerIds = new Set(directArrivals.map((a) => a.player.playerId));
   if (!club) notFound();
+
+  // Fas 19f — samma delade sortering som "Fördelning per klubb" på
+  // spelarsidan, så de två listorna beter sig identiskt.
+  const sortedPlayers = sortByStat(club.players, sort, (p) => p.atClub);
 
   const country = translateClubCountry(club.country);
 
@@ -88,11 +101,14 @@ export default async function ForeignClubPage({ params }: { params: Promise<{ sl
       <p className="mt-2 text-[11px] text-[#5f5e59]">Sammanlagt av alla f.d. Allsvenska spelare, bara deras tid i {club.teamName}.</p>
 
       <div className="mt-8">
-        <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-[#898781]">
-          <span aria-hidden>🚀</span> Spelare från Allsvenskan
-        </p>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-[#898781]">
+            <span aria-hidden>🚀</span> Spelare från Allsvenskan
+          </p>
+          <StatSortTabs current={sort} hrefFor={(key) => `/scout/efter-allsvenskan/klubb/${slug}?sortera=${key}`} />
+        </div>
         <div className="space-y-1.5">
-          {club.players.map(({ player, atClub }) => (
+          {sortedPlayers.map(({ player, atClub }) => (
             <Link
               key={player.playerId}
               href={`/scout/efter-allsvenskan/${player.playerId}`}
