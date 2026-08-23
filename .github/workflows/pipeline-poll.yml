@@ -35,9 +35,16 @@ jobs:
 
       # if: always() — körs oavsett om steget ovan misslyckades, så ett
       # tillfälligt fel i pre-match aldrig hindrar live-pollningen.
-      - name: Live (pågående matcher)
+      #
+      # Fas 20: `?loops=1` = exakt EN tick, det gamla beteendet. Den riktiga
+      # matchdagspollningen ligger sedan dess i live-poll.yml, som loopar
+      # med 30-sekunderstakt. Det här steget är kvar som ett billigt
+      # skyddsnät ifall den långkörande loopen aldrig startar — utan
+      # loops=1 hade de två jobben pollat samma match parallellt och
+      # skrivit dubbla snapshots.
+      - name: Live (pågående matcher — en tick, skyddsnät)
         if: always()
         run: |
           curl -sf -o /dev/null -w "live: HTTP %{http_code}\n" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ vars.APP_URL }}/api/cron/live"
+            "${{ vars.APP_URL }}/api/cron/live?loops=1"

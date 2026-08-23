@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { describeEvent } from "@/lib/football/event-display";
 
 interface MatchEvent {
   type: string;
@@ -12,11 +13,28 @@ interface MatchEvent {
   assistId?: number | null;
 }
 
+/**
+ * Fas 20 (2026-08-23): ikonen kom tidigare från en egen liten tabell här,
+ * som bara kände till mål/kort/byte. Två fel följde av det, båda synliga i
+ * verifieringen mot en riktig händelselista:
+ *   - En MISSAD STRAFF fick fotbollsikonen, eftersom api-football lägger
+ *     den under type "Goal" (detail "Missed Penalty"). Tidslinjen visade
+ *     alltså en missad straff som ett mål.
+ *   - En VAR-händelse föll igenom till `detail` och visades rått på
+ *     engelska ("Goal cancelled"), mot den hårda svensk-only-regeln.
+ * Ikon och etikett kommer nu från den delade lib/football/event-display.ts,
+ * samma tolkning som matchlistans kompakta rader använder.
+ */
 function eventIcon(event: MatchEvent): string {
-  if (event.type === "goal") return "⚽";
-  if (event.type === "card") return event.detail?.toLowerCase().includes("red") ? "🟥" : "🟨";
-  if (event.type === "subst") return "🔄";
-  return "•";
+  return describeEvent(event.type, event.detail).icon;
+}
+
+/** "(självmål)" / "(straff)" — bara när det faktiskt tillför något. */
+function goalQualifier(detail: string | null): string | null {
+  const d = (detail ?? "").toLowerCase();
+  if (d.includes("own")) return "självmål";
+  if (d.includes("penalty")) return "straff";
+  return null;
 }
 
 /** Klickbar spelarlänk när vi har ett säkert spelar-id, annars vanlig text —
@@ -31,11 +49,24 @@ function PlayerLink({ name, id }: { name: string; id: number | null | undefined 
 }
 
 function EventContent({ event }: { event: MatchEvent }) {
+  const display = describeEvent(event.type, event.detail);
+
   if (event.type === "goal") {
-    const scorer = event.player ? <PlayerLink name={event.player} id={event.playerId} /> : `Mål (${event.team ?? "okänt lag"})`;
+    const scorer = event.player ? <PlayerLink name={event.player} id={event.playerId} /> : `${display.label} (${event.team ?? "okänt lag"})`;
+    // En missad straff är inget mål — den får sin etikett utskriven istället
+    // för att bara stå som ett namn bredvid en ikon (se describeEvent).
+    if (!display.countsAsGoal) {
+      return (
+        <>
+          {scorer} <span className="text-[#898781]">({display.label.toLowerCase()})</span>
+        </>
+      );
+    }
+    const qualifier = goalQualifier(event.detail);
     return (
       <>
         {scorer}
+        {qualifier && <span className="text-[#898781]"> ({qualifier})</span>}
         {event.assist && (
           <span className="text-[#898781]">
             {" "}
@@ -44,6 +75,11 @@ function EventContent({ event }: { event: MatchEvent }) {
         )}
       </>
     );
+  }
+
+  // VAR-granskningar m.fl.: svensk etikett, aldrig API:ts engelska detail.
+  if (event.type === "var") {
+    return <span className="text-[#898781]">{display.label}</span>;
   }
   if (event.type === "card") {
     return event.player ? <PlayerLink name={event.player} id={event.playerId} /> : <>Spelare ({event.team ?? "okänt lag"})</>;
@@ -58,7 +94,7 @@ function EventContent({ event }: { event: MatchEvent }) {
     }
     return <>Byte ({event.team ?? "okänt lag"})</>;
   }
-  return <>{event.detail ?? event.type}</>;
+  return <>{display.label}</>;
 }
 
 /**

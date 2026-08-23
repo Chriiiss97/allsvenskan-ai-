@@ -9,7 +9,7 @@ import { translateMatchFact, extractPlayerHighlight, extractComparisonHighlight 
 import { buildH2HSummary, buildRealH2HSummary } from "@/lib/football/match-h2h-summary";
 import { getStandingsTable } from "@/lib/football/catalog";
 import { MatchStandingsSummary } from "@/components/data/MatchStandingsSummary";
-import { translateRound, translateStatus } from "@/lib/i18n/sv";
+import { translateRound } from "@/lib/i18n/sv";
 import { buildMatchInsight } from "@/lib/football/match-insight";
 import { buildMatchRecap } from "@/lib/football/match-recap";
 import { buildKeyPlayerCategories } from "@/lib/football/match-key-players";
@@ -18,7 +18,6 @@ import { PremiumGate } from "@/components/scout/PremiumGate";
 import { colors } from "@/lib/design/tokens";
 import { MatchTimeline } from "@/components/data/MatchTimeline";
 import { BackButton } from "@/components/nav/BackButton";
-import { timeAgo } from "@/lib/admin/format";
 import { MatchFactGroup, FactRow, type DisplayFact } from "@/components/data/MatchFactGroup";
 import { MatchHeadToHeadSummary } from "@/components/data/MatchHeadToHeadSummary";
 import { MatchKeyPlayers } from "@/components/data/MatchKeyPlayers";
@@ -30,6 +29,10 @@ import { FormationPitch } from "@/components/data/FormationPitch";
 import { buildPitchPlayers } from "@/lib/football/formation-pitch";
 import { buildPreMatchNarrative, buildPostMatchNarrative } from "@/lib/football/match-narrative";
 import { MatchNarrativeCard } from "@/components/data/MatchNarrativeCard";
+import { getLiveFeedForFixtures } from "@/lib/football/live-feed";
+import { MatchLiveHero } from "@/components/live/MatchLiveHero";
+import { LiveMatchTimeline } from "@/components/live/LiveMatchTimeline";
+import { LiveMatchStats } from "@/components/live/LiveMatchStats";
 
 // Steg 9: "Match DNA" — hemma vs bortalagets lagstatistik (possession/skott/
 // hörnor/xG), byggd på steg 8:s getMatchTeamStatsComparison. Bara rader där
@@ -197,21 +200,12 @@ export default async function MatchReportPage({
   const matchStats = await getMatchTeamStatsComparison(supabase, Number(fixtureId));
   const statRows = MATCH_STAT_ROWS.filter((row) => matchStats.home?.[row.key] != null || matchStats.away?.[row.key] != null);
 
-  // Pågående match: post-match-statistiken (fixture_team_stats) finns inte
-  // förrän efter matchen — faller tillbaka till samma live-snapshot som
-  // startsidans live-yta och get_live_matches redan visar (bollinnehav/
-  // skott/hörnor), aldrig xG/fouls som vi inte har live.
-  const liveStatRows: { label: string; home: number | string | null; away: number | string | null; suffix?: string }[] = [];
-  if (statRows.length === 0 && report.isLive && report.liveStats) {
-    if (report.liveStats.possession)
-      liveStatRows.push({ label: "Bollinnehav", home: report.liveStats.possession.home, away: report.liveStats.possession.away, suffix: "%" });
-    if (report.liveStats.shots)
-      liveStatRows.push({ label: "Skott", home: report.liveStats.shots.home, away: report.liveStats.shots.away });
-    if (report.liveStats.shots)
-      liveStatRows.push({ label: "Skott på mål", home: report.liveStats.shots.homeOnTarget, away: report.liveStats.shots.awayOnTarget });
-    if (report.liveStats.corners)
-      liveStatRows.push({ label: "Hörnor", home: report.liveStats.corners.home, away: report.liveStats.corners.away });
-  }
+  // Fas 20: live-statistiken byggdes tidigare här, som en serverrenderad
+  // engångslista ur report.liveStats. Den stod still under matchen och
+  // saknades helt om sidan laddades före avspark. Ansvaret ligger nu på
+  // LiveMatchStats (klientkomponent, samma pollingkanal som hero:n) —
+  // post-matchstatistiken (fixture_team_stats, inkl. xG) renderas fortsatt
+  // på servern eftersom den per definition inte ändrar sig längre.
 
   // Steg 4 (data-sektionens breddning): startelvor/formation — nedan sedan
   // steg 4 av Ultra-plan-projektet, men aldrig visade i UI:t förrän nu.
@@ -239,6 +233,26 @@ export default async function MatchReportPage({
 
   const homeName = report.home?.name ?? "Hemma";
   const awayName = report.away?.name ?? "Borta";
+
+  // Fas 20 — startdata för live-hero/tidslinje. Samma smala flöde som
+  // klientens polling sedan hämtar (lib/football/live-feed.ts), så första
+  // serverrenderade bilden och första pollade uppdateringen har exakt samma
+  // form och aldrig kan visa olika saker för samma läge.
+  const liveFeed = await getLiveFeedForFixtures(supabase, [report.id]);
+  const liveMatch = liveFeed.matches.find((m) => m.fixtureId === report.id) ?? null;
+  // "Går att följa" = matchen är inte avgjord än. MEDVETET bredare än "pågår
+  // just nu": öppnar man sidan en kvart före avspark ska tidslinjen och
+  // statistiken börja fyllas på av sig själva när matchen väl startar,
+  // istället för att stå kvar tomma tills användaren laddar om.
+  const isTrackable = liveMatch ? liveMatch.phase !== "finished" && liveMatch.phase !== "cancelled" : false;
+  const heroContextLine = [
+    report.season,
+    translateRound(report.round),
+    new Date(report.date).toLocaleDateString("sv-SE"),
+    new Date(report.date).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" }),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   // Fas 16b — samma tal som redan visas i FactSection nedan, bara
   // omformade till en visuell sammanfattning respektive kort (H2H-stapel,
@@ -328,52 +342,16 @@ export default async function MatchReportPage({
       <BackButton href="/matcher" label="Alla matcher" />
 
       {/* LEVEL 1 — HERO / MATCH IDENTITY. Ingen inramning — sidans "omslag",
-          bär sin vikt genom typografi och luft, inte ett kort. */}
-      <div className="text-center">
-        {report.isLive ? (
-          <div className="flex items-center justify-center gap-2">
-            <span className="relative flex h-2 w-2 shrink-0" aria-hidden>
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500/50" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
-            </span>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[#e0645f]">
-              Live{report.liveMinute != null ? ` · ${report.liveMinute}′` : ""}
-            </p>
-          </div>
-        ) : (
-          <p className="text-[11px] uppercase tracking-[0.25em] text-[#7d7c76]">
-            {report.season} · {translateRound(report.round)} · {new Date(report.date).toLocaleDateString("sv-SE")}
-            {" · "}
-            {new Date(report.date).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}
-          </p>
-        )}
+          bär sin vikt genom typografi och luft, inte ett kort.
 
-        <div className="mt-6 flex items-center justify-center gap-4 sm:gap-8">
-          <div className="flex flex-1 flex-col items-center gap-2 sm:flex-row sm:justify-end">
-            {report.home?.logoUrl && (
-              // eslint-disable-next-line @next/next/no-img-element -- extern logga
-              <img src={report.home.logoUrl} alt="" className="h-9 w-9 sm:h-12 sm:w-12" />
-            )}
-            <span className="text-base font-bold leading-tight sm:text-2xl">{homeName}</span>
-          </div>
-          <div className="shrink-0 text-4xl font-black tabular-nums tracking-tight sm:text-6xl">
-            {report.homeScore ?? "–"}–{report.awayScore ?? "–"}
-          </div>
-          <div className="flex flex-1 flex-col items-center gap-2 sm:flex-row sm:justify-start">
-            <span className="text-base font-bold leading-tight sm:text-2xl">{awayName}</span>
-            {report.away?.logoUrl && (
-              // eslint-disable-next-line @next/next/no-img-element -- extern logga
-              <img src={report.away.logoUrl} alt="" className="h-9 w-9 sm:h-12 sm:w-12" />
-            )}
-          </div>
-        </div>
+          Fas 20: ställning/status/minut renderas av MatchLiveHero, en
+          klientkomponent som pollar `/api/live?fixture=X` medan matchen
+          pågår (och ingenting alls när den är slutspelad). Markupen är
+          densamma — det är bara datakällan som blivit levande. */}
+      <div>
+        <MatchLiveHero initial={liveFeed} fixtureId={report.id} contextLine={heroContextLine} />
 
-        <p className="mt-4 text-xs text-[#898781]">
-          {!report.isLive && (
-            <span className="mr-2 rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#7d7c76]">
-              {translateStatus(report.status)}
-            </span>
-          )}
+        <p className="mt-4 text-center text-xs text-[#898781]">
           {report.venue}
           {report.referee && <span className="text-[#5f5e59]"> · Domare: {report.referee}</span>}
         </p>
@@ -381,10 +359,9 @@ export default async function MatchReportPage({
           (() => {
             const daysLabel = daysUntilLabel(report.date);
             return daysLabel ? (
-              <p className="mt-2 text-[11px] font-medium uppercase tracking-[0.1em] text-[#7d7c76]">{daysLabel}</p>
+              <p className="mt-2 text-center text-[11px] font-medium uppercase tracking-[0.1em] text-[#7d7c76]">{daysLabel}</p>
             ) : null;
           })()}
-        {report.isLive && report.liveLastUpdated && <p className="mt-2 text-[11px] text-[#5f5e59]">Uppdaterad {timeAgo(report.liveLastUpdated)}</p>}
 
         {((!report.fullPlayerDetail && report.eventsAvailable) || (report.eventsAvailable && !report.eventsComplete)) && (
           <div className="mx-auto mt-5 max-w-md space-y-1 text-[11px] leading-relaxed text-[#7d7c76]">
@@ -603,7 +580,7 @@ export default async function MatchReportPage({
         </div>
       )}
 
-      {(statRows.length > 0 || liveStatRows.length > 0) && (
+      {statRows.length > 0 ? (
         <div className="border-t border-white/5 pt-8">
           <h2 className="flex items-center gap-1.5 text-sm font-semibold">
             <span aria-hidden>📊</span> Lagstatistik
@@ -613,32 +590,37 @@ export default async function MatchReportPage({
             <span>{report.away?.name ?? "Borta"}</span>
           </div>
           <div className="mt-1 divide-y divide-white/5">
-            {statRows.length > 0
-              ? statRows.map((row) => (
-                  <StatCompareRow
-                    key={row.key}
-                    label={row.label}
-                    home={matchStats.home?.[row.key] ?? null}
-                    away={matchStats.away?.[row.key] ?? null}
-                    suffix={row.suffix}
-                  />
-                ))
-              : liveStatRows.map((row) => <StatCompareRow key={row.label} label={row.label} home={row.home} away={row.away} suffix={row.suffix} />)}
+            {statRows.map((row) => (
+              <StatCompareRow
+                key={row.key}
+                label={row.label}
+                home={matchStats.home?.[row.key] ?? null}
+                away={matchStats.away?.[row.key] ?? null}
+                suffix={row.suffix}
+              />
+            ))}
           </div>
-          {statRows.length === 0 && liveStatRows.length > 0 && (
-            <p className="mt-3 text-[11px] text-[#5f5e59]">
-              Live-statistik under matchen — den fullständiga lagstatistiken (inkl. xG) läggs till efter matchslut.
-            </p>
-          )}
         </div>
-      )}
+      ) : isTrackable ? (
+        // Renderar sin egen sektion (rubrik inkluderad) eller ingenting alls
+        // — se komponentens kommentar om varför rubriken bor där.
+        <LiveMatchStats initial={liveFeed} fixtureId={report.id} homeName={homeName} awayName={awayName} />
+      ) : null}
 
       <div className="border-t border-white/5 pt-8">
         <h2 className="flex items-center gap-1.5 text-sm font-semibold">
           <span aria-hidden>⏱️</span> Matchhändelser
         </h2>
         <div className="mt-5">
-          <MatchTimeline events={report.events} homeName={homeName} awayName={awayName} />
+          {/* Fas 20: en pågående match får den pollande varianten (samma
+              visuella tidslinje, färska händelser). En spelad match
+              renderas helt på servern — ingen anledning att starta en
+              timer på en sida där inget kan hända. */}
+          {isTrackable ? (
+            <LiveMatchTimeline initial={liveFeed} fixtureId={report.id} homeName={homeName} awayName={awayName} />
+          ) : (
+            <MatchTimeline events={report.events} homeName={homeName} awayName={awayName} />
+          )}
         </div>
       </div>
     </div>

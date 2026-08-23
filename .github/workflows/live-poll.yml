@@ -1,0 +1,94 @@
+name: Live poll (matchdag)
+
+# Fas 20 (2026-08-23). Kompletterar pipeline-poll.yml, ersätter den inte.
+#
+# BAKGRUND — varför den här behövs. pipeline-poll.yml är schemalagd
+# `2-59/5 * * * *` (var 5:e minut). En mätning av ingestion_log inför
+# matchdagen visade att den i praktiken levererade 52 av 288 förväntade
+# körningar per dygn: mediangap 22,6 min, p90 48 min, max 91,5 min. GitHubs
+# egen dokumentation är tydlig med att schemalagda körningar droppas vid hög
+# belastning, och en cron som fyrar var 5:e minut träffar den belastningen
+# hela tiden. Följden i produkten: Örgryte–Halmstad 2026-08-22 fick FYRA
+# avläsningar under en hel match (minut 36, 45, 61, 86).
+#
+# LÖSNINGEN är att sluta be om många korta väckningar och istället be om
+# FÅ men LÅNGA. Ett schemalagt jobb som väl har startat får köra i timmar —
+# det är bara starten som är opålitlig. Jobbet nedan startar en gång i
+# timmen under matchtid och pollar sedan själv, i den takt endpointen ber
+# om (30 s medan en match rullar).
+#
+# KOSTNAD: GitHub Actions är gratis utan tak för PUBLIKA repon, vilket det
+# här är idag. Flyttas repot till privat (planerat enligt DEPLOYMENT.md)
+# gäller 2 000 gratisminuter/månad — då blir en matchdag på ~5 timmars
+# polling kännbar, och det är läge att flytta pollningen till Vercel Cron
+# på Pro-planen istället. Jobbet avslutar sig SJÄLV så fort endpointen
+# svarar att inget pågår och ingen avspark är nära (`nextPollSeconds: 0`),
+# så en dag utan matcher kostar sekunder, inte timmar.
+#
+# Kräver samma två hemligheter som pipeline-poll.yml:
+#   - secrets.CRON_SECRET   samma värde som Vercel-projektets CRON_SECRET
+#   - vars.APP_URL          appens publika URL
+
+on:
+  schedule:
+    # Startförsök varje hel timme under de timmar Allsvenskan spelar
+    # (UTC — svensk sommartid är UTC+2, så 09–20 UTC ≈ 11:00–22:00 svensk
+    # tid, vilket täcker alla avsparkstider serien använder). Flera missade
+    # starter gör inget: nästa timme tar över, och en start som lyckas
+    # täcker hela timmen.
+    - cron: "0 9-20 * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Hur många minuter loopen ska köra"
+        required: false
+        default: "55"
+
+# Bara en pollande loop åt gången — annars skulle två parallella jobb polla
+# samma match och skriva dubbla snapshots.
+concurrency:
+  group: live-poll
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - name: Polla live-endpointen tills det inte finns något att följa
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          RUN_MINUTES: ${{ github.event.inputs.minutes || '55' }}
+        run: |
+          set -uo pipefail
+          deadline=$(( $(date +%s) + RUN_MINUTES * 60 ))
+
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            response=$(curl -s --max-time 90 \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              "${APP_URL}/api/cron/live") || response=""
+
+            if [ -z "$response" ]; then
+              echo "Inget svar från /api/cron/live — försöker igen om 60 s."
+              sleep 60
+              continue
+            fi
+
+            echo "$response"
+            # Endpointen räknar själv ut nästa intervall utifrån vad som
+            # faktiskt pågår (se app/api/cron/live/route.ts) — pacingen
+            # finns alltså på ETT ställe, inte dubblerad här i bash.
+            next=$(echo "$response" | jq -r '.nextPollSeconds // 0')
+
+            if [ "$next" = "0" ] || [ "$next" = "null" ]; then
+              echo "Inget pågår och ingen avspark är nära — avslutar loopen."
+              exit 0
+            fi
+
+            # Endpointen har redan loopat internt under sin egen körtid, så
+            # den korta vilan här är bara för att inte kalla direkt igen.
+            sleep "$next"
+          done
+
+          echo "Tidsbudgeten slut — nästa schemalagda körning tar över."

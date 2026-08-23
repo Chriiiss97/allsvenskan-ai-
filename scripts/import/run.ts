@@ -46,7 +46,14 @@ const STEPS: Record<string, () => Promise<void>> = {
   standings: importStandings,
   "fix-team-names": fixTeamNameDiacritics,
   "pre-match": runPreMatchPipeline,
-  live: runLiveTick,
+  // Fas 20: runLiveTick returnerar numera en lägesbeskrivning (så cron-
+  // routen kan pacea sin loop). CLI:t bryr sig bara om att den kördes.
+  live: async () => {
+    const result = await runLiveTick();
+    console.log(
+      `Läge: ${result.inPlay} match(er) pågår, ${result.justFinished} nyss slutsignalerad(e), nästa avspark om ${result.minutesToNextKickoff ?? "—"} min, ${result.apiCalls} API-anrop.`
+    );
+  },
   finalize: finalizeMatches,
   // Engångs-backfill av ALLA säsongers player_season_rating (se migration
   // 20260821120000). Ingen API-Football-koppling (räknar bara om redan

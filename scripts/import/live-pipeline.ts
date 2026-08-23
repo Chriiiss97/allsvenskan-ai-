@@ -3,33 +3,68 @@ import type { ApiLiveFixtureResponse, ApiFixtureStatisticsResponse, ApiEventResp
 import { createAdminClient } from "./admin-client";
 import { createTeamCache } from "./team-cache";
 import { createPlayerCache } from "./player-cache";
+import { createVenueCache } from "./venue-cache";
+import { createRefereeCache } from "./referee-cache";
 import { ALLSVENSKAN_LEAGUE_EXTERNAL_ID } from "./config";
-import { LIVE_FIXTURE_STATUSES } from "../../lib/football/tools";
+import { buildEventRows, syncFixtureEvents } from "./event-sync";
+import { runPostMatchImports } from "./finalize-match";
+import { IN_PLAY_STATUSES, matchPhase } from "../../lib/football/live-status";
 
 /**
- * Steg 6 — live-match pipeline. Precis som steg 5 är det här EN
- * pollningsomgång (en "tick"), inte en process som håller sig själv igång —
- * en extern schemaläggare (cron/Vercel Cron/en egen alltid-igång-process)
- * ska anropa den här funktionen upprepat under ett matchfönster (planens
- * ~45–60s). Ingen sådan schemaläggning finns i projektet än, samma
- * medvetna avgränsning som steg 5.
+ * Steg 6 / Fas 20 — live-match pipeline. EN pollningsomgång (en "tick").
  *
- * Nyckelinsikten från steg 1: /fixtures?live=all ger ALLA just nu pågående
- * matcher globalt i ETT anrop — filtreras här ner till bara Allsvenskan.
+ * Nyckelinsikten från steg 1 står kvar: /fixtures?live=all ger ALLA just nu
+ * pågående matcher globalt i ETT anrop — filtreras här ner till Allsvenskan.
  * Det anropet ger status/minut/resultat men INTE possession/skott/hörnor
- * (det kräver /fixtures/statistics per match) — så varje tick gör den
- * billiga live=all-koll för alla matcher, men den dyrare statistics-frågan
- * bara om senaste sparade snapshot för matchen är >3 min gammal (eller
- * saknas), inte varje tick. Ingen extern schemaläggare behöver känna till
- * skillnaden — scriptet avgör det självt från vad som redan är sparat.
+ * (det kräver /fixtures/statistics per match).
  *
- * OBS: kunde inte testas mot en riktig pågående Allsvenskan-match (ingen
- * var live vid byggtillfället — nästa avspark är 2026-08-21). Mekaniken
- * (live=all, fixtures/statistics, fixtures/events mot en INTE-ännu-FT
- * match) är verifierad mot en match i en annan liga; Allsvenskan-specifikt
- * beteende återstår att bekräfta under ett riktigt matchfönster.
+ * ── Vad Fas 20 (2026-08-23) ändrade, och varför ─────────────────────────
+ * En mätning av `ingestion_log` inför matchdagen visade att schemaläggaren
+ * (GitHub Actions, `2-59/5 * * * *`) bara levererade 52 av 288 förväntade
+ * körningar per dygn — mediangap 22,6 min, max 91,5 min. Örgryte–Halmstad
+ * 2026-08-22 fick totalt FYRA avläsningar under hela matchen (minut 36, 45,
+ * 61, 86). Produkten var alltså i snitt ~20 minuter efter verkligheten.
+ * Fyra konkreta följdfel rättas här:
+ *
+ *  1. `fixture.home_score`/`away_score` uppdaterades ALDRIG under matchen
+ *     (bara `status`), så matchlistan visade en pågående match som
+ *     "IFK Göteborg –––– Elfsborg · Kommande". Nu skrivs ställningen varje
+ *     tick, från samma live=all-svar som redan hämtas.
+ *  2. Händelser skrevs med en upsert som tyst dubblerade rader utan
+ *     spelar-id — se event-sync.ts. En förutsättning för tätare polling.
+ *  3. `referee_id`/`venue_id` sattes bara vid säsongsimporten, alltså innan
+ *     domaren ens var utsedd — samtliga 2026-matcher saknade domare. Fylls
+ *     nu vid statusövergång, från ett /fixtures?id=-anrop som ändå är
+ *     billigt och bara görs så länge uppgiften saknas.
+ *  4. Post-match-importen (events/lineups/lagstatistik/spelarstatistik) låg
+ *     på en cron kl 03:00, så en match som slutade 16:30 saknade riktig
+ *     matchdata hela kvällen. Slutsignalen triggar nu samma import direkt.
+ *
+ * Funktionen returnerar dessutom en sammanfattning av läget, så en
+ * anropande loop (app/api/cron/live/route.ts) kan välja nästa intervall
+ * utifrån vad som FAKTISKT pågår istället för ett fast tal.
  */
+
+/** Hur gammal en statistik-avläsning får bli innan vi hämtar en ny. */
 const STATS_REFRESH_MINUTES = 3;
+
+/**
+ * Hur långt fram vi bryr oss om nästa avspark när vi rapporterar tillbaka
+ * till loopen. Matchar pre-match-pipelinens lineup-fönster (120 min) — det
+ * är då det börjar hända saker värda att polla för.
+ */
+const KICKOFF_HORIZON_MINUTES = 120;
+
+export interface LiveTickResult {
+  /** Antal Allsvenskan-matcher som pågår just nu (spel eller paus). */
+  inPlay: number;
+  /** Minuter till nästa avspark, eller null om ingen match startar inom horisonten. */
+  minutesToNextKickoff: number | null;
+  /** Antal matcher som gick över till ett färdigspelat läge i den här ticken. */
+  justFinished: number;
+  /** Antal API-Football-anrop ticken förbrukade — loggas, aldrig uppskattat. */
+  apiCalls: number;
+}
 
 /**
  * En match som en gång fångades av live-tick:en (fixture.status satt till
@@ -53,17 +88,20 @@ const STATS_REFRESH_MINUTES = 3;
 async function closeOutStaleLiveFixtures(
   supabase: ReturnType<typeof createAdminClient>,
   currentlyLiveExternalIds: Set<number>
-) {
+): Promise<{ apiCalls: number; closed: number }> {
   const { data: candidates, error } = await supabase
     .from("fixture")
     .select("id, external_id, status")
-    .in("status", LIVE_FIXTURE_STATUSES);
+    .in("status", IN_PLAY_STATUSES);
   if (error) throw error;
 
+  let apiCalls = 0;
+  let closed = 0;
   for (const c of candidates ?? []) {
     if (!c.external_id || currentlyLiveExternalIds.has(c.external_id)) continue;
 
     const { data: real } = await apiFootballGet<ApiFixtureResponse>("/fixtures", { id: c.external_id });
+    apiCalls++;
     const match = real[0];
     if (!match || match.fixture.status.short === c.status) continue;
 
@@ -72,33 +110,96 @@ async function closeOutStaleLiveFixtures(
       .update({ status: match.fixture.status.short, home_score: match.goals.home, away_score: match.goals.away })
       .eq("id", c.id);
     if (updateError) throw updateError;
+    if (matchPhase(match.fixture.status.short) === "finished") closed++;
     console.log(
       `  ⟳ Match ${c.id} (external_id ${c.external_id}) hade lämnat live-flödet — status rättad ${c.status} → ${match.fixture.status.short} (${match.goals.home}-${match.goals.away}).`
     );
   }
+  return { apiCalls, closed };
+}
+
+/**
+ * Fyller domare och arena för en match som saknar dem. /fixtures?live=all
+ * innehåller INTE de fälten — de kommer bara från den vanliga /fixtures-
+ * formen, som vi ändå behöver anropa sällan. Anropas bara vid en
+ * statusövergång OCH bara så länge `referee_id` faktiskt saknas, så en match
+ * kostar som mest ett fåtal anrop under hela sitt förlopp och noll när
+ * uppgiften väl är på plats.
+ */
+async function backfillFixtureMetadata(
+  supabase: ReturnType<typeof createAdminClient>,
+  fixture: { id: number; external_id: number },
+  caches: { venue: ReturnType<typeof createVenueCache>; referee: ReturnType<typeof createRefereeCache> }
+): Promise<number> {
+  const { data } = await apiFootballGet<ApiFixtureResponse>("/fixtures", { id: fixture.external_id });
+  const match = data[0];
+  if (!match) return 1;
+
+  const venueId = await caches.venue.ensure(match.fixture.venue);
+  const refereeId = await caches.referee.ensure(match.fixture.referee);
+
+  // Bara fält vi FAKTISKT fick ett värde för skrivs — ett null-svar från
+  // API:t ska aldrig nolla en uppgift vi redan har.
+  const patch: { referee_id?: number; venue_id?: number; venue_name?: string } = {};
+  if (refereeId !== null) patch.referee_id = refereeId;
+  if (venueId !== null) patch.venue_id = venueId;
+  if (match.fixture.venue.name) patch.venue_name = match.fixture.venue.name;
+  if (Object.keys(patch).length > 0) {
+    const { error } = await supabase.from("fixture").update(patch).eq("id", fixture.id);
+    if (error) throw error;
+    console.log(`  ℹ Match ${fixture.id}: metadata kompletterad (${Object.keys(patch).join(", ")}).`);
+  }
+  return 1;
+}
+
+/** Minuter till nästa avspark inom horisonten, eller null. */
+async function minutesToNextKickoff(supabase: ReturnType<typeof createAdminClient>): Promise<number | null> {
+  const now = Date.now();
+  const horizon = new Date(now + KICKOFF_HORIZON_MINUTES * 60_000).toISOString();
+  const { data } = await supabase
+    .from("fixture")
+    .select("kickoff_at")
+    .eq("status", "NS")
+    .gte("kickoff_at", new Date(now).toISOString())
+    .lte("kickoff_at", horizon)
+    .order("kickoff_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (!data) return null;
+  return Math.max(0, Math.round((new Date(data.kickoff_at).getTime() - now) / 60_000));
 }
 
 // `supabase`-param (steg 10): se pre-match-pipeline.ts / import-events.ts.
-export async function runLiveTick(supabase: ReturnType<typeof createAdminClient> = createAdminClient()) {
+export async function runLiveTick(
+  supabase: ReturnType<typeof createAdminClient> = createAdminClient()
+): Promise<LiveTickResult> {
   const teamCache = createTeamCache(supabase);
   const playerCache = createPlayerCache(supabase);
+  const venueCache = createVenueCache(supabase);
+  const refereeCache = createRefereeCache(supabase);
+
+  let apiCalls = 0;
+  let justFinished = 0;
 
   const { data: liveFixtures } = await apiFootballGet<ApiLiveFixtureResponse>("/fixtures", { live: "all" });
+  apiCalls++;
 
   const allsvenskanLive = liveFixtures.filter((f) => f.league.id === ALLSVENSKAN_LEAGUE_EXTERNAL_ID);
 
-  await closeOutStaleLiveFixtures(supabase, new Set(allsvenskanLive.map((f) => f.fixture.id)));
+  const closeOut = await closeOutStaleLiveFixtures(supabase, new Set(allsvenskanLive.map((f) => f.fixture.id)));
+  apiCalls += closeOut.apiCalls;
+  justFinished += closeOut.closed;
 
   if (allsvenskanLive.length === 0) {
     console.log(`Inga pågående Allsvenskan-matcher just nu (${liveFixtures.length} live totalt i andra ligor).`);
-    return;
+  } else {
+    console.log(`${allsvenskanLive.length} pågående Allsvenskan-match(er).`);
   }
-  console.log(`${allsvenskanLive.length} pågående Allsvenskan-match(er).`);
 
   for (const live of allsvenskanLive) {
     const { data: fixtureRow } = await supabase
       .from("fixture")
-      .select("id, status")
+      .select("id, status, referee_id")
       .eq("external_id", live.fixture.id)
       .maybeSingle();
     if (!fixtureRow) {
@@ -106,9 +207,23 @@ export async function runLiveTick(supabase: ReturnType<typeof createAdminClient>
       continue;
     }
 
-    // Statusövergång (NS -> 1H/2H/HT osv.) — samma fält som post-match redan uppdaterar.
-    if (fixtureRow.status !== live.fixture.status.short) {
-      await supabase.from("fixture").update({ status: live.fixture.status.short }).eq("id", fixtureRow.id);
+    const statusChanged = fixtureRow.status !== live.fixture.status.short;
+    const phase = matchPhase(live.fixture.status.short);
+
+    // Fas 20: ställningen skrivs nu till fixture-raden, inte bara till
+    // snapshoten. Det är den raden matchlistan och alla lagvyer läser —
+    // utan den visade en pågående match resultatet som "–".
+    if (statusChanged || live.goals.home !== null || live.goals.away !== null) {
+      const { error } = await supabase
+        .from("fixture")
+        .update({ status: live.fixture.status.short, home_score: live.goals.home, away_score: live.goals.away })
+        .eq("id", fixtureRow.id);
+      if (error) throw error;
+    }
+
+    // Domare/arena: bara vid en övergång, bara så länge de saknas.
+    if (statusChanged && fixtureRow.referee_id === null && live.fixture.id) {
+      apiCalls += await backfillFixtureMetadata(supabase, { id: fixtureRow.id, external_id: live.fixture.id }, { venue: venueCache, referee: refereeCache });
     }
 
     // Behöver den här matchen en färsk statistics-avläsning också, eller räcker score/minut?
@@ -120,11 +235,15 @@ export async function runLiveTick(supabase: ReturnType<typeof createAdminClient>
       .limit(1)
       .maybeSingle();
     const snapshotAgeMinutes = lastSnapshot ? (Date.now() - new Date(lastSnapshot.captured_at).getTime()) / 60000 : Infinity;
-    const needsStatsRefresh = snapshotAgeMinutes >= STATS_REFRESH_MINUTES || lastSnapshot?.home_possession_pct == null;
+    // I paus (HT/BT) står spelet stilla — statistiken kan per definition
+    // inte ändras, så där hämtas den bara i den tick då pausen börjar.
+    const statsAllowed = phase === "live" || statusChanged;
+    const needsStatsRefresh = statsAllowed && (snapshotAgeMinutes >= STATS_REFRESH_MINUTES || lastSnapshot?.home_possession_pct == null);
 
     const statsRow: Partial<Record<string, number | null>> = {};
     if (needsStatsRefresh) {
       const { data: teamStats } = await apiFootballGet<ApiFixtureStatisticsResponse>("/fixtures/statistics", { fixture: live.fixture.id });
+      apiCalls++;
       for (const t of teamStats) {
         const isHome = t.team.id === live.teams.home.id;
         const poss = t.statistics.find((s) => s.type === "Ball Possession")?.value;
@@ -148,33 +267,41 @@ export async function runLiveTick(supabase: ReturnType<typeof createAdminClient>
     });
     if (snapshotError) throw snapshotError;
 
-    // Events: hämtas varje tick (billigt, ett anrop) sålänge matchen pågår —
-    // samma upsert-logik som import-events.ts, men mot en match som INTE är
-    // FT än (import-events.ts filtrerar bort sådana med sitt statusfilter).
-    const { data: events } = await apiFootballGet<ApiEventResponse>("/fixtures/events", { fixture: live.fixture.id });
-    for (const e of events) {
-      const teamId = await teamCache.ensure(e.team);
-      const playerId = await playerCache.lookup(e.player.id);
-      const assistPlayerId = await playerCache.lookup(e.assist.id);
-      const { error: eventError } = await supabase.from("event").upsert(
-        {
-          fixture_id: fixtureRow.id,
-          team_id: teamId,
-          player_id: playerId,
-          assist_player_id: assistPlayerId,
-          type: e.type.toLowerCase(),
-          detail: e.detail,
-          comments: e.comments,
-          minute: e.time.elapsed,
-          extra_minute: e.time.extra,
-        },
-        { onConflict: "fixture_id,player_id,minute,type,detail" }
-      );
-      if (eventError) throw eventError;
+    // Events: varje tick medan spelet rullar (billigt, ett anrop). I paus
+    // bara i övergångsticken — inga händelser kan tillkomma medan bollen
+    // ligger stilla, och halvtidspausen är 15 minuter lång.
+    let eventNote = "";
+    if (phase === "live" || statusChanged) {
+      const { data: events } = await apiFootballGet<ApiEventResponse>("/fixtures/events", { fixture: live.fixture.id });
+      apiCalls++;
+      const rows = await buildEventRows(fixtureRow.id, events, {
+        team: (t) => teamCache.ensure(t),
+        player: (id) => playerCache.lookup(id),
+      });
+      const synced = await syncFixtureEvents(supabase, fixtureRow.id, rows);
+      eventNote = ` — ${events.length} events${synced.removed > 0 ? ` (${synced.removed} skräprad borttagen)` : ""}`;
     }
 
     console.log(
-      `  ✓ ${live.teams.home.name} ${live.goals.home}-${live.goals.away} ${live.teams.away.name} (${live.fixture.status.long}, min ${live.fixture.status.elapsed}) — ${events.length} events${needsStatsRefresh ? ", statistik uppdaterad" : ""}`
+      `  ✓ ${live.teams.home.name} ${live.goals.home}-${live.goals.away} ${live.teams.away.name} (${live.fixture.status.long}, min ${live.fixture.status.elapsed})${eventNote}${needsStatsRefresh ? ", statistik uppdaterad" : ""}`
     );
   }
+
+  // Fas 20: slutsignal → full post-match-import DIREKT. Samma fyra steg som
+  // finalize-cronen kör kl 03:00, men nu medan matchen fortfarande är
+  // intressant. Stegen filtrerar själva på "avslutad + inte redan synkad",
+  // så det här är ett no-op när ingen match precis tagit slut — därav
+  // villkoret: kör bara när vi FAKTISKT såg en övergång i den här ticken.
+  if (justFinished > 0) {
+    console.log(`\n${justFinished} match(er) slutsignalerade — kör full post-match-import direkt istället för att vänta på nattens cron.`);
+    await runPostMatchImports(supabase);
+  }
+
+  const nextKickoff = await minutesToNextKickoff(supabase);
+  return {
+    inPlay: allsvenskanLive.length,
+    minutesToNextKickoff: nextKickoff,
+    justFinished,
+    apiCalls,
+  };
 }

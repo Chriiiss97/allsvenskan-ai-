@@ -2,6 +2,10 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getAvailableSeasons, listTeams } from "@/lib/football/catalog";
 import { translateRound } from "@/lib/i18n/sv";
+import { getLiveFeedForToday } from "@/lib/football/live-feed";
+import { matchPhase, statusShortLabel } from "@/lib/football/live-status";
+import { TodayMatches } from "@/components/live/TodayMatches";
+import { StatusPill } from "@/components/live/LiveIndicator";
 
 interface FixtureRow {
   id: number;
@@ -38,6 +42,16 @@ export default async function MatchesPage({
   const { season, home, away, team, result, status } = await searchParams;
   const supabase = await createClient();
 
+  // Fas 20: dagens matcher som en egen, live-uppdaterande sektion överst.
+  // Ett fel här (t.ex. en miljö där fixture_live_snapshots inte migrerats)
+  // ska aldrig sänka hela matcharkivet — sektionen utelämnas bara.
+  let todayFeed = null;
+  try {
+    todayFeed = await getLiveFeedForToday(supabase);
+  } catch {
+    todayFeed = null;
+  }
+
   const seasons = await getAvailableSeasons(supabase);
   const seasonYear = season ? Number(season) : seasons[0]?.year;
   const teams = await listTeams(supabase);
@@ -61,8 +75,13 @@ export default async function MatchesPage({
     if (homeTeamId) query = query.eq("home_team_id", homeTeamId);
     if (awayTeamId) query = query.eq("away_team_id", awayTeamId);
     if (teamId) query = query.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
-    if (status === "finished") query = query.eq("status", "FT");
-    else if (status === "upcoming") query = query.neq("status", "FT");
+    // Fas 20: "Senaste" filtrerade tidigare på exakt status = 'FT' och
+    // missade därmed matcher avgjorda efter förlängning/straffar (AET/PEN),
+    // medan "Kommande" var allt som INTE var FT — alltså även pågående och
+    // inställda matcher. Båda utgår nu från samma fasindelning som resten
+    // av produkten.
+    if (status === "finished") query = query.in("status", ["FT", "AET", "PEN"]);
+    else if (status === "upcoming") query = query.in("status", ["NS", "TBD"]);
 
     // "Senaste" (finished) är mest meningsfullt nyast-först — "Kommande"/
     // "Alla" som ett säsongsschema, kronologiskt (oförändrat sen tidigare).
@@ -100,7 +119,9 @@ export default async function MatchesPage({
   return (
     <div>
       <h1 className="text-2xl font-semibold tracking-tight">Matcher</h1>
-      <p className="mt-1 text-sm text-[#898781]">{fixtures.length} matcher{seasonYear ? ` — säsongen ${seasonYear}` : ""}.</p>
+      <p className="mb-8 mt-1 text-sm text-[#898781]">{fixtures.length} matcher{seasonYear ? ` — säsongen ${seasonYear}` : ""}.</p>
+
+      {todayFeed && todayFeed.matches.length > 0 && <TodayMatches initial={todayFeed} />}
 
       {/* Säsongsväljare */}
       <div className="mt-4 flex flex-wrap gap-1.5">
@@ -230,17 +251,30 @@ export default async function MatchesPage({
                         {" · "}
                         {new Date(f.kickoff_at).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}
                       </span>
-                      {f.status !== "FT" ? (
-                        // Fas 14.0-fix: en ospelad match visade tidigare
-                        // "Bara resultat" (fanns inget resultat alls) —
-                        // samma FT/inte-FT-konvention som statusfiltret
-                        // ovan i denna fil.
-                        <span className="rounded-full bg-[#3987e5]/20 px-2 py-0.5 text-[#3987e5]">Kommande</span>
-                      ) : f.events_synced_at ? (
-                        <span className="rounded-full bg-[#0ca30c]/20 px-2 py-0.5 text-[#0ca30c]">Rapport tillgänglig</span>
-                      ) : (
-                        <span className="rounded-full bg-white/5 px-2 py-0.5">Bara resultat</span>
-                      )}
+                      {/* Fas 20: badgen utgick tidigare från "allt som inte
+                          är FT är kommande", vilket gjorde att en PÅGÅENDE
+                          match presenterades som "Kommande". Nu styr
+                          matchens faktiska fas (lib/football/live-status.ts).
+                          Den här listan är arkivvyn och pollar inte — det
+                          gör "Idag"-sektionen överst — men den ska ändå
+                          aldrig påstå fel sak om en match som rullar. */}
+                      {(() => {
+                        const phase = matchPhase(f.status);
+                        if (phase === "live" || phase === "paused") {
+                          return <StatusPill phase={phase} label={statusShortLabel(f.status)} />;
+                        }
+                        if (phase === "upcoming") {
+                          return <span className="rounded-full bg-[#3987e5]/20 px-2 py-0.5 text-[#3987e5]">Kommande</span>;
+                        }
+                        if (phase === "cancelled") {
+                          return <span className="rounded-full bg-[#d9a526]/15 px-2 py-0.5 text-[#d9a526]">{statusShortLabel(f.status)}</span>;
+                        }
+                        return f.events_synced_at ? (
+                          <span className="rounded-full bg-[#0ca30c]/20 px-2 py-0.5 text-[#0ca30c]">Rapport tillgänglig</span>
+                        ) : (
+                          <span className="rounded-full bg-white/5 px-2 py-0.5">Bara resultat</span>
+                        );
+                      })()}
                     </span>
                   </Link>
                 </li>

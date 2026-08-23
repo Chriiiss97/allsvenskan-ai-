@@ -3,6 +3,7 @@ import type { ApiEventResponse } from "../../lib/api-football/types";
 import { createAdminClient } from "./admin-client";
 import { createTeamCache } from "./team-cache";
 import { createPlayerCache } from "./player-cache";
+import { buildEventRows, syncFixtureEvents } from "./event-sync";
 
 // Ultra: gott om marginal för att täcka alla avslutade matcher i en enda
 // körning (var 60 på gratisplanens 100/dag). Höjd 2026-08-20 från 800 till
@@ -60,34 +61,24 @@ export async function importFixtureEvents(
       fixture: fixture.external_id,
     });
 
-    for (const e of events) {
-      const teamId = await teamCache.ensure(e.team);
-
-      const playerId = await playerCache.lookup(e.player.id);
-      const assistPlayerId = await playerCache.lookup(e.assist.id);
-
-      const { error: eventError } = await supabase.from("event").upsert(
-        {
-          fixture_id: fixture.id,
-          team_id: teamId,
-          player_id: playerId,
-          assist_player_id: assistPlayerId,
-          type: e.type.toLowerCase(),
-          detail: e.detail,
-          comments: e.comments,
-          minute: e.time.elapsed,
-          extra_minute: e.time.extra,
-        },
-        { onConflict: "fixture_id,player_id,minute,type,detail" }
-      );
-      if (eventError) throw eventError;
-    }
+    // Fas 20: avstämmande skrivning istället för rad-för-rad-upsert — se
+    // event-sync.ts. Den här körningen var HALVA orsaken till de dubbletter
+    // som mättes upp på match #3457: live-ticken sparade händelsen först,
+    // och det här steget sparade samma händelse en gång till efteråt när
+    // källan saknade spelar-id.
+    const rows = await buildEventRows(fixture.id, events, {
+      team: (t) => teamCache.ensure(t),
+      player: (id) => playerCache.lookup(id),
+    });
+    const result = await syncFixtureEvents(supabase, fixture.id, rows);
 
     await supabase
       .from("fixture")
       .update({ events_synced_at: new Date().toISOString() })
       .eq("id", fixture.id);
 
-    console.log(`  ✓ Match ${fixture.external_id}: ${events.length} händelser`);
+    console.log(
+      `  ✓ Match ${fixture.external_id}: ${events.length} händelser${result.removed > 0 ? ` (${result.removed} dubblett/föräldralös rad borttagen)` : ""}`
+    );
   }
 }

@@ -142,29 +142,17 @@ export function translateRound(round: string | null): string | null {
 }
 
 /**
- * Fas 17 — samma princip för fixture.status (api-football-koder). Bara
- * FT/NS förekommer i vår data idag (verifierat), men badgen som visar den
- * här texten kan i teorin träffa ett terminalt läge som PST/CANC/ABD om
- * en match ställs in — täcker det kända api-football-facit istället för
- * att bara hantera de två vi råkar ha. Ett okänt/framtida kodord visas
- * rått hellre än att gissa en översättning.
+ * Fas 17 — samma princip för fixture.status (api-football-koder).
+ *
+ * Fas 20: tabellen som låg här täckte BARA de terminala lägena (NS/FT/AET/
+ * PEN/PST/CANC/ABD/AWD/WO) — inte de pågående (1H/HT/2H/ET/BT/P/SUSP/INT/
+ * LIVE). En match i halvtid visade därför den råa koden "HT" i badgen, mot
+ * den hårda svensk-only-regeln. Hela uppsättningen (inkl. fas-klassning,
+ * kortformer och minut-pillens text) bor nu i lib/football/live-status.ts,
+ * så samma kod aldrig kan vara känd på ett ställe och okänd på ett annat.
+ * Den här funktionen är kvar som det etablerade anropsnamnet.
  */
-const STATUS_LABELS: Record<string, string> = {
-  NS: "Ej startad",
-  FT: "Slutspelad",
-  AET: "Efter förlängning",
-  PEN: "Efter straffar",
-  PST: "Uppskjuten",
-  CANC: "Inställd",
-  ABD: "Avbruten",
-  AWD: "Walkover",
-  WO: "Walkover",
-};
-
-export function translateStatus(status: string | null): string | null {
-  if (!status) return null;
-  return STATUS_LABELS[status] ?? status;
-}
+export { statusLabel as translateStatus } from "@/lib/football/live-status";
 
 /**
  * Fas 17 — player.nationality kommer rått från api-football på engelska

@@ -38,12 +38,30 @@ import { computeEventsComplete } from "../../lib/football/match-completeness";
  * app-säker klient (lib/supabase/admin.ts) istället för scriptets egen,
  * och samma klient återanvänds genom hela 7a+7b istället för att skapas om.
  */
-export async function finalizeMatches(supabase: ReturnType<typeof createAdminClient> = createAdminClient()) {
-  console.log("--- Steg 7a: sista full-refresh för nyss avslutade matcher ---");
+/**
+ * Steg 7a fristående (Fas 20, 2026-08-23) — de fyra importerna som gör en
+ * nyss avslutad match komplett. Bruten ur finalizeMatches så live-pipelinen
+ * kan köra EXAKT samma sak i samma sekund som matchen slutsignaleras, istället
+ * för att låta produkten stå med bara live-tickarnas delvisa data ända till
+ * kl 03:00 nästa dygn (mätt: en match som slutade 16:30 fick sin riktiga
+ * eventlista, xG och spelarstatistik först 10,5 timmar senare).
+ *
+ * Alla fyra filtrerar själva på "avslutad status + sync-flaggan är null", så
+ * funktionen är idempotent och ett no-op när ingenting väntar — säker att
+ * anropa ofta. Steg 7b (avstämningen) ingår MEDVETET inte: den går igenom
+ * alla 2500+ avslutade matcher och hör hemma i nattpasset, inte i en
+ * live-tick som ska vara klar på sekunder.
+ */
+export async function runPostMatchImports(supabase: ReturnType<typeof createAdminClient> = createAdminClient()) {
   await importFixtureEvents(undefined, supabase);
   await importLineups(undefined, supabase);
   await importTeamStats(undefined, supabase);
   await importPlayerStats(undefined, supabase);
+}
+
+export async function finalizeMatches(supabase: ReturnType<typeof createAdminClient> = createAdminClient()) {
+  console.log("--- Steg 7a: sista full-refresh för nyss avslutade matcher ---");
+  await runPostMatchImports(supabase);
 
   console.log("\n--- Steg 7b: avstämning mål-events vs facit ---");
 

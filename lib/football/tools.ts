@@ -6,6 +6,7 @@ import { hasPlayedSeason } from "./active-player";
 import { getPositionGroup, selectPeers, type PeerGroupSummary } from "./position-group";
 import { computeEventsComplete } from "./match-completeness";
 import { displayPlayerName } from "./player-name";
+import { IN_PLAY_STATUSES, isInPlayStatus } from "./live-status";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -306,10 +307,14 @@ export async function getFixtures(supabase: Supabase, params: FixturesParams) {
 
 /**
  * API-FOOTBALL:s statuskoder för en match som fortfarande pågår (inte
- * paus-innan/färdig). Källa: samma kodlista live-pipeline.ts jämför mot
- * (status.short) — TBD/NS = inte startad, FT/AET/PEN = klar, resten här.
+ * paus-innan/färdig) — TBD/NS = inte startad, FT/AET/PEN = klar, resten här.
+ *
+ * Fas 20: listan stavades tidigare ut här och var därmed en KOPIA av samma
+ * kunskap som lib/i18n/sv.ts hade en (ofullständig) egen version av. Härleds
+ * nu ur den enda tabellen i lib/football/live-status.ts. Namnet är kvar —
+ * live-pipeline.ts och matchvyn importerar det redan.
  */
-export const LIVE_FIXTURE_STATUSES = ["1H", "HT", "2H", "ET", "BT", "P", "SUSP", "INT", "LIVE"] as const;
+export const LIVE_FIXTURE_STATUSES = IN_PLAY_STATUSES;
 
 /**
  * En match kan bli hängandes kvar på en "live"-status i fixture-tabellen om
@@ -325,7 +330,7 @@ export const LIVE_FIXTURE_MAX_AGE_MS = 3 * 60 * 60 * 1000;
 /** Delad av get_live_matches och get_match_report — samma "räknas som pågår
  * just nu"-regel på båda ställena, se kommentaren på konstanterna ovan. */
 export function isFixtureLikelyLive(status: string, kickoffAt: string): boolean {
-  if (!(LIVE_FIXTURE_STATUSES as readonly string[]).includes(status)) return false;
+  if (!isInPlayStatus(status)) return false;
   return Date.now() - new Date(kickoffAt).getTime() <= LIVE_FIXTURE_MAX_AGE_MS;
 }
 

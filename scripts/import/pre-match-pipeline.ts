@@ -3,6 +3,7 @@ import type { ApiInjuryResponse, ApiLineupResponse } from "../../lib/api-footbal
 import { createAdminClient } from "./admin-client";
 import { createTeamCache } from "./team-cache";
 import { createPlayerCache } from "./player-cache";
+import { IN_PLAY_STATUSES } from "../../lib/football/live-status";
 
 /**
  * Steg 5 — pre-match pipeline. Till skillnad från steg 3–4 (engångs-
@@ -28,6 +29,13 @@ import { createPlayerCache } from "./player-cache";
  */
 const INJURY_WINDOW_HOURS = 48;
 const LINEUP_WINDOW_MINUTES = 120;
+/**
+ * Fas 20: hur långt EFTER avspark vi fortfarande försöker hämta en
+ * laguppställning som saknas. Täcker en hel match med god marginal — en
+ * uppställning som publiceras sent (eller en körning som missades) ska inte
+ * betyda att matchvyn står utan startelva ända tills nattens finalize.
+ */
+const LINEUP_CATCHUP_MINUTES = 210;
 
 interface UpcomingFixture {
   id: number;
@@ -58,18 +66,14 @@ export async function runPreMatchPipeline(supabase: ReturnType<typeof createAdmi
     .returns<UpcomingFixture[]>();
   if (error) throw error;
 
-  if (!upcoming || upcoming.length === 0) {
-    console.log(`Inga kommande matcher inom ${INJURY_WINDOW_HOURS}h — inget att göra.`);
-    return;
-  }
-  console.log(`${upcoming.length} kommande matcher inom ${INJURY_WINDOW_HOURS}h.`);
+  console.log(`${upcoming?.length ?? 0} kommande matcher inom ${INJURY_WINDOW_HOURS}h.`);
 
   // ---------------------------------------------------------------------
   // 1) Skador — ett anrop per lag som spelar inom fönstret, deduplicerat
   // ---------------------------------------------------------------------
-  const fixtureExternalIdSet = new Set(upcoming.map((f) => f.external_id).filter((id): id is number => id !== null));
+  const fixtureExternalIdSet = new Set((upcoming ?? []).map((f) => f.external_id).filter((id): id is number => id !== null));
   const teamsInvolved = new Map<number, { externalId: number; name: string }>();
-  for (const f of upcoming) {
+  for (const f of upcoming ?? []) {
     if (f.home_team?.external_id) teamsInvolved.set(f.home_team.external_id, { externalId: f.home_team.external_id, name: f.home_team.name });
     if (f.away_team?.external_id) teamsInvolved.set(f.away_team.external_id, { externalId: f.away_team.external_id, name: f.away_team.name });
   }
@@ -89,7 +93,7 @@ export async function runPreMatchPipeline(supabase: ReturnType<typeof createAdmi
 
       const playerId = await playerCache.lookup(inj.player.id);
       if (!playerId) continue;
-      const fixture = upcoming.find((f) => f.external_id === inj.fixture.id);
+      const fixture = (upcoming ?? []).find((f) => f.external_id === inj.fixture.id);
       if (!fixture) continue;
 
       // player_injury har medvetet ingen unique constraint (kind='sidelined'
@@ -118,13 +122,38 @@ export async function runPreMatchPipeline(supabase: ReturnType<typeof createAdmi
   // ---------------------------------------------------------------------
   // 2) Laguppställning — bara nära avspark, bara om vi inte redan har den
   // ---------------------------------------------------------------------
-  const dueForLineup = upcoming.filter((f) => {
-    if (f.lineups_synced_at) return false; // redan klar, polla inte i onödan
-    const minutesToKickoff = (new Date(f.kickoff_at).getTime() - now.getTime()) / 60000;
-    return minutesToKickoff <= LINEUP_WINDOW_MINUTES;
-  });
+  // Fas 20 (2026-08-23): egen fråga istället för en filtrering av `upcoming`
+  // ovan, av två skäl som båda visade sig i skarp drift.
+  //
+  //  1. `upcoming` kräver `status = 'NS'` OCH `kickoff_at >= now`. Så fort
+  //     avsparken passerat föll matchen ur listan och laguppställningen
+  //     hämtades ALDRIG mer — förrän nattens finalize-körning. Med en
+  //     schemaläggare som i praktiken vaknar var 22:a minut (mätt) var det
+  //     ren tur att hinna med fönstret: 2026-08-22 räddades matchen av en
+  //     körning som startade 12:59:50 inför en avspark 13:00.
+  //  2. En match kan ha startat utan att laguppställningen publicerats än.
+  //
+  // Nu tas alltså matcher UTAN sparad lineup som antingen startar snart
+  // eller redan har startat (men inte är slutspelade). `lineups_synced_at`
+  // sätts bara när API:t faktiskt gav en uppställning, så en match som ännu
+  // inte publicerat sin plockas upp igen nästa körning — oförändrat.
+  const lineupWindowStart = new Date(now.getTime() - LINEUP_CATCHUP_MINUTES * 60_000).toISOString();
+  const lineupWindowEnd = new Date(now.getTime() + LINEUP_WINDOW_MINUTES * 60_000).toISOString();
+  const { data: dueForLineupRaw, error: lineupQueryError } = await supabase
+    .from("fixture")
+    .select(
+      "id, external_id, kickoff_at, lineups_synced_at, home_team:home_team_id(external_id, name), away_team:away_team_id(external_id, name)"
+    )
+    .is("lineups_synced_at", null)
+    .in("status", ["NS", ...IN_PLAY_STATUSES])
+    .gte("kickoff_at", lineupWindowStart)
+    .lte("kickoff_at", lineupWindowEnd)
+    .order("kickoff_at", { ascending: true })
+    .returns<UpcomingFixture[]>();
+  if (lineupQueryError) throw lineupQueryError;
+  const dueForLineup = dueForLineupRaw ?? [];
 
-  console.log(`\n${dueForLineup.length} matcher inom ${LINEUP_WINDOW_MINUTES} min från avspark utan sparad lineup.`);
+  console.log(`\n${dueForLineup.length} matcher inom lineup-fönstret (−${LINEUP_CATCHUP_MINUTES}/+${LINEUP_WINDOW_MINUTES} min från avspark) utan sparad lineup.`);
   for (const fixture of dueForLineup) {
     if (!fixture.external_id) continue;
     const { data: lineups } = await apiFootballGet<ApiLineupResponse>("/fixtures/lineups", { fixture: fixture.external_id });
