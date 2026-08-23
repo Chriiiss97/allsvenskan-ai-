@@ -2,7 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getTeamProfile, FootballDataError } from "@/lib/football/tools";
 import { getTeamDNA } from "@/lib/football/team-dna";
-import { getAvailableSeasons } from "@/lib/football/catalog";
+import { getTeamSeasons } from "@/lib/football/catalog";
 import { StatBar } from "@/components/data/StatBar";
 import { getTeamAccent } from "@/lib/data/team-colors";
 
@@ -23,16 +23,23 @@ export default async function ScoutTeamProfilePage({
   const { season } = await searchParams;
   const supabase = await createClient();
 
+  // Bara lagets egna allsvenska säsonger i väljaren, och landa på den senaste
+  // av dem om länken bär en säsong laget inte spelade — samma resonemang som
+  // på /lag/[id], se den sidans filhuvud.
+  const seasons = await getTeamSeasons(supabase, id);
+  const requestedSeason = season ? Number(season) : null;
+  const effectiveSeason =
+    requestedSeason && seasons.some((s) => s.year === requestedSeason) ? requestedSeason : seasons[0]?.year;
+
   let profile: Awaited<ReturnType<typeof getTeamProfile>> | null = null;
   let error: string | null = null;
   try {
-    profile = await getTeamProfile(supabase, { team: id, season: season ? Number(season) : undefined });
+    profile = await getTeamProfile(supabase, { team: id, season: effectiveSeason });
   } catch (err) {
     error = err instanceof FootballDataError ? err.message : "Kunde inte hämta laget.";
   }
 
   const accent = getTeamAccent(profile?.team.externalId);
-  const seasons = await getAvailableSeasons(supabase);
   const teamDNA = profile?.season ? await getTeamDNA(supabase, { team: id, season: profile.season }) : null;
 
   return (

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
+import { resolveTeam } from "@/lib/football/resolve-team";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -37,6 +38,68 @@ export async function getAvailableSeasons(supabase: Supabase): Promise<SeasonOpt
     .returns<SeasonOption[]>();
   if (error) throw error;
   return data ?? [];
+}
+
+/**
+ * Kvalspel (t.ex. "Relegation Round") importeras på Allsvenskans säsong även
+ * när ena laget kommer från Superettan — Jönköpings Södra har därför 2 matcher
+ * på säsong 2020 utan att ha spelat Allsvenskan det året (bekräftat mot
+ * databasen: samma mönster i 2019/2021/2022/2023/2024/2025, alltid exakt 2
+ * matcher). En riktig allsvensk säsong är alltid 30 matcher, så tröskeln
+ * separerar de två fallen med råge.
+ */
+const MIN_SEASON_FIXTURES = 10;
+
+/**
+ * Säsongerna ETT lag faktiskt spelade i Allsvenskan, fallande — så
+ * säsongsväljaren på lagsidan inte listar år laget inte var med (användarens
+ * klagomål: man fick klicka runt bland 2016–2026 för att hitta de två år
+ * Jönköpings Södra faktiskt spelade).
+ *
+ * `standings` är förstahandskällan, men den har luckor (Trelleborg 2018 har
+ * 30 matcher och ingen tabellrad), därför union med "har minst
+ * MIN_SEASON_FIXTURES matcher säsongen".
+ *
+ * Lag som ALDRIG spelat Allsvenskan finns ändå i databasen som kvalmotståndare
+ * (IK Brage, Landskrona BoIS, Utsikten) — de faller tillbaka på de säsonger de
+ * har matcher alls, alltså kvalåret, inte hela listan. Först om laget saknar
+ * matcher helt (eller inte går att slå upp) visas alla säsonger, så väljaren
+ * aldrig blir tom.
+ */
+export async function getTeamSeasons(
+  supabase: Supabase,
+  identifier: string,
+  allSeasons?: SeasonOption[]
+): Promise<SeasonOption[]> {
+  const seasons = allSeasons ?? (await getAvailableSeasons(supabase));
+  const team = await resolveTeam(supabase, identifier);
+  if (!team) return seasons;
+
+  const [fixturesResult, standingsResult] = await Promise.all([
+    supabase
+      .from("fixture")
+      .select("season_id")
+      .or(`home_team_id.eq.${team.id},away_team_id.eq.${team.id}`)
+      .returns<{ season_id: number }[]>(),
+    supabase.from("standings").select("season_id").eq("team_id", team.id).returns<{ season_id: number }[]>(),
+  ]);
+
+  const fixturesBySeason = new Map<number, number>();
+  for (const row of fixturesResult.data ?? []) {
+    fixturesBySeason.set(row.season_id, (fixturesBySeason.get(row.season_id) ?? 0) + 1);
+  }
+
+  const playedSeasonIds = new Set<number>();
+  for (const row of standingsResult.data ?? []) playedSeasonIds.add(row.season_id);
+  for (const [seasonId, count] of fixturesBySeason) {
+    if (count >= MIN_SEASON_FIXTURES) playedSeasonIds.add(seasonId);
+  }
+
+  const filtered = seasons.filter((s) => playedSeasonIds.has(s.id));
+  if (filtered.length > 0) return filtered;
+
+  const withAnyFixture = seasons.filter((s) => fixturesBySeason.has(s.id));
+  return withAnyFixture.length > 0 ? withAnyFixture : seasons;
 }
 
 export interface TeamOption {

@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getTeamProfile, getNextFixture, FootballDataError } from "@/lib/football/tools";
 import { resolveTeam } from "@/lib/football/resolve-team";
-import { getAvailableSeasons, getStandingsTable } from "@/lib/football/catalog";
+import { getAvailableSeasons, getStandingsTable, getTeamSeasons } from "@/lib/football/catalog";
 import { RecordBar } from "@/components/data/RecordBar";
 import { FormBadges } from "@/components/data/FormBadges";
 import { PlayerCard } from "@/components/data/PlayerCard";
@@ -28,6 +28,11 @@ import Link from "next/link";
  * Fas 14.4: Lag-DNA flyttat till /scout/lag/[id] (byggd samtidigt, se den
  * sidan) — Statistik-fliken här är nu en Scout-CTA istället för det
  * faktiska innehållet.
+ *
+ * 2026-08-23: säsongsväljaren visar bara lagets EGNA allsvenska år
+ * (getTeamSeasons) istället för hela 2016–2026 — annars fick man klicka sig
+ * igenom elva år för att hitta att t.ex. Jönköpings Södra bara spelade
+ * 2016–2017. Samma uppslag styr vilken säsong sidan öppnas på.
  */
 
 const TABS = [
@@ -62,20 +67,29 @@ export default async function TeamProfilePage({
   const supabase = await createClient();
   const tab: TabKey = TABS.some((t) => t.key === tabParam) ? (tabParam as TabKey) : "oversikt";
 
+  // Säsongerna FÖR DET HÄR LAGET, inte alla 2016–2026 (se getTeamSeasons).
+  // Måste hämtas före profilen: lagöversikten länkar hit med aktuell säsong i
+  // query-strängen (`/lag/764?season=2026`) även för lag som inte spelar i år,
+  // och då ska vi landa på lagets senaste allsvenska säsong istället för en
+  // tom 2026-vy.
+  const seasons = await getAvailableSeasons(supabase);
+  const teamSeasons = await getTeamSeasons(supabase, id, seasons);
+  const requestedSeason = season ? Number(season) : null;
+  const effectiveSeason =
+    requestedSeason && teamSeasons.some((s) => s.year === requestedSeason)
+      ? requestedSeason
+      : teamSeasons[0]?.year;
+
   let profile: Awaited<ReturnType<typeof getTeamProfile>> | null = null;
   let error: string | null = null;
 
   try {
-    profile = await getTeamProfile(supabase, {
-      team: id,
-      season: season ? Number(season) : undefined,
-    });
+    profile = await getTeamProfile(supabase, { team: id, season: effectiveSeason });
   } catch (err) {
     error = err instanceof FootballDataError ? err.message : "Kunde inte hämta laget.";
   }
 
   const accent = getTeamAccent(profile?.team.externalId);
-  const seasons = await getAvailableSeasons(supabase);
   const isCurrentSeason = profile?.season !== null && profile?.season === seasons[0]?.year;
 
   // Tabellplacering — matchad mot standings via external_id (inte lagets
@@ -133,9 +147,9 @@ export default async function TeamProfilePage({
             </div>
           </div>
 
-          {/* Säsongsväljare — från getAvailableSeasons (2016–2026), inte hårdkodad */}
+          {/* Säsongsväljare — bara lagets egna allsvenska år (getTeamSeasons) */}
           <div className="mt-5 flex flex-wrap justify-center gap-1.5 sm:justify-start">
-            {seasons.map((s) => (
+            {teamSeasons.map((s) => (
               <Link
                 key={s.year}
                 href={`/lag/${id}?season=${s.year}${tab !== "oversikt" ? `&tab=${tab}` : ""}`}
