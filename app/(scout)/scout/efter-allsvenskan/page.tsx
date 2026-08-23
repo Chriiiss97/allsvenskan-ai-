@@ -42,9 +42,22 @@ function isValidSort(value: string | undefined): value is SortKey {
   return SORT_OPTIONS.some((o) => o.key === value);
 }
 
-export default async function PostAllsvenskanPage({ searchParams }: { searchParams: Promise<{ sort?: string; club?: string }> }) {
-  const { sort: sortParam, club: clubFilter } = await searchParams;
+/**
+ * Fas 18l (2026-08-23, användarkorrigering) — de redaktionella korten (i
+ * korthet / mest lyckad / längst etablerad / mest dekorerad / exportkurvan /
+ * återvändare) plus klubbtabellen låg MELLAN sorteringsknapparna och
+ * spelarlistan: varje gång man bytte sortering ("Flest mål" → "Flest assist")
+ * fick man scrolla förbi hela analysen igen. De ligger nu i en egen vy
+ * ("Scoutanalys"), ett klick bort — inte gömda, bara inte i vägen. Vyn är en
+ * URL-parameter (`vy`) precis som `sort`/`club`, så den överlever länkning
+ * och bakåtknappen.
+ */
+type View = "spelare" | "analys";
+
+export default async function PostAllsvenskanPage({ searchParams }: { searchParams: Promise<{ sort?: string; club?: string; vy?: string }> }) {
+  const { sort: sortParam, club: clubFilter, vy } = await searchParams;
   const sort: SortKey = isValidSort(sortParam) ? sortParam : "goals";
+  const view: View = vy === "analys" ? "analys" : "spelare";
   const supabase = await createClient();
 
   const players = await getPlayersWhoLeftAllsvenskan(supabase);
@@ -80,6 +93,21 @@ export default async function PostAllsvenskanPage({ searchParams }: { searchPara
   const clubSort = clubSortField[sort] ?? ((c: (typeof clubAggregates)[number]) => c.totalGoals);
   const sortedClubs = [...clubAggregates].sort((a, b) => clubSort(b) - clubSort(a));
 
+  /** Bygger en länk som BEHÅLLER allt man inte uttryckligen ändrar (sortering, klubbfilter, vy). */
+  const hrefFor = (next: { sort?: SortKey; club?: string | null; view?: View }) => {
+    const params = new URLSearchParams();
+    params.set("sort", next.sort ?? sort);
+    const club = next.club === undefined ? clubFilter : next.club;
+    if (club) params.set("club", club);
+    if ((next.view ?? view) === "analys") params.set("vy", "analys");
+    return `/scout/efter-allsvenskan?${params.toString()}`;
+  };
+
+  // "Så räknas mest lyckad" hör hemma i analysvyn — men också i listan när
+  // den FAKTISKT är sorterad på "Mest lyckad", annars står placeringarna där
+  // helt oförklarade.
+  const showMethod = mostSuccessful !== null && (view === "analys" || sort === "success");
+
   return (
     <div>
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#a78bfa]">Scout Network</p>
@@ -89,19 +117,53 @@ export default async function PostAllsvenskanPage({ searchParams }: { searchPara
         vilka som &quot;kan ha&quot; lämnat.
       </p>
 
-      <div className="mt-5 flex flex-wrap gap-1.5">
-        {SORT_OPTIONS.map((o) => (
+      {/* Vyväxlare — medvetet en annan form än sorteringsknapparna nedan
+          (segmenterad ram, inte fristående piller) så att det syns att den
+          byter SIDINNEHÅLL, inte sortering. */}
+      <div className="mt-5 inline-flex rounded-lg border border-white/10 p-0.5">
+        {([
+          { key: "spelare", label: "🚀 Spelare" },
+          { key: "analys", label: "📊 Scoutanalys" },
+        ] as const).map((v) => (
           <Link
-            key={o.key}
-            href={`/scout/efter-allsvenskan?sort=${o.key}${clubFilter ? `&club=${encodeURIComponent(clubFilter)}` : ""}`}
-            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-              sort === o.key ? "bg-white text-black" : "bg-white/5 text-[#898781] hover:text-white"
+            key={v.key}
+            href={hrefFor({ view: v.key })}
+            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+              view === v.key ? "bg-white text-black" : "text-[#898781] hover:text-white"
             }`}
           >
-            {o.label}
+            {v.label}
           </Link>
         ))}
       </div>
+      {view === "spelare" && (
+        <p className="mt-2 text-xs text-[#5f5e59]">
+          Mest lyckad export, mest dekorerad, exportkurvan och återvändare ligger under{" "}
+          <Link href={hrefFor({ view: "analys" })} className="text-[#a78bfa] hover:underline">
+            Scoutanalys
+          </Link>
+          .
+        </p>
+      )}
+
+      {view === "spelare" && (
+        <div className="mt-4 flex flex-wrap gap-1.5">
+          {SORT_OPTIONS.map((o) => (
+            <Link
+              key={o.key}
+              href={hrefFor({ sort: o.key })}
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                sort === o.key ? "bg-white text-black" : "bg-white/5 text-[#898781] hover:text-white"
+              }`}
+            >
+              {o.label}
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {view === "analys" && (
+        <>
 
       {/*
         Fas 18h (2026-08-23, användarkrav) — "Efter Allsvenskan i korthet":
@@ -271,7 +333,10 @@ export default async function PostAllsvenskanPage({ searchParams }: { searchPara
       {decoratedAbroad.length > 0 && (
         <div className="mt-4 rounded-xl border border-white/10 border-l-2 border-l-[#a78bfa] bg-[#141418] p-5">
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#a78bfa]">🏆 Mest dekorerad efter Allsvenskan</p>
-          <p className="mt-1 text-xs text-[#898781]">Titlar (place: Winner) vunna EFTER Allsvenskan — svenska titlar räknas aldrig med.</p>
+          <p className="mt-1 text-xs text-[#898781]">
+            Titlar (place: Winner) vunna EFTER Allsvenskan — svenska titlar räknas aldrig med. Klicka på en spelare för alla titlar, per land och
+            klubb.
+          </p>
           <div className="mt-3 space-y-0.5">
             {decoratedAbroad.slice(0, 6).map((e, i) => (
               <Link
@@ -381,7 +446,7 @@ export default async function PostAllsvenskanPage({ searchParams }: { searchPara
                   <tr key={c.previousTeamName} className="border-b border-white/5 last:border-0 hover:bg-white/[.02]">
                     <td className="p-3">
                       <Link
-                        href={`/scout/efter-allsvenskan?sort=${sort}&club=${encodeURIComponent(c.previousTeamName)}`}
+                        href={hrefFor({ club: c.previousTeamName, view: "spelare" })}
                         className="flex items-center gap-2.5 hover:underline"
                       >
                         {c.previousTeamLogoUrl ? (
@@ -406,8 +471,11 @@ export default async function PostAllsvenskanPage({ searchParams }: { searchPara
           </div>
         </div>
       )}
+        </>
+      )}
 
       {/* Spelarlistan */}
+      {view === "spelare" && (
       <div className="mt-8">
         <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-[#898781]">
           <span aria-hidden>🚀</span> Spelare
@@ -415,7 +483,7 @@ export default async function PostAllsvenskanPage({ searchParams }: { searchPara
             <>
               {" "}
               — {clubFilter}{" "}
-              <Link href={`/scout/efter-allsvenskan?sort=${sort}`} className="normal-case text-[#3987e5] hover:underline">
+              <Link href={hrefFor({ club: null })} className="normal-case text-[#3987e5] hover:underline">
                 (rensa filter)
               </Link>
             </>
@@ -497,13 +565,14 @@ export default async function PostAllsvenskanPage({ searchParams }: { searchPara
           </div>
         )}
       </div>
+      )}
 
       {/*
         Uttryckligt användarkrav (2026-08-23): "Claude ska inte hitta på 'bäst
         totalt'. Vi behöver definiera exakt hur det räknas." Metoden ligger
         därför öppet på sidan, inte bara i koden.
       */}
-      {mostSuccessful && (
+      {showMethod && mostSuccessful && (
         <details className="mt-8 rounded-xl border border-white/10 bg-[#141418] p-4 text-sm text-[#898781]">
           <summary className="cursor-pointer font-semibold text-[#c3c2b7]">Så räknas &quot;mest lyckad efter Allsvenskan&quot;</summary>
           <div className="mt-3 space-y-3 leading-relaxed">

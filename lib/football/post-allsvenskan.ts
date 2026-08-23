@@ -91,6 +91,14 @@ export interface PostAllsvenskanPlayer {
    */
   departureCount: number;
   /**
+   * Fas 18l (2026-08-23) — första säsongen i en kvalificerande utlandsstint,
+   * dvs. den ÅRSGRÄNS efter vilken något överhuvudtaget kan vara "efter
+   * Allsvenskan". Behövs för trofédatan, som (till skillnad från
+   * `player_career_stint`) inte har någon klubb- eller Allsvenskan-koppling
+   * och därför inte kan filtreras på annat sätt — se getMostDecoratedAbroad.
+   */
+  firstForeignYear: number;
+  /**
    * Fas 18j (2026-08-23) — spelarens position, rå från `player.position`
    * ("Attacker"/"Midfielder"/"Defender"/"Goalkeeper"/"Forward"). Behövs för
    * att "Mest lyckad efter Allsvenskan" ska kunna jämföra mål/assist INOM
@@ -465,6 +473,7 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
       longestAbroadStreakToYear: streakBestTo,
       longestAbroadStreakYears: streakBestLen,
       departureCount,
+      firstForeignYear,
       position: player.position,
       minutesByLevel,
       peakLevel,
@@ -599,19 +608,34 @@ interface TrophyRow {
 }
 
 /**
+ * `player_trophy.season` är rå text från api-football: "2019/2020" eller
+ * "2019". Titeln avgörs vid säsongens SLUT, så SLUTåret är rätt år att pröva
+ * mot "efter Allsvenskan"-gränsen ("2021/2022" för en spelare som lämnade
+ * inför 2022 är vunnen utomlands, inte innan). Startåret används däremot vid
+ * klubbmatchningen, eftersom `player_career_stint.season_year` är startåret.
+ */
+function trophySeasonYears(season: string): { startYear: number | null; endYear: number | null } {
+  const years = season.match(/\d{4}/g);
+  if (!years) return { startYear: null, endYear: null };
+  return { startYear: Number(years[0]), endYear: Number(years[years.length - 1]) };
+}
+
+/**
  * Fas 18k (2026-08-23, "Mest dekorerad efter Allsvenskan") — troféer VUNNA
  * UTOMLANDS (player_trophy, real data från api-football /trophies, se
- * player-trophies.ts:s filhuvud). Samma två regler som resten av "Efter
- * Allsvenskan":
+ * player-trophies.ts:s filhuvud). Tre regler:
  *   1. Bara `place === "Winner"` (samma regel som PlayerTrophiesSection —
  *      en 2:a-plats är ingen titel).
  *   2. Bara `country !== "Sweden"` — en svensk titel (t.ex. Svenska Cupen
  *      innan avgången, eller en titel efter en eventuell återkomst till
- *      Allsvenskan) räknas inte som "efter Allsvenskan". Till skillnad från
- *      `player_career_stint` har `player_trophy` INGEN klubbkoppling, så en
- *      exakt säsongs-gräns (samma princip som `stints`-filtret) går inte
- *      att sätta — men en icke-svensk titel kan per definition bara vinnas
- *      medan spelaren faktiskt spelade utomlands, så landsfiltret räcker.
+ *      Allsvenskan) räknas inte som "efter Allsvenskan".
+ *   3. Fas 18l (2026-08-23, BUGG hittad i verifieringen av den nya
+ *      detaljvyn): titeln måste vara vunnen `firstForeignYear` eller senare.
+ *      Filhuvudet hävdade tidigare att en icke-svensk titel "per definition
+ *      bara kan vinnas medan spelaren spelade utomlands" — det är FALSKT för
+ *      alla utländska spelare som kom TILL Allsvenskan med en meritlista.
+ *      Verkligt fall: V. Kreida låg #1 på 12 titlar, varav 8 vunna med Flora
+ *      Tallinn 2015–2021, alltså INNAN han någonsin lämnade Allsvenskan.
  * Begränsad till spelare som REDAN kvalificerar sig till "Efter
  * Allsvenskan" (samma pool som resten av sidan — se `players`-parametern).
  */
@@ -620,18 +644,17 @@ export async function getMostDecoratedAbroad(supabase: Supabase, players: PostAl
     supabase.from("player_trophy").select("player_id, league_name, country, season, place").returns<TrophyRow[]>()
   );
 
-  const qualifyingIds = new Set(players.map((p) => p.playerId));
+  const playerById = new Map(players.map((p) => [p.playerId, p]));
   const trophiesByPlayer = new Map<number, { leagueName: string; country: string | null; season: string }[]>();
   for (const r of rows) {
-    if (!qualifyingIds.has(r.player_id)) continue;
-    if (r.place !== "Winner") continue;
-    if ((r.country ?? "").trim().toLowerCase() === "sweden") continue;
+    const player = playerById.get(r.player_id);
+    if (!player) continue;
+    if (!isTrophyAfterAllsvenskan(r, player.firstForeignYear)) continue;
     const list = trophiesByPlayer.get(r.player_id) ?? [];
     list.push({ leagueName: r.league_name, country: r.country, season: r.season });
     trophiesByPlayer.set(r.player_id, list);
   }
 
-  const playerById = new Map(players.map((p) => [p.playerId, p]));
   return [...trophiesByPlayer.entries()]
     .map(([playerId, trophies]) => ({
       player: playerById.get(playerId)!,
@@ -640,6 +663,114 @@ export async function getMostDecoratedAbroad(supabase: Supabase, players: PostAl
     }))
     .sort((a, b) => b.winCount - a.winCount)
     .slice(0, limit);
+}
+
+/** De tre reglerna ovan, på ETT ställe — listan och detaljvyn får aldrig räkna olika. */
+function isTrophyAfterAllsvenskan(row: { country: string | null; season: string; place: string }, firstForeignYear: number): boolean {
+  if (row.place !== "Winner") return false;
+  if ((row.country ?? "").trim().toLowerCase() === "sweden") return false;
+  const { endYear } = trophySeasonYears(row.season);
+  // Saknas årtal helt går gränsen inte att pröva — då räknas titeln inte,
+  // hellre en titel för lite än en som vanns innan spelaren ens lämnade.
+  return endYear !== null && endYear >= firstForeignYear;
+}
+
+export interface AbroadTrophy {
+  leagueName: string;
+  country: string | null;
+  season: string;
+  /** Klubben spelaren dokumenterat spelade för när titeln vanns — null när den inte går att fastställa ENTYDIGT ur karriärdatan. */
+  clubName: string | null;
+  clubLogoUrl: string | null;
+  /**
+   * Hur klubben härleddes: "season" = samma land OCH samma säsong som titeln
+   * (starkt), "country" = bara samma land, men spelaren har bara haft en enda
+   * dokumenterad klubb där (svagare — markeras separat i UI:t). null när
+   * ingen klubb kunde knytas till titeln.
+   */
+  clubMatch: "season" | "country" | null;
+}
+
+export interface AbroadTrophyGroup {
+  country: string | null;
+  count: number;
+  /** Nyaste säsong först. */
+  trophies: AbroadTrophy[];
+}
+
+export interface AbroadTrophySummary {
+  total: number;
+  /** Flest titlar först. */
+  byCountry: AbroadTrophyGroup[];
+}
+
+/**
+ * Fas 18l (2026-08-23, användarkrav) — listsidans "🏆 Mest dekorerad efter
+ * Allsvenskan" visar bara de två senaste titlarna + "+N till"; klickar man
+ * på spelaren gick det inte att se VAR resten kom ifrån. Den här funktionen
+ * ger HELA titellistan för EN spelare, genom exakt samma
+ * isTrophyAfterAllsvenskan-regel som getMostDecoratedAbroad använder — så att
+ * antalet aldrig kan skilja sig mellan listan och detaljvyn.
+ *
+ * `player_trophy` har INGEN klubbkoppling (api-football /trophies ger bara
+ * liga/land/säsong/placering). Klubben härleds därför ur den redan
+ * importerade karriärdatan (`player_career_stint`) — och BARA när den blir
+ * entydig: exakt en klubb i samma land samma säsong, annars exakt en klubb i
+ * landet över hela karriären. Går det inte att avgöra visas ingen klubb alls
+ * istället för en gissning.
+ */
+export async function getAbroadTrophies(supabase: Supabase, player: PostAllsvenskanPlayer): Promise<AbroadTrophySummary> {
+  const [trophyResult, stintResult] = await Promise.all([
+    supabase.from("player_trophy").select("league_name, country, season, place").eq("player_id", player.playerId),
+    supabase.from("player_career_stint").select("team_name, team_logo_url, league_country, season_year").eq("player_id", player.playerId),
+  ]);
+  // Felresistent av samma skäl som getPlayerTrophies: migrationen/importen
+  // kan vara okörd — då finns inga titlar att visa, inte ett fel att kasta.
+  if (trophyResult.error) return { total: 0, byCountry: [] };
+
+  const stints = (stintResult.data ?? []) as { team_name: string; team_logo_url: string | null; league_country: string | null; season_year: number }[];
+
+  /** Exakt en distinkt klubb i urvalet → den klubben, annars null (ingen gissning). */
+  const soleClub = (rows: typeof stints) => {
+    const byName = new Map<string, { name: string; logo: string | null }>();
+    for (const r of rows) byName.set(normalizeTeamName(r.team_name), { name: r.team_name, logo: r.team_logo_url });
+    return byName.size === 1 ? [...byName.values()][0] : null;
+  };
+
+  const resolveClub = (country: string | null, season: string): Pick<AbroadTrophy, "clubName" | "clubLogoUrl" | "clubMatch"> => {
+    const key = country?.trim().toLowerCase();
+    const none = { clubName: null, clubLogoUrl: null, clubMatch: null };
+    if (!key) return none;
+    const inCountry = stints.filter((s) => (s.league_country ?? "").trim().toLowerCase() === key);
+    if (inCountry.length === 0) return none;
+    const { startYear } = trophySeasonYears(season);
+    if (startYear !== null) {
+      const sameSeason = soleClub(inCountry.filter((s) => s.season_year === startYear));
+      if (sameSeason) return { clubName: sameSeason.name, clubLogoUrl: sameSeason.logo, clubMatch: "season" };
+    }
+    const anySeason = soleClub(inCountry);
+    return anySeason ? { clubName: anySeason.name, clubLogoUrl: anySeason.logo, clubMatch: "country" } : none;
+  };
+
+  const trophies: AbroadTrophy[] = (trophyResult.data ?? [])
+    .filter((r) => isTrophyAfterAllsvenskan(r, player.firstForeignYear))
+    .map((r) => ({ leagueName: r.league_name, country: r.country, season: r.season, ...resolveClub(r.country, r.season) }));
+
+  const groups = new Map<string, AbroadTrophyGroup>();
+  for (const t of trophies) {
+    const key = t.country ?? "";
+    const group = groups.get(key) ?? { country: t.country, count: 0, trophies: [] };
+    group.count += 1;
+    group.trophies.push(t);
+    groups.set(key, group);
+  }
+
+  return {
+    total: trophies.length,
+    byCountry: [...groups.values()]
+      .map((g) => ({ ...g, trophies: g.trophies.sort((a, b) => b.season.localeCompare(a.season)) }))
+      .sort((a, b) => b.count - a.count || (a.country ?? "").localeCompare(b.country ?? "")),
+  };
 }
 
 /** "Vilka klubbars spelare har presterat bäst utomlands" — real summering per f.d. Allsvensk klubb, ingen egen 'framgångspoäng'. */

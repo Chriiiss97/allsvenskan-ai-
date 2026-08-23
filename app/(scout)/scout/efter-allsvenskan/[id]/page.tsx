@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getPlayersWhoLeftAllsvenskan } from "@/lib/football/post-allsvenskan";
+import { getPlayersWhoLeftAllsvenskan, getAbroadTrophies } from "@/lib/football/post-allsvenskan";
 import { computePostAllsvenskanSuccess } from "@/lib/football/post-allsvenskan-success";
 import { getCareerJourney } from "@/lib/football/career-journey";
 import { translateNationality } from "@/lib/i18n/sv";
@@ -51,6 +51,10 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
   const [allPlayers, journey] = await Promise.all([getPlayersWhoLeftAllsvenskan(supabase), getCareerJourney(supabase, { playerId })]);
   const player = allPlayers.find((p) => p.playerId === playerId);
   if (!player) notFound();
+
+  // Sekventiellt, inte i Promise.all ovan: trofégränsen ("efter Allsvenskan")
+  // är spelarens `firstForeignYear`, som räknas fram i getPlayersWhoLeftAllsvenskan.
+  const trophies = await getAbroadTrophies(supabase, player);
 
   const { ranked } = computePostAllsvenskanSuccess(allPlayers);
   const success = ranked.find((e) => e.player.playerId === playerId) ?? null;
@@ -125,6 +129,77 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
       <p className="mt-2 text-[11px] text-[#5f5e59]">
         Total för hela perioden efter att {player.playerName} lämnade Allsvenskan — Allsvensk statistik räknas aldrig med.
       </p>
+
+      {/*
+        Fas 18l (2026-08-23, användarkrav) — listsidans "🏆 Mest dekorerad
+        efter Allsvenskan" visar bara två titlar + "+N till"; klickade man på
+        spelaren fanns ingenstans att se VAR resten kom ifrån. Här ligger HELA
+        titellistan, grupperad per land, med samma två regler som listan
+        (place === "Winner", country !== Sweden) så att antalet aldrig kan
+        skilja sig åt. Klubben per titel är HÄRLEDD ur karriärdatan (trofédatan
+        saknar klubbkoppling) och visas bara när den blir entydig — se
+        getAbroadTrophies i lib/football/post-allsvenskan.ts.
+      */}
+      {trophies.total > 0 && (
+        <div className="mt-8 rounded-xl border border-white/10 border-l-2 border-l-[#d9a526] bg-[#141418] p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#d9a526]">🏆 Titlar efter Allsvenskan</p>
+            <p className="text-xs text-[#898781]">
+              <span className="font-semibold tabular-nums text-white">{trophies.total}</span> {trophies.total === 1 ? "titel" : "titlar"} i{" "}
+              {trophies.byCountry.length} {trophies.byCountry.length === 1 ? "land" : "länder"}
+            </p>
+          </div>
+
+          <div className="mt-4 space-y-5">
+            {trophies.byCountry.map((g) => (
+              <div key={g.country ?? "okant"}>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-[#7d7c76]">
+                  {(g.country ? (translateNationality(g.country) ?? g.country) : "Okänt land")} · {g.count} {g.count === 1 ? "titel" : "titlar"}
+                </p>
+                <ol className="mt-1.5">
+                  {g.trophies.map((t, i) => (
+                    <li
+                      key={`${t.leagueName}-${t.season}-${i}`}
+                      className="flex items-center justify-between gap-3 border-b border-white/5 py-2.5 last:border-0"
+                    >
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        {t.clubLogoUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element -- extern lagtröjbild
+                          <img src={t.clubLogoUrl} alt="" className="h-6 w-6 shrink-0 object-contain" />
+                        ) : (
+                          <span className="shrink-0 text-base" aria-hidden>
+                            🏆
+                          </span>
+                        )}
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-white">{t.leagueName}</p>
+                          {t.clubName ? (
+                            <p className="truncate text-[11px] text-[#7d7c76]">
+                              med {t.clubName}
+                              {t.clubMatch === "country" && <span className="text-[#5f5e59]"> †</span>}
+                            </p>
+                          ) : (
+                            <p className="truncate text-[11px] text-[#5f5e59]">Klubb inte fastställd</p>
+                          )}
+                        </div>
+                      </div>
+                      <span className="shrink-0 text-xs tabular-nums text-[#898781]">{t.season}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ))}
+          </div>
+
+          <p className="mt-4 text-[10px] leading-relaxed text-[#5f5e59]">
+            Bara vunna titlar (place: Winner) utanför Sverige — svenska titlar räknas aldrig som &quot;efter Allsvenskan&quot;. Trofédatan
+            (api-football /trophies) innehåller ingen klubbkoppling, så klubben är härledd ur {player.playerName}s importerade karriärdata: samma
+            land och samma säsong som titeln, och bara när exakt en klubb matchar.
+            {trophies.byCountry.some((g) => g.trophies.some((t) => t.clubMatch === "country")) &&
+              " † = härledd enbart på land (spelaren har bara en dokumenterad klubb där, men inte just den säsongen)."}
+          </p>
+        </div>
+      )}
 
       {/*
         Fas 18j (2026-08-23) — spelarens placering i "Mest lyckad efter
