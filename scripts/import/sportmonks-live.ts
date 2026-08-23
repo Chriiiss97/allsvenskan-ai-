@@ -121,7 +121,13 @@ function isMissingTable(error: { code?: string; message?: string } | null): bool
   return error.code === "42P01" || error.code === "PGRST205" || /does not exist|schema cache/i.test(error.message ?? "");
 }
 
-async function writeLiveDataForFixture(
+/**
+ * Exporterad för att kunna köras mot EN bestämd match — t.ex. en nyss
+ * avslutad, där Sportmonks fortfarande har kommentaren och statistiken kvar
+ * men runSportmonksLiveTick inte längre plockar upp den (den filtrerar på
+ * pågående status). Används av verifiering och engångs-backfill.
+ */
+export async function writeLiveDataForFixture(
   supabase: ReturnType<typeof createAdminClient>,
   fixture: { id: number; sportmonks_id: number },
   teamIdBySm: Map<number, number>
