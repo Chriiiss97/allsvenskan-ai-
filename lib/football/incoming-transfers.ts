@@ -78,6 +78,12 @@ type Supabase = SupabaseClient<Database>;
  * Se {@link hadEarlierAllsvenskanSpell} för varför flaggan behöver TVÅ
  * bevisspår, och vilket verkligt fall som avslöjade att ett inte räckte.
  *
+ * Fas 22d (2026-08-24): återvändarna räknas dessutom — `returnCount` säger
+ * HUR MÅNGA gånger spelaren kommit tillbaka, inte bara att han gjort det.
+ * Siffran kommer ur en kronologisk sejour-automat över spelarens övergångar
+ * (se den i getIncomingTransfers), som samtidigt rättar `isReturnee`: ett
+ * lån följt av en permanent övergång till samma klubb är EN ankomst.
+ *
  * ── PRESTANDA ────────────────────────────────────────────────────────────
  * Fem bulk-frågor + JS-aggregering (samma mönster som post-allsvenskan.ts),
  * alla parallella och sidnumrerade via fetchAllRows. Cachas av
@@ -142,6 +148,12 @@ export interface IncomingSigning {
   seasonsAtClub: number;
   /** Hade spelaren allsvenskt spel redan innan övergången? */
   isReturnee: boolean;
+  /**
+   * Hur många gånger spelaren återvänt till Allsvenskan under HELA karriären
+   * (inte bara den här värvningen). 0 för den som aldrig varit här förut.
+   * Se sejour-automaten i getIncomingTransfers.
+   */
+  returnCount: number;
   /** Spelar spelaren fortfarande, eller har karriären tagit slut? Se player-activity.ts. */
   activity: PlayerActivity;
 
@@ -339,6 +351,97 @@ export async function getIncomingTransfers(supabase: Supabase): Promise<Incoming
   }
 
   /**
+   * Fas 22d (2026-08-24, användarkrav: "hur många gånger har dom återvänt?").
+   * Spelarens allsvenska SEJOURER, i kronologisk ordning — underlaget både
+   * för räknaren och för `isReturnee`-flaggan på varje värvning.
+   *
+   * ── AUTOMATEN UTGÅR FRÅN DESTINATIONEN ────────────────────────────────
+   * Efter varje övergång är spelaren "inne" i Allsvenskan om och endast om
+   * övergångens MÅLKLUBB är en av våra allsvenska klubbar. En ny sejour
+   * börjar varje gång automaten går utanför → inne.
+   *
+   * Det var inte det första försöket. VERKLIGT FALL (John Guidetti) som
+   * avslöjade varför avfärder inte går att läsa ur `from_team`: hans lån till
+   * IF Brommapojkarna 2010 står som "Manchester City → Brommapojkarna", och
+   * när lånet tog slut står nästa rad som "Manchester City → Burnley". Ingen
+   * rad har alltså Brommapojkarna som AVSÄNDARE — läser man bara rader som
+   * rör en allsvensk klubb ser spelaren ut att aldrig ha lämnat, och
+   * hemkomsten till AIK 2022 räknas bort som "han var ju redan här".
+   * api-football bokför lån från MODERKLUBBEN, inte från lånklubben.
+   *
+   * Tre konsekvenser av att läsa destinationen i stället:
+   *  · Lån + permanent till samma klubb utan mellanliggande avfärd (det
+   *    vanligaste dubbelbokföringsfallet — Kadewere/Djurgården 2015+2016,
+   *    Kharaishvili/IFK Göteborg 2018+2019, Celina/AIK 2023+2024) blir EN
+   *    sejour. De var nya i Allsvenskan, inte återvändare.
+   *  · Klubbyte inom ligan förlänger sejouren i stället för att starta en ny.
+   *  · Två identiska rader för samma flytt (Yasin/Örebro 2025-06-29 och
+   *    2025-07-20) räknas en gång.
+   *
+   * En övergång med OKÄND målklubb hoppas över helt i stället för att tolkas
+   * som en avfärd: den bevisar ingenting, och att gissa "han lämnade" skulle
+   * kunna dela en sammanhängande sejour i två och hitta på en återkomst.
+   *
+   * Om sejouren är en ÅTERKOMST avgörs av {@link hadEarlierAllsvenskanSpell}
+   * med båda dess bevisspår — automaten ensam ser bara så långt tillbaka som
+   * övergångsdatan räcker.
+   */
+  interface AllsvenskanSpell {
+    /** Övergångsdatumet som inledde sejouren. */
+    start: string;
+    /** Var spelaren här redan innan? Första sejouren är per definition ingen återkomst. */
+    isReturn: boolean;
+  }
+
+  const spellsByPlayer = new Map<number, AllsvenskanSpell[]>();
+  {
+    const eventsByPlayer = new Map<number, TransferRow[]>();
+    for (const row of transferRows) {
+      const year = Number(row.transfer_date.slice(0, 4));
+      if (!Number.isFinite(year) || year < EARLIEST_PLAUSIBLE_TRANSFER_YEAR) continue; // platshållardatum
+      const list = eventsByPlayer.get(row.player_id);
+      if (list) list.push(row);
+      else eventsByPlayer.set(row.player_id, [row]);
+    }
+    for (const [playerId, events] of eventsByPlayer) {
+      events.sort((a, b) => a.transfer_date.localeCompare(b.transfer_date));
+      const spells: AllsvenskanSpell[] = [];
+      let inside = false;
+      for (const event of events) {
+        if (event.to_team_external_id == null) continue; // okänd destination bevisar ingenting
+        if (!allsvenskanTeamByExternalId.has(event.to_team_external_id)) {
+          inside = false;
+          continue;
+        }
+        if (inside) continue; // pågående sejour — lån→permanent, klubbyte inom ligan, dubblettrad
+        spells.push({
+          start: event.transfer_date,
+          isReturn: hadEarlierAllsvenskanSpell(playerId, event.transfer_date, Number(event.transfer_date.slice(0, 4))),
+        });
+        inside = true;
+      }
+      if (spells.length > 0) spellsByPlayer.set(playerId, spells);
+    }
+  }
+
+  /** Antal återkomster under hela karriären — siffran som visas på kortet. */
+  const returnCountByPlayer = new Map<number, number>();
+  for (const [playerId, spells] of spellsByPlayer) {
+    const returns = spells.filter((spell) => spell.isReturn).length;
+    if (returns > 0) returnCountByPlayer.set(playerId, returns);
+  }
+
+  /** Sejouren som pågick vid ett visst övergångsdatum — den senaste som hunnit börja. */
+  function spellAt(playerId: number, transferDate: string): AllsvenskanSpell | null {
+    let current: AllsvenskanSpell | null = null;
+    for (const spell of spellsByPlayer.get(playerId) ?? []) {
+      if (spell.start > transferDate) break;
+      current = spell;
+    }
+    return current;
+  }
+
+  /**
    * Fas 22c — underlag för "har spelaren slutat?" (player-activity.ts).
    * Senaste säsongen med SPELADE matcher, allsvenskt eller utomlands, samt
    * senaste övergångsåret. "Nu" räknas ur datan (nyaste importerade säsong)
@@ -408,7 +511,12 @@ export async function getIncomingTransfers(supabase: Supabase): Promise<Incoming
     const avgRating = ratingWeight > 0 ? rated.reduce((sum, row) => sum + Number(row.rating) * row.appearances, 0) / ratingWeight : null;
 
     const seasonYears = clubSeasons.map((row) => row.season!.year);
-    const isReturnee = hadEarlierAllsvenskanSpell(transfer.player_id, transfer.transfer_date, transferYear);
+    // Flaggan gäller DEN HÄR ankomsten och läses ur sejouren den tillhör —
+    // annars markeras en permanent övergång som följer på ett lån till samma
+    // klubb felaktigt som "återvändare" (se automaten ovan). Fallbacken
+    // används bara om övergången saknar sejour, vilket inte ska kunna hända.
+    const spell = spellAt(transfer.player_id, transfer.transfer_date);
+    const isReturnee = spell ? spell.isReturn : hadEarlierAllsvenskanSpell(transfer.player_id, transfer.transfer_date, transferYear);
 
     signings.push({
       playerId: transfer.player_id,
@@ -438,6 +546,7 @@ export async function getIncomingTransfers(supabase: Supabase): Promise<Incoming
       lastSeason: Math.max(...seasonYears),
       seasonsAtClub: new Set(seasonYears).size,
       isReturnee,
+      returnCount: returnCountByPlayer.get(transfer.player_id) ?? 0,
       activity: getPlayerActivity(
         {
           externalId: player?.external_id ?? null,

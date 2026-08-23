@@ -214,6 +214,10 @@ export default async function IncomingTransfersPage({
     { key: "goals", label: "Mål", value: (s) => nf(s.goals) },
     { key: "assists", label: "Assist", value: (s) => nf(s.assists) },
     { key: "appearances", label: "Matcher", value: (s) => nf(s.appearances) },
+    // Speltiden hade en sorteringsknapp men ingen kolumn, och skrevs i stället
+    // ut i klartext på metaraden när man sorterade på den — man kunde alltså
+    // inte JÄMFÖRA minuter mellan spelare utan att först sortera om.
+    { key: "minutesPlayed", label: "Minuter", value: (s) => nf(s.minutesPlayed) },
   ];
 
   return (
@@ -461,7 +465,13 @@ export default async function IncomingTransfersPage({
               <li>
                 <span className="font-semibold text-white">Ny eller återvändare.</span> &quot;Återvändare&quot; betyder att spelaren bevisligen
                 var i Allsvenskan redan före övergången — antingen genom allsvenska matcher hos oss, eller genom ett dokumenterat klubbyte
-                till eller från en allsvensk klubb tidigare. Övriga räknas som nya i Allsvenskan.
+                till eller från en allsvensk klubb tidigare. Övriga räknas som nya i Allsvenskan.{" "}
+                <span className="text-[#c3c2b7]">
+                  Siffran efter etiketten (×2, ×3 …) är hur många gånger spelaren kommit tillbaka under hela karriären. Den räknas ur
+                  spelarens övergångar i kronologisk ordning: en ny sejour börjar varje gång han flyttar till en allsvensk klubb efter att ha
+                  varit borta. Ett lån som följs av en permanent övergång till samma klubb är därför EN ankomst, inte två, och klubbyte inom
+                  ligan räknas inte som en återkomst.
+                </span>
               </li>
               <li>
                 <span className="font-semibold text-white">Spelade faktiskt.</span> Spelaren har allsvenskt spel för den värvande klubben efter
@@ -559,8 +569,15 @@ export default async function IncomingTransfersPage({
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <p className="truncate text-sm font-semibold text-white group-hover:underline">{s.playerName}</p>
                         {s.isReturnee ? (
-                          <span className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#c3c2b7]">
-                            🔁 Återvändare
+                          // Fas 22d — siffran är antalet gånger spelaren KOMMIT TILLBAKA
+                          // till Allsvenskan under hela karriären, inte antalet klubbar
+                          // eller utlandsflyttar. En del har pendlat fram och tillbaka
+                          // flera gånger; "Återvändare" ensamt dolde det.
+                          <span
+                            title={`Har återvänt till Allsvenskan ${s.returnCount} ${s.returnCount === 1 ? "gång" : "gånger"}`}
+                            className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#c3c2b7]"
+                          >
+                            🔁 Återvändare <span className="tabular-nums text-white">×{s.returnCount}</span>
                           </span>
                         ) : (
                           <span className="shrink-0 rounded-full bg-[#0ca30c]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#0ca30c]">
@@ -585,8 +602,8 @@ export default async function IncomingTransfersPage({
                         {s.arrivalSeason === s.lastSeason ? `Säsong ${s.arrivalSeason}` : `${s.arrivalSeason}–${s.lastSeason}`}
                         {translatePosition(s.position) ? ` · ${translatePosition(s.position)}` : ""}
                         {translateTransferType(s.transferType) ? ` · ${translateTransferType(s.transferType)}` : ""}
-                        {/* Sorteringens eget mått skrivs ut när det INTE har en egen kolumn. */}
-                        {sort === "minutesPlayed" ? ` · ${nf(s.minutesPlayed)} minuter` : ""}
+                        {/* Sorteringens eget mått skrivs ut när det INTE har en egen kolumn.
+                            Minuter har numera en kolumn och står därför inte här. */}
                         {sort === "pointsPer90" && s.pointsPer90 != null ? ` · ${dec(s.pointsPer90, 2)} poäng/90` : ""}
                       </p>
                     </div>
@@ -598,9 +615,16 @@ export default async function IncomingTransfersPage({
                           <div
                             key={col.label}
                             className={`w-[4.25rem] rounded-lg py-1.5 text-center ${active ? "bg-white/[.06]" : ""} ${
-                              // Matcher är den minst centrala av de fyra — den viker
-                              // undan först så att ursprungsraden inte klipps.
-                              col.key === "appearances" && !active ? "hidden lg:block" : ""
+                              // Kolumnerna viker undan i tur och ordning så att
+                              // ursprungsraden aldrig klipps: Minuter först (nykomlingen,
+                              // och den bredaste siffran), sedan Matcher. Den kolumn man
+                              // sorterar på är alltid synlig — därför "Mest speltid" alltid
+                              // syns när den är vald, oavsett skärmbredd.
+                              !active && col.key === "minutesPlayed"
+                                ? "hidden xl:block"
+                                : !active && col.key === "appearances"
+                                  ? "hidden lg:block"
+                                  : ""
                             }`}
                           >
                             <p className={`text-sm font-semibold tabular-nums ${active ? "text-white" : "text-[#c3c2b7]"}`}>{col.value(s)}</p>
