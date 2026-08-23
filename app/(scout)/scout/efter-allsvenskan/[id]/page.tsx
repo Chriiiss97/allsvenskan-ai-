@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getPlayersWhoLeftAllsvenskan, getAbroadTrophies } from "@/lib/football/post-allsvenskan";
+import { getPlayersWhoLeftAllsvenskan, getAbroadTrophies, foreignClubSlug } from "@/lib/football/post-allsvenskan";
 import { computePostAllsvenskanSuccess } from "@/lib/football/post-allsvenskan-success";
 import { getCareerJourney } from "@/lib/football/career-journey";
 import { translateClubCountry } from "@/lib/i18n/sv";
@@ -283,9 +283,11 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
       )}
 
       {/* Hela karriärresan — samma komponent som /spelare/[id], visar lån/
-          permanenta övergångar och Allsvenskan-avgången i sammanhang. */}
+          permanenta övergångar och Allsvenskan-avgången i sammanhang.
+          Fas 19c: här (men INTE på den fria /spelare/[id]) är de utländska
+          klubbarna klickbara vidare till Scouts klubbvy. */}
       <div className="mt-8">
-        <CareerJourneySection journey={journey} />
+        <CareerJourneySection journey={journey} foreignClubHref={(teamName) => `/scout/efter-allsvenskan/klubb/${foreignClubSlug(teamName)}`} />
       </div>
 
       {/* Per klubb (bara Efter Allsvenskan-perioden — se filhuvudet) */}
@@ -293,11 +295,14 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
         <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-[#898781]">
           <span aria-hidden>🌍</span> Fördelning per klubb
         </p>
-        <p className="mb-3 text-xs text-[#5f5e59]">Var {player.playerName}s siffror ovan kommer ifrån — bara klubbar efter Allsvenskan.</p>
+        <p className="mb-3 text-xs text-[#5f5e59]">
+          Var {player.playerName}s siffror ovan kommer ifrån — bara klubbar efter Allsvenskan. Klicka på en klubb för alla f.d. Allsvenska spelare
+          där.
+        </p>
         <div className="space-y-2">
           {player.byClub.map((c) => (
             <div key={c.teamName} className="rounded-xl border border-white/5 bg-[#141418]/40 p-4">
-              <div className="flex items-center gap-3">
+              <Link href={`/scout/efter-allsvenskan/klubb/${foreignClubSlug(c.teamName)}`} className="group flex items-center gap-3">
                 {c.teamLogoUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element -- extern lagtröjbild
                   <img src={c.teamLogoUrl} alt="" className="h-8 w-8 shrink-0 object-contain" />
@@ -305,10 +310,13 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
                   <div className="h-8 w-8 shrink-0 rounded-full bg-white/5" aria-hidden />
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-white">{c.teamName}</p>
+                  <p className="truncate text-sm font-semibold text-white group-hover:underline">{c.teamName}</p>
                   {translateClubCountry(c.country) && <p className="text-xs text-[#7d7c76]">{translateClubCountry(c.country)}</p>}
                 </div>
-              </div>
+                <span className="shrink-0 text-xs text-[#5f5e59] transition-colors group-hover:text-[#a78bfa]" aria-hidden>
+                  →
+                </span>
+              </Link>
               {/* Fas 19b — eget raster istället för en flex-rad som radbröt
                   mitt i sifferkolumnerna på mobil. */}
               <div className="mt-3 grid grid-cols-4 gap-2 border-t border-white/5 pt-3 sm:grid-cols-5">

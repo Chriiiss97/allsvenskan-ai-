@@ -307,9 +307,62 @@ export function translateTransferType(type: string | null): string | null {
   return type; // t.ex. "€ 1.5M" — redan språkneutralt, visas rått
 }
 
+/**
+ * Fas 19c (2026-08-23, systematiskt fel hittat i verifieringen) — våra två
+ * api-football-endpoints stavar SAMMA land olika, och `NATIONALITY_LABELS`
+ * ovan är skriven i bara den ena stilen:
+ *   - /players & /trophies  → mellanslag ("Czech Republic", "Korea Republic")
+ *   - /players?team&season  → bindestreck ("Czech-Republic", "South-Korea",
+ *     "Faroe-Islands"), vilket är det som hamnar i player_career_stint
+ * Dessutom förekommer rena SYNONYMER mellan endpointsen: "Holland" vs
+ * "Netherlands", "Türkiye" vs "Turkey", "United-States" vs "USA",
+ * "Czechia" vs "Czech Republic".
+ *
+ * Följden var TVÅ fel samtidigt: en hel klass av länder översattes aldrig
+ * (visades råa på engelska, mot den hårda svensk-only-regeln), OCH
+ * klubbmatchningen för troféer sprack — T. Sanas Eredivisie-titlar hamnade
+ * under "Holland" utan klubb, trots att hans Ajax-säsonger ligger under
+ * "Netherlands" i karriärdatan.
+ *
+ * `countryKey` ger en jämförbar nyckel oavsett stavningsstil, och används
+ * BÅDE för översättningen här och för klubbmatchningen i
+ * post-allsvenskan.ts — annars kan de två glida isär igen.
+ */
+const COUNTRY_SYNONYMS: Record<string, string> = {
+  holland: "netherlands",
+  czechia: "czech republic",
+  "united states": "usa",
+  turkiye: "turkey",
+  "korea republic": "south korea",
+  "china pr": "china",
+  "ireland republic": "ireland",
+  "macedonia fyr": "macedonia",
+  "north macedonia": "macedonia",
+  "bosnia and herzegovina": "bosnia",
+  "cote divoire": "ivory coast",
+  "côte d'ivoire": "ivory coast",
+  "hong kong, china": "hong kong",
+  "congo dr": "dr congo",
+};
+
+/** Jämförbar nyckel för ett landsnamn — okänslig för bindestreck/versaler/synonymer. */
+export function countryKey(country: string | null): string | null {
+  if (!country) return null;
+  const base = country
+    .trim()
+    .toLowerCase()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ");
+  return COUNTRY_SYNONYMS[base] ?? base;
+}
+
+/** Uppslagning på nyckel istället för exakt sträng, så båda stavningsstilarna träffar samma etikett. */
+const NATIONALITY_LABELS_BY_KEY = new Map(Object.entries(NATIONALITY_LABELS).map(([name, label]) => [countryKey(name)!, label]));
+
 export function translateNationality(nationality: string | null): string | null {
   if (!nationality) return null;
-  return NATIONALITY_LABELS[nationality] ?? nationality;
+  const key = countryKey(nationality);
+  return (key ? NATIONALITY_LABELS_BY_KEY.get(key) : undefined) ?? NATIONALITY_LABELS[nationality] ?? nationality;
 }
 
 /**
@@ -327,9 +380,10 @@ export function translateNationality(nationality: string | null): string | null 
  * istället för att visa något missvisande. `translateNationality` ovan är
  * kvar oförändrad för spelarens egen nationalitet, där problemet inte finns.
  */
-const NON_COUNTRY_LABELS = new Set(["World", "Europe", "International"]);
+const NON_COUNTRY_KEYS = new Set(["world", "europe", "international", "africa", "asia", "south america", "n/c america", "nc america"]);
 
 export function translateClubCountry(country: string | null): string | null {
-  if (!country || NON_COUNTRY_LABELS.has(country.trim())) return null;
+  const key = countryKey(country);
+  if (!key || NON_COUNTRY_KEYS.has(key)) return null;
   return translateNationality(country);
 }

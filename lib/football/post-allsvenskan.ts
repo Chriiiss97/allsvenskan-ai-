@@ -5,6 +5,7 @@ import { displayPlayerName } from "./player-name";
 import { normalizeTeamName } from "./team-name-normalize";
 import { getLeagueTier, NON_COMPETITIVE_LEAGUE_IDS } from "./league-tier";
 import { getLeagueStrength, type LeagueStrength } from "./post-allsvenskan-level";
+import { countryKey } from "@/lib/i18n/sv";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -178,8 +179,32 @@ async function fetchAllRows<T>(query: { range: (from: number, to: number) => Pro
   return rows;
 }
 
+interface TransferEventRow {
+  player_id: number;
+  transfer_date: string;
+  from_team_name: string | null;
+  to_team_name: string | null;
+}
+
+/**
+ * Fas 19c (2026-08-23, hittat i verifieringen av transferspåret nedan) —
+ * api-football använder `1926-01-01` som PLATSHÅLLARE när ett riktigt
+ * övergångsdatum saknas. Verifierat: exakt 39 rader i vår `player_transfer_
+ * event` har det datumet, och de är uppenbart moderna övergångar ("San Diego
+ * → Pafos", "Birmingham Legion → GIF Sundsvall"). Nästa faktiska datum i
+ * datan är 1999 — det finns alltså ingen äkta övergång att förlora på att
+ * kapa här.
+ *
+ * Spärren är INTE kosmetisk: en avgång daterad 1926 hade fått ALLT utländskt
+ * spel att räknas som "efter Allsvenskan", inklusive hela den tidigare
+ * karriären för utländska spelare som KOM till Allsvenskan — precis den
+ * falska positiven som transferspåret annars är noga konstruerat för att
+ * undvika.
+ */
+const EARLIEST_PLAUSIBLE_TRANSFER_YEAR = 1990;
+
 export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<PostAllsvenskanPlayer[]> {
-  const [domesticRows, stintRows, playerRows, allsvenskaTeamsResult] = await Promise.all([
+  const [domesticRows, stintRows, playerRows, transferRows, allsvenskaTeamsResult] = await Promise.all([
     fetchAllRows<DomesticRow>(
       supabase.from("statistics").select("player_id, appearances, team:team_id(name, logo_url), season:season_id(year)").returns<DomesticRow[]>()
     ),
@@ -197,6 +222,13 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
         .select(
           "id, full_name, first_name, last_name, photo_url, position, latest_transfer_team_name, latest_transfer_team_external_id, latest_transfer_team_logo_url"
         )
+    ),
+    // Fas 19c (2026-08-23, VERIFIERAT verkligt fall: T. Sana/Ajax) — hela
+    // transferhistoriken. Se `allsvenskanDeparturesByPlayer` nedan för varför
+    // den behövs: `statistics` täcker bara 2016+, så en avgång dessförinnan
+    // syns ENBART här.
+    fetchAllRows<TransferEventRow>(
+      supabase.from("player_transfer_event").select("player_id, transfer_date, from_team_name, to_team_name").returns<TransferEventRow[]>()
     ),
     // Alla 33 Allsvenska klubbars external_id — grunden för att avgöra om
     // spelarens SENASTE kända övergång gick TILLBAKA till Allsvenskan.
@@ -219,6 +251,41 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
       swedishClubExternalIds.add(row.team_external_id);
     }
   }
+
+  /**
+   * Fas 19c (2026-08-23, VERIFIERAT verkligt fall som avslöjade buggen:
+   * T. Sana saknade HELA sin Ajax-period 2012–2014 i "Efter Allsvenskan",
+   * trots att den syntes i Karriärresan) — ROTORSAK: `statistics`-tabellen
+   * (vår Allsvenska matchdata) täcker bara 2016–2026. Sanas IFK Göteborg-tid
+   * låg före det, så hans "första Allsvenska år" räknades till 2016 (Malmö
+   * FF) och allt tidigare filtrerades bort som "före Allsvenskan" — fastän
+   * `player_transfer_event` innehåller det uttryckliga beviset:
+   * "2012-07-27: IFK Goteborg → Ajax (€ 400K)".
+   *
+   * En övergång FRÅN en Allsvensk klubb bevisar att spelaren var i
+   * Allsvenskan vid det datumet. Den bevisningen är lika giltig som en
+   * `statistics`-rad och används därför som ett andra, likvärdigt spår för
+   * att avgöra hur långt tillbaka "efter Allsvenskan" sträcker sig.
+   * Klubbnamnet matchas NORMALISERAT ("IFK Goteborg" i transferdatan vs
+   * "IFK Göteborg" i vår `team`-tabell — samma återkommande stavningsglapp
+   * som team-name-normalize.ts redan finns till för), och visningsnamnet
+   * hämtas från VÅR tabell så att diakritiken blir rätt.
+   */
+  const allsvenskaTeamByNormalizedName = new Map(
+    (allsvenskaTeamsResult.data ?? []).map((t) => [normalizeTeamName(t.name), { name: t.name, logoUrl: t.logo_url }])
+  );
+  const allsvenskanDeparturesByPlayer = new Map<number, { year: number; teamName: string; teamLogoUrl: string | null; toTeamName: string | null }[]>();
+  for (const row of transferRows) {
+    if (!row.from_team_name) continue;
+    const club = allsvenskaTeamByNormalizedName.get(normalizeTeamName(row.from_team_name));
+    if (!club) continue; // övergången utgick inte från en Allsvensk klubb — bevisar inget om Allsvenskan
+    const year = new Date(row.transfer_date).getUTCFullYear();
+    if (Number.isNaN(year) || year < EARLIEST_PLAUSIBLE_TRANSFER_YEAR) continue;
+    const list = allsvenskanDeparturesByPlayer.get(row.player_id) ?? [];
+    list.push({ year, teamName: club.name, teamLogoUrl: club.logoUrl, toTeamName: row.to_team_name });
+    allsvenskanDeparturesByPlayer.set(row.player_id, list);
+  }
+  for (const list of allsvenskanDeparturesByPlayer.values()) list.sort((a, b) => a.year - b.year);
 
   // Alla Allsvenska säsonger per spelare (bara riktiga speltillfällen,
   // samma hasPlayedSeason-filter som resten av produkten) — sparas som en
@@ -277,7 +344,22 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
     // Räknar ALLA utländska säsonger efter Allsvensk DEBUT (inte bara efter
     // senaste Allsvenska säsongen) — fångar alltså både "lämnade → utland"
     // OCH "lämnade → utland → tillbaka → lämnade igen"-mönstret korrekt.
-    const stints = (stintsByPlayer.get(playerId) ?? []).filter((s) => s.season_year > firstDomesticYear);
+    // Fas 19c — TVÅ likvärdiga spår för "det här hände efter Allsvenskan"
+    // (se allsvenskanDeparturesByPlayer ovan för hela resonemanget och
+    // T. Sana/Ajax-fallet som avslöjade att ett spår inte räckte):
+    //   a) säsongen ligger efter spelarens första Allsvenska säsong i vår
+    //      `statistics`-data (gäller allt från 2016 och framåt), ELLER
+    //   b) säsongen ligger vid eller efter en DOKUMENTERAD övergång FRÅN en
+    //      Allsvensk klubb (fångar avgångar före 2016, som `statistics`
+    //      omöjligt kan känna till).
+    // En utländsk spelare som kom TILL Allsvenskan får INTE med sin
+    // tidigare utlandskarriär av (b): den kräver en övergång ut FRÅN en
+    // Allsvensk klubb, vilket per definition inte finns före ankomsten.
+    const departures = allsvenskanDeparturesByPlayer.get(playerId) ?? [];
+    const firstAllsvenskanDepartureYear = departures.length > 0 ? departures[0].year : null;
+    const stints = (stintsByPlayer.get(playerId) ?? []).filter(
+      (s) => s.season_year > firstDomesticYear || (firstAllsvenskanDepartureYear !== null && s.season_year >= firstAllsvenskanDepartureYear)
+    );
     if (stints.length === 0) continue; // inget känt klubbyte EFTER Allsvensk debut — inte bekräftat "lämnat"
 
     // Fas 18i (2026-08-23, uttryckligt användarkrav) — "Efter Allsvenskan"
@@ -289,6 +371,25 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
     // se filhuvudet där.
     const hasQualifyingTier = stints.some((s) => getLeagueTier(s.league_external_id) !== null);
     if (!hasQualifyingTier) continue;
+
+    /**
+     * Fas 19c — vilka av avgångarna gick FAKTISKT utomlands?
+     *
+     * Första försöket jämförde destinationens NAMN mot en lista över kända
+     * svenska klubbar, men den listan är för skör: verifierat verkligt fall
+     * (D. Hümmet) är "gefle IF → trelleborgs FF", två svenska klubbar som
+     * ändå räknades som utlandsflytt eftersom Trelleborg stavas "Trelleborg"
+     * i karriärdatan och "trelleborgs FF" i transferdatan.
+     *
+     * Nu krävs POSITIVT BEVIS i stället: destinationsklubben måste finnas
+     * som en verklig UTLÄNDSK klubb i spelarens egen dokumenterade
+     * matchdata (`stints` är redan filtrerad till icke-svenska klubbar).
+     * Det gör kontrollen oberoende av stavningslistor och matchar hur
+     * resten av "Efter Allsvenskan" fungerar — allt bygger på dokumenterade
+     * matcher, inte på antaganden.
+     */
+    const foreignClubNames = new Set(stints.map((s) => normalizeTeamName(s.team_name)));
+    const departuresAbroad = departures.filter((d) => d.toTeamName !== null && foreignClubNames.has(normalizeTeamName(d.toTeamName)));
 
     // Fas 18j (2026-08-23, "Återvändarprocent"/"flest pendlingar") — hur
     // många gånger har spelaren FAKTISKT lämnat Allsvenskan (inte bara
@@ -306,6 +407,24 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
     for (let i = 1; i < chronologicalYears.length; i++) {
       if (chronologicalYears[i - 1][1] === true && chronologicalYears[i][1] === false) departureCount++;
     }
+    // Fas 19c — samma blinda fläck som stint-filtret hade: en avgång FÖRE
+    // 2016 syns inte i årssekvensen ovan, eftersom `statistics` inte har
+    // något Allsvenskt år att gå FRÅN. Räkna därför även dokumenterade
+    // övergångar som FAKTISKT gick utomlands (`wentAbroad`, se ovan —
+    // Sanas lån "IFK Goteborg → Qviding FIF" stannade i Sverige och räknas
+    // alltså inte). Deduplicerat på (år, destination): api-football har
+    // verkligt förekommande dubbletter, t.ex. D. Hümmets Djurgården →
+    // Gamba Osaka registrerad både 2025-03-06 och 2025-03-08.
+    const uniqueDeparturesAbroad = new Set(departuresAbroad.map((d) => `${d.year}|${normalizeTeamName(d.teamName)}`)).size;
+    // Två signaler med OLIKA styrka, och den starka måste vinna: årssekvensen
+    // ovan är en HÄRLEDNING (den ser bara "Allsvenskt år följt av utländskt
+    // år") medan `uniqueDeparturesAbroad` är DOKUMENTERADE övergångar med
+    // verifierad destination. Att ta Math.max av båda propagerade
+    // årssekvensens fel — D. Hümmet blev 4 istället för sina verkliga 3,
+    // eftersom hans säsongsmönster gav en extra skenbar övergång. Använd
+    // därför transferdatan när den finns, och årssekvensen bara som
+    // reservutväg för spelare utan importerad transferhistorik.
+    departureCount = uniqueDeparturesAbroad > 0 ? uniqueDeparturesAbroad : Math.max(departureCount, 1);
 
     const player = playerById.get(playerId);
     if (!player) continue;
@@ -316,7 +435,17 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
     // just nu, se filhuvudets T. Sana-exempel).
     const firstForeignYear = Math.min(...stints.map((s) => s.season_year));
     const domesticBeforeFirstDeparture = domesticEntries.filter((d) => d.year <= firstForeignYear).sort((a, b) => b.year - a.year)[0];
-    const lastDomestic = domesticBeforeFirstDeparture ?? [...domesticEntries].sort((a, b) => b.year - a.year)[0];
+    // Fas 19c — när `statistics` inte når tillbaka till avgången (T. Sana
+    // lämnade IFK Göteborg 2012, vår Allsvenska data börjar 2016) är den
+    // DOKUMENTERADE övergången den enda korrekta källan. Prioritetsordning:
+    //   1. Allsvensk säsong strax före avgången (mest exakt när den finns)
+    //   2. dokumenterad övergång ut från en Allsvensk klubb vid/före avgången
+    //   3. spelarens senaste Allsvenska säsong (sista utväg)
+    // Utan (2) fick Sana "Lämnade Malmö FF 2017" trots att den avgång som
+    // faktiskt inledde hans utlandskarriär var IFK Göteborg → Ajax 2012.
+    const departureBeforeFirstForeign = departuresAbroad.filter((d) => d.year <= firstForeignYear).sort((a, b) => b.year - a.year)[0];
+    const lastDomestic =
+      domesticBeforeFirstDeparture ?? departureBeforeFirstForeign ?? [...domesticEntries].sort((a, b) => b.year - a.year)[0];
 
     const sortedByYear = [...stints].sort((a, b) => b.season_year - a.season_year);
     const current = sortedByYear[0];
@@ -738,10 +867,16 @@ export async function getAbroadTrophies(supabase: Supabase, player: PostAllsvens
   };
 
   const resolveClub = (country: string | null, season: string): Pick<AbroadTrophy, "clubName" | "clubLogoUrl" | "clubMatch"> => {
-    const key = country?.trim().toLowerCase();
+    // Fas 19c — `countryKey` istället för rå lowercase: /trophies och
+    // /players stavar samma land olika ("Holland" vs "Netherlands",
+    // "Czechia" vs "Czech-Republic"), vilket gjorde att klubben aldrig
+    // kunde matchas för de länderna. Verifierat verkligt fall: T. Sanas
+    // Eredivisie-titlar 2012/13 + 2013/14, som ligger under "Holland" i
+    // trofédatan men "Netherlands" i hans Ajax-säsonger.
+    const key = countryKey(country);
     const none = { clubName: null, clubLogoUrl: null, clubMatch: null };
     if (!key) return none;
-    const inCountry = stints.filter((s) => (s.league_country ?? "").trim().toLowerCase() === key);
+    const inCountry = stints.filter((s) => countryKey(s.league_country) === key);
     if (inCountry.length === 0) return none;
     const { startYear } = trophySeasonYears(season);
     if (startYear !== null) {
@@ -770,6 +905,67 @@ export async function getAbroadTrophies(supabase: Supabase, player: PostAllsvens
     byCountry: [...groups.values()]
       .map((g) => ({ ...g, trophies: g.trophies.sort((a, b) => b.season.localeCompare(a.season)) }))
       .sort((a, b) => b.count - a.count || (a.country ?? "").localeCompare(b.country ?? "")),
+  };
+}
+
+/**
+ * Fas 19c (2026-08-23, användarkrav: "man ska kunna trycka på lagen
+ * (utländska lagen) i karriärresan") — stabil URL-nyckel för en utländsk
+ * klubb. Bygger på samma normalisering som resten av modulen
+ * (team-name-normalize.ts), så att "Estac Troyes"/"ESTAC Troyes" hamnar på
+ * samma sida oavsett vilken källa stavningen kom ifrån.
+ */
+export function foreignClubSlug(teamName: string): string {
+  return encodeURIComponent(normalizeTeamName(teamName).replace(/\s+/g, "-"));
+}
+
+export interface ForeignClubPlayer {
+  player: PostAllsvenskanPlayer;
+  /** Spelarens siffror FÖR JUST DEN HÄR klubben (inte hela utlandskarriären). */
+  atClub: PostAllsvenskanClubBreakdown;
+}
+
+export interface ForeignClubSummary {
+  teamName: string;
+  teamLogoUrl: string | null;
+  country: string | null;
+  players: ForeignClubPlayer[];
+  totalAppearances: number;
+  totalMinutes: number;
+  totalGoals: number;
+  totalAssists: number;
+}
+
+/**
+ * Alla f.d. Allsvenska spelare som spelat för EN specifik utländsk klubb —
+ * grunden för klubbvyn man når genom att klicka på ett lag i karriärresan
+ * eller i "Fördelning per klubb". Ren omgruppering av redan beräknad,
+ * redan Allsvensk-fritt filtrerad data (`byClub`) — ingen ny fråga, ingen
+ * ny statistik. Returnerar null när slugen inte matchar någon klubb.
+ */
+export function getForeignClubSummary(players: PostAllsvenskanPlayer[], slug: string): ForeignClubSummary | null {
+  const matches: ForeignClubPlayer[] = [];
+  for (const player of players) {
+    for (const club of player.byClub) {
+      if (foreignClubSlug(club.teamName) === slug) matches.push({ player, atClub: club });
+    }
+  }
+  if (matches.length === 0) return null;
+
+  // Visningsnamn/logga/land från den post som har MEST speltid — en enstaka
+  // cup-rad ska inte få avgöra hur klubben presenteras (samma princip som
+  // career-journey.ts redan använder för landsetiketten).
+  const representative = [...matches].sort((a, b) => b.atClub.minutesPlayed - a.atClub.minutesPlayed)[0].atClub;
+
+  return {
+    teamName: representative.teamName,
+    teamLogoUrl: representative.teamLogoUrl,
+    country: matches.map((m) => m.atClub.country).find((c) => c !== null) ?? null,
+    players: matches.sort((a, b) => b.atClub.goals - a.atClub.goals || b.atClub.appearances - a.atClub.appearances),
+    totalAppearances: matches.reduce((sum, m) => sum + m.atClub.appearances, 0),
+    totalMinutes: matches.reduce((sum, m) => sum + m.atClub.minutesPlayed, 0),
+    totalGoals: matches.reduce((sum, m) => sum + m.atClub.goals, 0),
+    totalAssists: matches.reduce((sum, m) => sum + m.atClub.assists, 0),
   };
 }
 
