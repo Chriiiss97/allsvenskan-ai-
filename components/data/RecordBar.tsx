@@ -1,6 +1,6 @@
 // "form" = statusfärger (good/critical, samma som FormBadges.tsx) — rätt när
 // vinst/förlust är bra/dåligt ur ETT lags perspektiv (säsongsform).
-// "teams" = samma blå/orange lag-konvention som TeamCompareBars/PlayerCompareRadar
+// "teams" = samma blå/orange lag-konvention som CompareStatRows/PlayerCompareRadar
 // — rätt för inbördes möten, där "vinst" bara betyder "lag A" respektive "lag B",
 // inte bra/dåligt.
 const PALETTES = {

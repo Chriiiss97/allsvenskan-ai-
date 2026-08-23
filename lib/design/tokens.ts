@@ -78,7 +78,7 @@ export const colors = {
   },
 
   /** Två-entitets-jämförelser (spelare A/B, lag A/B) — samma par som redan
-   * används i PlayerCompareRadar/TeamCompareBars/RecordBar:s "teams"-läge.
+   * används i PlayerCompareRadar/CompareStatRows/RecordBar:s "teams"-läge.
    * Validerad: node scripts/validate_palette.js "#3987e5,#d95926"
    * --mode dark (dataviz-skillet) → ALLA kontroller PASS (CVD ΔE 26.8
    * protan / 32.4 tritan, långt över 8-golvet). */
