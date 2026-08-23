@@ -52,11 +52,17 @@ export const strings = {
   chat: {
     title: "Chatta om Allsvenskan",
     backToHome: "Till startsidan",
-    liveHint: "🔴 Chatten kan ännu inte svara om pågående matcher i realtid — se startsidan för live-resultat.",
+    // Visas som en dämpad fotnot under skrivfältet (samma plats som
+    // "AI:n kan ha fel"-raden i ChatGPT/Claude) istället för som en gul
+    // varningsbanner högst upp — informationen är permanent sann, inte ett
+    // larm, och ska inte äta uppmärksamhet från själva samtalet.
+    liveHint: "Chatten svarar inte om pågående matcher i realtid — se startsidan för live-resultat.",
     placeholder: "Fråga om mål, kort, matcher, klubbhistoria...",
     send: "Skicka",
     sending: "Skickar...",
     emptyStateTitle: "Vad vill du veta?",
+    emptyStateSubtitle:
+      "Fråga om mål, assist, kort, matcher och klubbhistoria för IFK Göteborg och AIK.",
     suggestedQuestions: [
       "Vem har gjort flest mål i AIK?",
       "Berätta om IFK Göteborgs historia",
@@ -65,6 +71,12 @@ export const strings = {
     ],
     quotaLabel: (used: number, limit: number) => `${used}/${limit} meddelanden idag`,
     quotaUnlimited: "Obegränsat (admin)",
+    assistantName: "Allsvenskan-AI",
+    newChat: "Ny chatt",
+    thinking: "Tänker",
+    copy: "Kopiera svar",
+    copied: "Kopierat",
+    scrollToLatest: "Till senaste",
   },
   errors: {
     generic: "Tekniskt fel just nu, testa igen om en stund.",
