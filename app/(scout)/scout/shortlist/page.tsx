@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { removeFromShortlist } from "./actions";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
 import { translatePosition } from "@/lib/i18n/sv";
+import { displayPlayerName } from "@/lib/football/player-name";
 
 interface ShortlistRow {
   player_id: number;
@@ -12,6 +13,8 @@ interface ShortlistRow {
   player: {
     id: number;
     full_name: string;
+    first_name: string | null;
+    last_name: string | null;
     position: string | null;
     photo_url: string | null;
     current_team: { name: string; external_id: number | null } | null;
@@ -33,7 +36,7 @@ export default async function ShortlistPage() {
 
   const { data, error } = await supabase
     .from("scout_shortlist_player")
-    .select("player_id, created_at, player:player_id(id, full_name, position, photo_url, current_team:current_team_id(name, external_id))")
+    .select("player_id, created_at, player:player_id(id, full_name, first_name, last_name, position, photo_url, current_team:current_team_id(name, external_id))")
     .order("created_at", { ascending: false })
     .returns<ShortlistRow[]>();
   if (error) throw error;
@@ -61,9 +64,16 @@ export default async function ShortlistPage() {
             r.player ? (
               <div key={r.player_id} className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#1a1a19] p-3">
                 <Link href={`/scout/spelare/${r.player.id}`} className="flex min-w-0 flex-1 items-center gap-3">
-                  <PlayerAvatar name={r.player.full_name} teamExternalId={r.player.current_team?.external_id} size={40} photoUrl={r.player.photo_url} />
+                  <PlayerAvatar
+                    name={displayPlayerName(r.player.first_name, r.player.last_name, r.player.full_name)}
+                    teamExternalId={r.player.current_team?.external_id}
+                    size={40}
+                    photoUrl={r.player.photo_url}
+                  />
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-white">{r.player.full_name}</p>
+                    <p className="truncate text-sm font-medium text-white">
+                      {displayPlayerName(r.player.first_name, r.player.last_name, r.player.full_name)}
+                    </p>
                     <p className="truncate text-xs text-[#898781]">
                       {r.player.current_team?.name ?? "—"}
                       {r.player.position && ` · ${translatePosition(r.player.position)}`}

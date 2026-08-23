@@ -9,6 +9,8 @@
  * ofullständig eller gissad plan.
  */
 
+import { displayPlayerName } from "./player-name";
+
 export interface PitchPlayer {
   key: string;
   id: number | null;
@@ -22,7 +24,7 @@ export interface PitchPlayer {
 interface StarterInput {
   shirt_number: number | null;
   grid: string | null;
-  player: { id: number; full_name: string; photo_url: string | null } | null;
+  player: { id: number; full_name: string; first_name: string | null; last_name: string | null; photo_url: string | null } | null;
 }
 
 export function buildPitchPlayers(starters: StarterInput[]): PitchPlayer[] | null {
@@ -34,7 +36,7 @@ export function buildPitchPlayers(starters: StarterInput[]): PitchPlayer[] | nul
     players.push({
       key: p.player ? String(p.player.id) : `grid-${match[1]}-${match[2]}`,
       id: p.player?.id ?? null,
-      name: p.player?.full_name ?? "Okänd spelare",
+      name: p.player ? displayPlayerName(p.player.first_name, p.player.last_name, p.player.full_name) : "Okänd spelare",
       photoUrl: p.player?.photo_url ?? null,
       shirtNumber: p.shirt_number,
       row: parseInt(match[1], 10),

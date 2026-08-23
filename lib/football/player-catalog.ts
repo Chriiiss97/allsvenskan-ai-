@@ -5,6 +5,7 @@ import { calculateAge } from "./age";
 import { computeSeasonOvrMap } from "./rating/compute-rating";
 import { getRatingTrendComparison, getStoredSeasonRatings, getCareerConsistencyMap, type RatingTrendEntry } from "./rating/rating-store";
 import { computePlayerArchetypes, type MatchedArchetype } from "./rating/archetypes";
+import { displayPlayerName } from "./player-name";
 import { matchesSearchTokens, tokenizeSearchQuery } from "./player-search";
 
 type Supabase = SupabaseClient<Database>;
@@ -30,6 +31,8 @@ interface StatRow {
   player: {
     id: number;
     full_name: string;
+    first_name: string | null;
+    last_name: string | null;
     position: string | null;
     photo_url: string | null;
     birth_date: string | null;
@@ -143,7 +146,7 @@ export async function listPlayers(supabase: Supabase, params: PlayerListParams):
   let query = supabase
     .from("statistics")
     .select(
-      "player_id, team_id, goals, assists, appearances, minutes_played, player:player_id(id, full_name, position, photo_url, birth_date, current_team_id)"
+      "player_id, team_id, goals, assists, appearances, minutes_played, player:player_id(id, full_name, first_name, last_name, position, photo_url, birth_date, current_team_id)"
     )
     .eq("season_id", seasonRow.id);
   if (params.teamId) query = query.eq("team_id", params.teamId);
@@ -203,7 +206,7 @@ export async function listPlayers(supabase: Supabase, params: PlayerListParams):
     .filter((r) => hasPlayedSeason(r.appearances))
     .map((r) => ({
       id: r.player!.id,
-      fullName: r.player!.full_name,
+      fullName: displayPlayerName(r.player!.first_name, r.player!.last_name, r.player!.full_name),
       position: r.player!.position,
       photoUrl: r.player!.photo_url,
       teamId: r.teamId,

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
+import { displayPlayerName } from "../player-name";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -55,7 +56,7 @@ interface FixturePlayerStatsRow {
   dribbles_past: number | null;
   fouls_drawn: number | null;
   fouls_committed: number | null;
-  player: { position: string | null; current_team_id: number | null; full_name: string; photo_url: string | null; birth_date: string | null } | null;
+  player: { position: string | null; current_team_id: number | null; full_name: string; first_name: string | null; last_name: string | null; photo_url: string | null; birth_date: string | null } | null;
 }
 
 export interface PlayerSeasonAggregate {
@@ -127,7 +128,7 @@ export async function aggregatePlayerSeasonStats(
     const { data: page, error } = await supabase
       .from("fixture_player_stats")
       .select(
-        "player_id, team_id, minutes_played, shots_total, shots_on_target, goals, goals_conceded, assists, saves, passes_total, passes_key, passes_accuracy, tackles_total, tackles_interceptions, duels_total, duels_won, dribbles_attempts, dribbles_success, dribbles_past, fouls_drawn, fouls_committed, player:player_id(position, current_team_id, full_name, photo_url, birth_date)"
+        "player_id, team_id, minutes_played, shots_total, shots_on_target, goals, goals_conceded, assists, saves, passes_total, passes_key, passes_accuracy, tackles_total, tackles_interceptions, duels_total, duels_won, dribbles_attempts, dribbles_success, dribbles_past, fouls_drawn, fouls_committed, player:player_id(position, current_team_id, full_name, first_name, last_name, photo_url, birth_date)"
       )
       .in("fixture_id", fixtureIds)
       .gt("minutes_played", 0)
@@ -149,7 +150,7 @@ export async function aggregatePlayerSeasonStats(
     if (!agg) {
       agg = {
         playerId: row.player_id,
-        fullName: row.player.full_name,
+        fullName: displayPlayerName(row.player.first_name, row.player.last_name, row.player.full_name),
         position: row.player.position,
         photoUrl: row.player.photo_url,
         birthDate: row.player.birth_date,

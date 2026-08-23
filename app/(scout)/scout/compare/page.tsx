@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { displayPlayerName } from "@/lib/football/player-name";
 import { comparePlayers, getTeamComparison, FootballDataError } from "@/lib/football/tools";
 import { computePlayerDNA } from "@/lib/football/player-dna";
 import { computeRatingForPlayer } from "@/lib/football/rating/compute-rating";
@@ -231,10 +232,14 @@ async function PlayerCompareSection({
 }) {
   const { data: playersData } = await supabase
     .from("player")
-    .select("id, full_name, current_team:current_team_id(name)")
+    .select("id, full_name, first_name, last_name, current_team:current_team_id(name)")
     .order("full_name")
-    .returns<{ id: number; full_name: string; current_team: { name: string } | null }[]>();
-  const players = playersData ?? [];
+    .returns<{ id: number; full_name: string; first_name: string | null; last_name: string | null; current_team: { name: string } | null }[]>();
+  // Sorteras om på VISNINGSNAMNET (order("full_name") ovan sorterar på
+  // api-footballs förkortade form, "M. Berg", som inte är det vi visar).
+  const players = (playersData ?? [])
+    .map((p) => ({ id: p.id, label: displayPlayerName(p.first_name, p.last_name, p.full_name), teamName: p.current_team?.name }))
+    .sort((x, y) => x.label.localeCompare(y.label, "sv"));
 
   const idA = a ? Number(a) : null;
   const idB = b ? Number(b) : null;
@@ -269,7 +274,7 @@ async function PlayerCompareSection({
     <>
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
         <EntityCompareControls
-          options={players.map((p): EntityOption => ({ id: p.id, label: p.full_name, subLabel: p.current_team?.name }))}
+          options={players.map((p): EntityOption => ({ id: p.id, label: p.label, subLabel: p.teamName }))}
           idA={idA}
           idB={idB}
           basePath="/scout/compare?mode=spelare"
