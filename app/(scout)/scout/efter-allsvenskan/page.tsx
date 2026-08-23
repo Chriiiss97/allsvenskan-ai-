@@ -1,11 +1,9 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { createClient } from "@/lib/supabase/server";
+import { getCachedPostAllsvenskanPlayers, getCachedMostDecoratedAbroad } from "@/lib/football/cached-reads";
 import {
-  getPlayersWhoLeftAllsvenskan,
   aggregateByPreviousClub,
   computePostAllsvenskanInsights,
-  getMostDecoratedAbroad,
   aggregateDestinationLeagues,
   aggregateDestinationClubs,
 } from "@/lib/football/post-allsvenskan";
@@ -78,6 +76,24 @@ function isValidSort(value: string | undefined): value is SortKey {
  */
 type View = "spelare" | "analys";
 
+/**
+ * PRESTANDA (2026-08-23, uppmätt) — spelarlistan renderade ALLA 928
+ * kvalificerande spelare på en gång. Varje rad är ~30 element (avatar,
+ * status-bricka, två historikrader, fyra sifferkolumner, mobilvariant), så
+ * sidan blev 6 038 kB HTML — varav 3 885 kB enbart React-flightdata,
+ * eftersom PlayerAvatar är en klientkomponent och alltså serialiseras en
+ * gång per rad. Hela sidan tog 11–12,8 SEKUNDER att svara, och mätningen
+ * visade att bara ~1,4s av det var databasen: resten var rendering och
+ * serialisering av rader som ändå inte får plats på en skärm.
+ *
+ * Listan visar därför ett fönster i taget, med "Visa fler" som ökar det via
+ * URL:en (`antal`) — samma mönster som `sort`/`club`/`vy` redan använder, så
+ * det överlever länkning och bakåtknappen. Ingen data försvinner: totalen
+ * står kvar i rubriken, sorteringen sker fortfarande över HELA mängden innan
+ * fönstret skärs ut, och "Visa fler" kan öppna hela listan för den som vill.
+ */
+const PAGE_SIZE = 60;
+
 /** Tusentalsavgränsare med mellanslag, enligt användarens uttryckliga önskemål ("280 878", inte "280878"). */
 const nf = (n: number) => n.toLocaleString("sv-SE");
 
@@ -140,16 +156,21 @@ function RunnerUpList({ title, rows }: { title: string; rows: { href: string; le
   );
 }
 
-export default async function PostAllsvenskanPage({ searchParams }: { searchParams: Promise<{ sort?: string; club?: string; vy?: string }> }) {
-  const { sort: sortParam, club: clubFilter, vy } = await searchParams;
+export default async function PostAllsvenskanPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ sort?: string; club?: string; vy?: string; antal?: string }>;
+}) {
+  const { sort: sortParam, club: clubFilter, vy, antal } = await searchParams;
   const sort: SortKey = isValidSort(sortParam) ? sortParam : "goals";
   const view: View = vy === "analys" ? "analys" : "spelare";
-  const supabase = await createClient();
 
-  const players = await getPlayersWhoLeftAllsvenskan(supabase);
+  const [players, decoratedAbroad] = await Promise.all([
+    getCachedPostAllsvenskanPlayers(),
+    getCachedMostDecoratedAbroad(),
+  ]);
   const clubAggregates = aggregateByPreviousClub(players);
   const insights = computePostAllsvenskanInsights(players);
-  const decoratedAbroad = await getMostDecoratedAbroad(supabase, players);
   const destinationLeagues = aggregateDestinationLeagues(players);
   const destinationClubs = aggregateDestinationClubs(players);
   const maxExportCount = Math.max(1, ...insights.exportsByYear.map((y) => y.count));
@@ -169,6 +190,13 @@ export default async function PostAllsvenskanPage({ searchParams }: { searchPara
   };
   const sorted = [...filtered].sort((a, b) => sortField[sort](b) - sortField[sort](a));
 
+  // Sorteringen sker över HELA mängden ovan — fönstret skärs ut först här,
+  // så "Flest mål" alltid börjar med den faktiskt bästa målskytten.
+  const requestedLimit = Number(antal);
+  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, sorted.length) : PAGE_SIZE;
+  const visible = sorted.slice(0, limit);
+  const remaining = sorted.length - visible.length;
+
   // Klubbtabellen har ingen motsvarighet till "mest lyckad"/"längst
   // utomlands" (det är spelarmått, inte klubbsummor) — den faller tillbaka
   // på mål istället för att visa en tom eller påhittad kolumn.
@@ -181,13 +209,19 @@ export default async function PostAllsvenskanPage({ searchParams }: { searchPara
   const clubSort = clubSortField[sort] ?? ((c: (typeof clubAggregates)[number]) => c.totalGoals);
   const sortedClubs = [...clubAggregates].sort((a, b) => clubSort(b) - clubSort(a));
 
-  /** Bygger en länk som BEHÅLLER allt man inte uttryckligen ändrar (sortering, klubbfilter, vy). */
-  const hrefFor = (next: { sort?: SortKey; club?: string | null; view?: View }) => {
+  /**
+   * Bygger en länk som BEHÅLLER allt man inte uttryckligen ändrar (sortering,
+   * klubbfilter, vy). `antal` är avsiktligt INTE med i det som behålls: byter
+   * man sortering eller filter vill man se toppen av den nya listan, inte
+   * fortsätta 600 rader ner i den gamla.
+   */
+  const hrefFor = (next: { sort?: SortKey; club?: string | null; view?: View; limit?: number }) => {
     const params = new URLSearchParams();
     params.set("sort", next.sort ?? sort);
     const club = next.club === undefined ? clubFilter : next.club;
     if (club) params.set("club", club);
     if ((next.view ?? view) === "analys") params.set("vy", "analys");
+    if (next.limit) params.set("antal", String(next.limit));
     return `/scout/efter-allsvenskan?${params.toString()}`;
   };
 
@@ -644,7 +678,7 @@ export default async function PostAllsvenskanPage({ searchParams }: { searchPara
               <p className="rounded-xl border border-white/10 p-6 text-center text-sm text-[#898781]">Ingen matchande spelare hittad.</p>
             ) : (
               <div className="space-y-1.5">
-                {sorted.map((p) => {
+                {visible.map((p) => {
                   const success = successByPlayerId.get(p.playerId);
                   const badge = STATUS_BADGE[p.status];
                   return (
@@ -740,6 +774,30 @@ export default async function PostAllsvenskanPage({ searchParams }: { searchPara
                     </Link>
                   );
                 })}
+              </div>
+            )}
+
+            {remaining > 0 && (
+              <div className="mt-4 flex flex-col items-center gap-2">
+                <p className="text-xs text-[#5f5e59]">
+                  Visar {nf(visible.length)} av {nf(sorted.length)} spelare
+                </p>
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Link
+                    href={hrefFor({ limit: limit + PAGE_SIZE })}
+                    className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white transition-colors hover:border-[#a78bfa]/40 hover:bg-[#a78bfa]/10"
+                  >
+                    Visa {nf(Math.min(PAGE_SIZE, remaining))} till
+                  </Link>
+                  {remaining > PAGE_SIZE && (
+                    <Link
+                      href={hrefFor({ limit: sorted.length })}
+                      className="rounded-full px-4 py-2 text-xs font-semibold text-[#898781] transition-colors hover:text-white"
+                    >
+                      Visa alla {nf(sorted.length)}
+                    </Link>
+                  )}
+                </div>
               </div>
             )}
           </div>

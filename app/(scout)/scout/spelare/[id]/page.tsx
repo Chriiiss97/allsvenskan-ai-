@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/auth/session";
 import { getPlayerProfile, FootballDataError } from "@/lib/football/tools";
 import { PlayerRating } from "@/components/data/PlayerRating";
 import { calculateAge, ageAtSeason } from "@/lib/football/age";
@@ -69,10 +70,12 @@ export default async function ScoutPlayerProfilePage({
       profile.player.team?.id ?? null,
       profile.player.team?.name ?? null
     ),
-    supabase.auth.getUser(),
+    // Redan hämtad av app/(scout)/layout.tsx — request-lokalt delad
+    // (lib/auth/session.ts), så det här är inte ett andra nätverksanrop.
+    getCurrentUser(),
   ]);
   const { rating, mainArchetypeLabel, standingsLabel } = fastData;
-  const user = authResult.data.user;
+  const user = authResult;
 
   // Shortlist — beror på `user` ovan, så den kan inte vara med i samma våg;
   // ett enda indexerat enradsuppslag, försumbar kostnad som sista steget.

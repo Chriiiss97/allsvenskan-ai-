@@ -1,10 +1,9 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
 import { PlayerExplorer, type ExplorerPlayer } from "@/components/data/PlayerExplorer";
 import { SectionTabs } from "@/components/data/SectionTabs";
 import { colors } from "@/lib/design/tokens";
-import { getAvailableSeasons, listTeams } from "@/lib/football/catalog";
-import { listPlayers, type PlayerListParams } from "@/lib/football/player-catalog";
+import { getCachedSeasons, getCachedTeams, getCachedPlayerList } from "@/lib/football/cached-reads";
+import { type PlayerListParams } from "@/lib/football/player-catalog";
 import { parseExplorerFilters } from "@/lib/football/player-explorer-params";
 import { ARCHETYPES } from "@/lib/football/rating/archetypes";
 
@@ -52,9 +51,8 @@ export default async function PlayersIndexPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const supabase = await createClient();
 
-  const seasons = await getAvailableSeasons(supabase);
+  const [seasons, teams] = await Promise.all([getCachedSeasons(), getCachedTeams()]);
   const seasonParam = typeof sp.season === "string" ? Number(sp.season) : undefined;
   const seasonYear = seasonParam && seasons.some((s) => s.year === seasonParam) ? seasonParam : seasons[0]?.year ?? null;
   const compareParam = typeof sp.compareSeason === "string" ? Number(sp.compareSeason) : undefined;
@@ -65,7 +63,6 @@ export default async function PlayersIndexPage({
       ? Number(sp.consistencyMinSeasons)
       : undefined;
 
-  const teams = await listTeams(supabase);
   const teamById = new Map(teams.map((t) => [t.id, t]));
   const filters = parseExplorerFilters(sp, { defaultSort: "rating" });
 
@@ -83,7 +80,7 @@ export default async function PlayersIndexPage({
     pageSize: Number.MAX_SAFE_INTEGER,
   };
 
-  const result = seasonYear ? await listPlayers(supabase, listParams) : { items: [], total: 0 };
+  const result = seasonYear ? await getCachedPlayerList(listParams) : { items: [], total: 0 };
 
   const players: ExplorerPlayer[] = result.items.map((p) => {
     const team = teamById.get(p.teamId);

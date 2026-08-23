@@ -14,6 +14,7 @@ import { buildMatchInsight } from "@/lib/football/match-insight";
 import { buildMatchRecap } from "@/lib/football/match-recap";
 import { buildKeyPlayerCategories } from "@/lib/football/match-key-players";
 import { hasScoutAccess } from "@/lib/auth/premium";
+import { getCurrentProfile } from "@/lib/auth/session";
 import { PremiumGate } from "@/components/scout/PremiumGate";
 import { colors } from "@/lib/design/tokens";
 import { MatchTimeline } from "@/components/data/MatchTimeline";
@@ -221,15 +222,10 @@ export default async function MatchReportPage({
   // entitlement som Scout (planen: "bakom samma entitlement-flagga som
   // Scout men eget visuellt märke") — inte en Scout-yta i sig, se
   // components/scout/PremiumGate.tsx:s title/accentColor-props nedan.
-  const preview = await getMatchPreview(supabase, Number(fixtureId));
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  let hasPreviewAccess = false;
-  if (user) {
-    const { data: profile } = await supabase.from("profiles").select("role, scout_access").eq("id", user.id).single();
-    hasPreviewAccess = hasScoutAccess(profile);
-  }
+  // Profilen är redan hämtad av app/(app)/layout.tsx — request-lokalt
+  // delad via lib/auth/session.ts, alltså inga extra round-trips här.
+  const [preview, profile] = await Promise.all([getMatchPreview(supabase, Number(fixtureId)), getCurrentProfile()]);
+  const hasPreviewAccess = hasScoutAccess(profile);
 
   const homeName = report.home?.name ?? "Hemma";
   const awayName = report.away?.name ?? "Borta";

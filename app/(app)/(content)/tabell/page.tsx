@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
-import { getAvailableSeasons } from "@/lib/football/catalog";
-import { getStandingsView, type StandingsFilter } from "@/lib/football/standings-views";
+import { getCachedSeasons, getCachedStandingsView } from "@/lib/football/cached-reads";
+import { type StandingsFilter } from "@/lib/football/standings-views";
 import { FormBadges } from "@/components/data/FormBadges";
 import { colors } from "@/lib/design/tokens";
 
@@ -50,12 +49,11 @@ export default async function StandingsPage({
   searchParams: Promise<{ season?: string; filter?: string }>;
 }) {
   const { season, filter: filterParam } = await searchParams;
-  const supabase = await createClient();
 
-  const seasons = await getAvailableSeasons(supabase);
+  const seasons = await getCachedSeasons();
   const seasonYear = season ? Number(season) : seasons[0]?.year;
   const filter: StandingsFilter = isValidFilter(filterParam) ? filterParam : "alla";
-  const table = seasonYear ? await getStandingsView(supabase, { season: seasonYear, filter }) : [];
+  const table = seasonYear ? await getCachedStandingsView(seasonYear, filter) : [];
   const isXg = filter === "xg";
 
   return (

@@ -4,7 +4,7 @@ import { PlayerExplorer, type ExplorerPlayer } from "@/components/data/PlayerExp
 import { ScoutDetailPanel } from "@/components/data/ScoutDetailPanel";
 import { SectionTabs } from "@/components/data/SectionTabs";
 import { colors } from "@/lib/design/tokens";
-import { getAvailableSeasons, listTeams } from "@/lib/football/catalog";
+import { getCachedSeasons, getCachedTeams, getCachedPlayerList } from "@/lib/football/cached-reads";
 import { listPlayers, type PlayerListParams } from "@/lib/football/player-catalog";
 import { parseExplorerFilters, type ExplorerFilters } from "@/lib/football/player-explorer-params";
 import { ARCHETYPES, computePlayerArchetypes } from "@/lib/football/rating/archetypes";
@@ -78,7 +78,7 @@ export default async function ScoutPage({
   const sp = await searchParams;
   const supabase = await createClient();
 
-  const seasons = await getAvailableSeasons(supabase);
+  const [seasons, teams] = await Promise.all([getCachedSeasons(), getCachedTeams()]);
   const seasonParam = typeof sp.season === "string" ? Number(sp.season) : undefined;
   const seasonYear = seasonParam && seasons.some((s) => s.year === seasonParam) ? seasonParam : seasons[0]?.year ?? null;
   const compareParam = typeof sp.compareSeason === "string" ? Number(sp.compareSeason) : undefined;
@@ -87,7 +87,6 @@ export default async function ScoutPage({
     ? Number(sp.consistencyMinSeasons)
     : undefined;
 
-  const teams = await listTeams(supabase);
   const teamById = new Map(teams.map((t) => [t.id, t]));
   const filters = parseExplorerFilters(sp, { defaultSort: "rating" });
 
@@ -104,7 +103,7 @@ export default async function ScoutPage({
 
   let result = { items: [] as Awaited<ReturnType<typeof listPlayers>>["items"], total: 0 };
   if (seasonYear) {
-    result = await listPlayers(supabase, listParams);
+    result = await getCachedPlayerList(listParams);
   }
 
   const players: ExplorerPlayer[] = result.items.map((p) => {

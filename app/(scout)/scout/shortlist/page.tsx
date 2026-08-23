@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/auth/session";
 import { removeFromShortlist } from "./actions";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
 import { translatePosition } from "@/lib/i18n/sv";
@@ -26,9 +27,8 @@ interface ShortlistRow {
  */
 export default async function ShortlistPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Redan hämtad av app/(scout)/layout.tsx — delas request-lokalt.
+  const user = await getCurrentUser();
   if (!user) redirect("/login");
 
   const { data, error } = await supabase

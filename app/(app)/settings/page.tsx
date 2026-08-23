@@ -1,30 +1,17 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getCurrentProfile } from "@/lib/auth/session";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 import { strings } from "@/lib/i18n/sv";
 
-interface FavoriteTeam {
-  id: number;
-  name: string;
-  logo_url: string | null;
-}
-
 // Auth-koll sker redan i app/(app)/layout.tsx (redirect till /login).
 export default async function SettingsPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  // Delad, request-lokal profil — layouten har redan hämtat exakt den här
+  // raden, så det här kostar ingenting extra (lib/auth/session.ts).
+  const profile = await getCurrentProfile();
+  if (!profile) redirect("/login");
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("email, role, favorite_team:favorite_team_id(id, name, logo_url)")
-    .eq("id", user.id)
-    .single<{ email: string; role: string; favorite_team: FavoriteTeam | null }>();
-
-  const favoriteTeam = profile?.favorite_team ?? null;
+  const favoriteTeam = profile.favorite_team;
 
   return (
     <div className="mx-auto flex max-w-md flex-col gap-6 px-4 py-10">
@@ -33,9 +20,9 @@ export default async function SettingsPage() {
       <div className="rounded-xl border border-white/10 bg-[#1a1a19] p-4">
         <p className="text-xs uppercase tracking-wide text-[#898781]">Konto</p>
         <p className="mt-1 text-sm">
-          {strings.auth.loggedInAs}: <strong>{profile?.email ?? user.email}</strong>
+          {strings.auth.loggedInAs}: <strong>{profile.email}</strong>
         </p>
-        {profile?.role === "admin" && (
+        {profile.role === "admin" && (
           <p className="mt-1 text-xs uppercase tracking-wide text-[#898781]">admin</p>
         )}
       </div>

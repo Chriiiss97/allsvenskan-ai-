@@ -16,6 +16,12 @@
 # next.js
 /.next/
 /out/
+# Alternativa byggkataloger (t.ex. NEXT_DIST_DIR=.next-prod för att kunna göra
+# ett produktionsbygge medan `next dev` kör). MÅSTE vara ignorerad: Tailwind v4:s
+# innehållsdetektion skannar hela projektet och respekterar .gitignore — en
+# oignorerad byggkatalog läses som källkod och genererar trasig CSS, vilket
+# 500:ar hela appen.
+/.next-*/
 
 # production
 /build

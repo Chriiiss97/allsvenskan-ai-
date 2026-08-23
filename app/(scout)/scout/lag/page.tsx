@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
-import { getAvailableSeasons, listTeams } from "@/lib/football/catalog";
+import { getCachedSeasons, getCachedTeams } from "@/lib/football/cached-reads";
 import { getTeamAccent } from "@/lib/data/team-colors";
 
 /**
@@ -15,10 +14,9 @@ export default async function ScoutTeamsPage({
   searchParams: Promise<{ season?: string }>;
 }) {
   const { season } = await searchParams;
-  const supabase = await createClient();
-  const seasons = await getAvailableSeasons(supabase);
+  // Två oberoende, cachade katalogfrågor — i samma våg istället för i kö.
+  const [seasons, teams] = await Promise.all([getCachedSeasons(), getCachedTeams()]);
   const seasonYear = season ? Number(season) : seasons[0]?.year;
-  const teams = await listTeams(supabase);
 
   return (
     <div>

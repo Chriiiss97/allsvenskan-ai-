@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { getAvailableSeasons, listTeams } from "@/lib/football/catalog";
+import { getCachedSeasons, getCachedTeams, getCachedSeasonFixtures } from "@/lib/football/cached-reads";
 import { translateRound } from "@/lib/i18n/sv";
 import { getLiveFeedForToday } from "@/lib/football/live-feed";
 import { matchPhase, statusShortLabel } from "@/lib/football/live-status";
@@ -27,6 +27,9 @@ const STATUS_TABS: { value: string; label: string }[] = [
   { value: "finished", label: "Senaste" },
 ];
 
+/** Antal omgångar som renderas innan "Visa fler". En omgång är 8 matcher. */
+const ROUNDS_PAGE_SIZE = 8;
+
 /**
  * Data-sektionens breddning (2026-08-20): Säsong → omgång → matcher för
  * ALLA 33 lag (tidigare hårdkodat till bara IFK Göteborg/AIK). En säsongs
@@ -37,58 +40,47 @@ const STATUS_TABS: { value: string; label: string }[] = [
 export default async function MatchesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ season?: string; home?: string; away?: string; team?: string; result?: string; status?: string }>;
+  searchParams: Promise<{ season?: string; home?: string; away?: string; team?: string; result?: string; status?: string; antal?: string }>;
 }) {
-  const { season, home, away, team, result, status } = await searchParams;
+  const { season, home, away, team, result, status, antal } = await searchParams;
   const supabase = await createClient();
 
+  // PRESTANDA (2026-08-23): de tre första hämtningarna berodde inte på
+  // varandra men kördes ändå i tur och ordning (live-flöde → säsonger →
+  // lag). Nu i samma våg; säsongs- och lagkatalogen är dessutom cachade
+  // (lib/football/cached-reads.ts) eftersom de bara ändras vid import.
+  //
   // Fas 20: dagens matcher som en egen, live-uppdaterande sektion överst.
   // Ett fel här (t.ex. en miljö där fixture_live_snapshots inte migrerats)
   // ska aldrig sänka hela matcharkivet — sektionen utelämnas bara.
-  let todayFeed = null;
-  try {
-    todayFeed = await getLiveFeedForToday(supabase);
-  } catch {
-    todayFeed = null;
-  }
+  const [todayFeed, seasons, teams] = await Promise.all([
+    getLiveFeedForToday(supabase).catch(() => null),
+    getCachedSeasons(),
+    getCachedTeams(),
+  ]);
 
-  const seasons = await getAvailableSeasons(supabase);
   const seasonYear = season ? Number(season) : seasons[0]?.year;
-  const teams = await listTeams(supabase);
   const teamByExternalId = new Map(teams.filter((t) => t.external_id !== null).map((t) => [t.external_id as number, t]));
 
   const seasonRow = seasonYear ? seasons.find((s) => s.year === seasonYear) : undefined;
 
   let fixtures: FixtureRow[] = [];
   if (seasonRow) {
-    let query = supabase
-      .from("fixture")
-      .select(
-        "id, kickoff_at, status, round, home_score, away_score, events_synced_at, home_team_id, away_team_id, home:home_team_id(name, logo_url), away:away_team_id(name, logo_url)"
-      )
-      .eq("season_id", seasonRow.id);
-
     const homeTeamId = home ? teamByExternalId.get(Number(home))?.id : undefined;
     const awayTeamId = away ? teamByExternalId.get(Number(away))?.id : undefined;
     const teamId = team ? teamByExternalId.get(Number(team))?.id : undefined;
 
-    if (homeTeamId) query = query.eq("home_team_id", homeTeamId);
-    if (awayTeamId) query = query.eq("away_team_id", awayTeamId);
-    if (teamId) query = query.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
-    // Fas 20: "Senaste" filtrerade tidigare på exakt status = 'FT' och
-    // missade därmed matcher avgjorda efter förlängning/straffar (AET/PEN),
-    // medan "Kommande" var allt som INTE var FT — alltså även pågående och
-    // inställda matcher. Båda utgår nu från samma fasindelning som resten
-    // av produkten.
-    if (status === "finished") query = query.in("status", ["FT", "AET", "PEN"]);
-    else if (status === "upcoming") query = query.in("status", ["NS", "TBD"]);
-
-    // "Senaste" (finished) är mest meningsfullt nyast-först — "Kommande"/
-    // "Alla" som ett säsongsschema, kronologiskt (oförändrat sen tidigare).
-    const { data } = await query
-      .order("kickoff_at", { ascending: status !== "finished" })
-      .returns<FixtureRow[]>();
-    fixtures = data ?? [];
+    // PRESTANDA (2026-08-23): matchlistan är publik och ändras bara när en
+    // match importeras/avslutas — cachad per filterkombination, se
+    // lib/football/cached-reads.ts. Filtreringen och sorteringen är
+    // ordagrant densamma som förut, bara flyttad dit.
+    fixtures = await getCachedSeasonFixtures({
+      seasonId: seasonRow.id,
+      homeTeamId,
+      awayTeamId,
+      teamId,
+      status,
+    });
 
     // Resultat-filter (V/O/F) är bara meningsfullt relativt ETT valt lag —
     // beräknas i JS på den redan avgränsade (~200-250 rader) säsongsmängden.
@@ -115,6 +107,42 @@ export default async function MatchesPage({
     list.push(f);
     rounds.set(key, list);
   }
+
+  /**
+   * PRESTANDA (2026-08-23, samma åtgärd som på Scouts "Efter Allsvenskan")
+   * — sidan renderade hela säsongen på en gång: 244 matcher i ~30 omgångar,
+   * två klubblogotyper per rad (488 <img>), 648 kB svar. Uppmätt var den
+   * appens långsammaste sida efter cachningen (1,3–1,5s i dev, 341ms i ett
+   * produktionsbygge) och kostnaden låg nästan uteslutande i renderingen,
+   * inte i databasen.
+   *
+   * Fönstret räknas i OMGÅNGAR, inte matcher — en halv omgång vore
+   * meningslös att visa. Ordningen är ORÖRD: exakt samma sortering som
+   * förut (kronologisk, eller nyast först på "Senaste"), så det som ligger
+   * överst är detsamma som tidigare — det är bara mängden nedanför som
+   * växer på begäran istället för direkt.
+   */
+  const roundEntries = [...rounds.entries()];
+  const requestedRounds = Number(antal);
+  const roundLimit =
+    Number.isFinite(requestedRounds) && requestedRounds > 0
+      ? Math.min(requestedRounds, roundEntries.length)
+      : ROUNDS_PAGE_SIZE;
+  const visibleRounds = roundEntries.slice(0, roundLimit);
+  const remainingRounds = roundEntries.length - visibleRounds.length;
+  const visibleFixtureCount = visibleRounds.reduce((sum, [, list]) => sum + list.length, 0);
+
+  /** Behåller alla aktiva filter och ändrar bara hur många omgångar som visas. */
+  const roundsHref = (nextLimit: number) =>
+    `/matcher?${new URLSearchParams({
+      season: String(seasonYear ?? ""),
+      ...(home ? { home } : {}),
+      ...(away ? { away } : {}),
+      ...(team ? { team } : {}),
+      ...(result ? { result } : {}),
+      ...(status ? { status } : {}),
+      antal: String(nextLimit),
+    }).toString()}`;
 
   return (
     <div>
@@ -216,7 +244,7 @@ export default async function MatchesPage({
 
       {/* Matcher grupperade per omgång */}
       <div className="mt-6 flex flex-col gap-6">
-        {[...rounds.entries()].map(([roundName, roundFixtures]) => (
+        {visibleRounds.map(([roundName, roundFixtures]) => (
           <div key={roundName}>
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-[#7d7c76]">{translateRound(roundName) ?? roundName}</p>
             <ul className="space-y-1.5">
@@ -284,6 +312,30 @@ export default async function MatchesPage({
         ))}
         {fixtures.length === 0 && <p className="text-sm text-[#898781]">Inga matcher matchar filtret.</p>}
       </div>
+
+      {remainingRounds > 0 && (
+        <div className="mt-6 flex flex-col items-center gap-2">
+          <p className="text-xs text-[#5f5e59]">
+            Visar {visibleRounds.length} av {roundEntries.length} omgångar · {visibleFixtureCount} av {fixtures.length} matcher
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Link
+              href={roundsHref(roundLimit + ROUNDS_PAGE_SIZE)}
+              className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white transition-colors hover:border-[#3987e5]/40 hover:bg-[#3987e5]/10"
+            >
+              Visa {Math.min(ROUNDS_PAGE_SIZE, remainingRounds)} omgångar till
+            </Link>
+            {remainingRounds > ROUNDS_PAGE_SIZE && (
+              <Link
+                href={roundsHref(roundEntries.length)}
+                className="rounded-full px-4 py-2 text-xs font-semibold text-[#898781] transition-colors hover:text-white"
+              >
+                Visa hela säsongen
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
-import { getAvailableSeasons, listTeamsWithSeasonSummary } from "@/lib/football/catalog";
+import { getCachedSeasons, getCachedTeamsWithSeasonSummary } from "@/lib/football/cached-reads";
 import { SectionTabs } from "@/components/data/SectionTabs";
 import { getTeamAccent } from "@/lib/data/team-colors";
 
@@ -16,11 +15,9 @@ export default async function TeamsOverviewPage({
   searchParams: Promise<{ season?: string }>;
 }) {
   const { season: seasonParam } = await searchParams;
-  const supabase = await createClient();
-
-  const seasons = await getAvailableSeasons(supabase);
+  const seasons = await getCachedSeasons();
   const selectedSeason = seasonParam ? Number(seasonParam) : (seasons[0]?.year ?? undefined);
-  const teams = await listTeamsWithSeasonSummary(supabase, { season: selectedSeason });
+  const teams = await getCachedTeamsWithSeasonSummary(selectedSeason);
 
   return (
     <div>

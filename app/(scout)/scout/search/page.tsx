@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
-import { getAvailableSeasons, listTeams } from "@/lib/football/catalog";
-import { searchScoutPlayers, SEARCHABLE_METRICS, type ScoutSearchCriterion } from "@/lib/football/rating/scout-search";
+import { getCachedSeasons, getCachedTeams, getCachedScoutSearch } from "@/lib/football/cached-reads";
+import { SEARCHABLE_METRICS, type ScoutSearchCriterion } from "@/lib/football/rating/scout-search";
 import { translatePosition } from "@/lib/i18n/sv";
 import type { PositionGroupKey } from "@/lib/football/position-group";
 
@@ -26,10 +25,9 @@ export default async function ScoutSearchPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const sp = await searchParams;
-  const supabase = await createClient();
-  const seasons = await getAvailableSeasons(supabase);
+  // Säsonger och lag beror inte på varandra — hämtas i samma våg, båda cachade.
+  const [seasons, teams] = await Promise.all([getCachedSeasons(), getCachedTeams()]);
   const seasonYear = sp.season ? Number(sp.season) : seasons[0]?.year;
-  const teams = await listTeams(supabase);
   const teamById = new Map(teams.map((t) => [t.id, t]));
 
   const positionGroup = POSITION_GROUPS.some((p) => p.key === sp.position) ? (sp.position as (typeof POSITION_GROUPS)[number]["key"]) : undefined;
@@ -47,7 +45,7 @@ export default async function ScoutSearchPage({
 
   const seasonRow = seasonYear ? seasons.find((s) => s.year === seasonYear) : undefined;
   const results = seasonRow
-    ? await searchScoutPlayers(supabase, { seasonId: seasonRow.id, positionGroup, ageMin, ageMax, criteria })
+    ? await getCachedScoutSearch({ seasonId: seasonRow.id, positionGroup, ageMin, ageMax, criteria })
     : [];
 
   return (

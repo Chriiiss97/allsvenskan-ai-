@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Gör det möjligt att bygga ett produktionsbygge (för prestandamätning)
+  // medan `next dev` kör — de kan annars inte dela `.next`. Se .gitignore:
+  // katalogen MÅSTE vara ignorerad, annars skannar Tailwind den som källkod.
+  distDir: process.env.NEXT_DIST_DIR ?? ".next",
   // Fas 14.1 (total redesign, plans/humble-giggling-biscuit.md) döpte om
   // /data/** till kortare toppnivå-URL:er (/matcher, /lag, /spelare) och
   // flyttade /data/scout in i en egen (scout)-route-grupp (/scout/spelare).

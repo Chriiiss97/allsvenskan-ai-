@@ -1,17 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentProfile } from "@/lib/auth/session";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 import { strings } from "@/lib/i18n/sv";
-import { getTopScorers, getLiveMatches } from "@/lib/football/tools";
+import { getLiveMatches } from "@/lib/football/tools";
+import { getCachedTopScorer } from "@/lib/football/cached-reads";
 import { timeAgo } from "@/lib/admin/format";
-
-interface FavoriteTeam {
-  id: number;
-  name: string;
-  logo_url: string | null;
-  nicknames: string[];
-}
 
 interface LatestFixture {
   kickoff_at: string;
@@ -66,44 +61,41 @@ function ChevronCircle({ tone }: { tone: "accent" | "neutral" }) {
 
 export default async function Home() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Samma anrop som layouten redan gjort — React cache() gör det till noll
+  // extra nätverksarbete istället för ytterligare två round-trips.
+  const profile = await getCurrentProfile();
+  if (!profile) redirect("/login");
 
-  if (!user) {
-    redirect("/login");
-  }
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("email, role, onboarding_completed_at, favorite_team:favorite_team_id(id, name, logo_url, nicknames)")
-    .eq("id", user.id)
-    .single<{
-      email: string;
-      role: string;
-      onboarding_completed_at: string | null;
-      favorite_team: FavoriteTeam | null;
-    }>();
-
-  if (!profile?.onboarding_completed_at) {
+  if (!profile.onboarding_completed_at) {
     redirect("/onboarding");
   }
 
   const favoriteTeam = profile.favorite_team;
 
-  let latestFixture: LatestFixture | null = null;
-  let topScorer: { name: string; goals: number; season: number | null } | null = null;
-
-  if (favoriteTeam) {
-    const { data: fixtureData } = await supabase
-      .from("fixture")
-      .select("kickoff_at, home_score, away_score, home:home_team_id(id, name), away:away_team_id(id, name)")
-      .or(`home_team_id.eq.${favoriteTeam.id},away_team_id.eq.${favoriteTeam.id}`)
-      .eq("status", "FT")
-      .order("kickoff_at", { ascending: false })
-      .limit(1)
-      .returns<LatestFixture[]>();
-    latestFixture = fixtureData?.[0] ?? null;
+  /**
+   * PRESTANDA (2026-08-23): de tre hämtningarna nedan kördes tidigare i tur
+   * och ordning (senaste match → toppmålskytt → live), trots att ingen av
+   * dem beror på någon annan — bara på favoritlaget, som redan är känt.
+   * Startsidan låg därför på ~1,2s för 49 kB innehåll. Nu i samma våg.
+   *
+   * Toppmålskytten är dessutom cachad: den är publik ligadata som bara
+   * ändras när en match importeras, inte per besökare.
+   *
+   * Felhanteringen är oförändrad i sak — varje del faller tillbaka på sitt
+   * eget tomma värde (`.catch`) istället för att sänka hela startsidan, t.ex.
+   * i en miljö där fixture_live_snapshots inte migrerats än.
+   */
+  const [fixtureResult, topScorer, liveMatches] = await Promise.all([
+    favoriteTeam
+      ? supabase
+          .from("fixture")
+          .select("kickoff_at, home_score, away_score, home:home_team_id(id, name), away:away_team_id(id, name)")
+          .or(`home_team_id.eq.${favoriteTeam.id},away_team_id.eq.${favoriteTeam.id}`)
+          .eq("status", "FT")
+          .order("kickoff_at", { ascending: false })
+          .limit(1)
+          .returns<LatestFixture[]>()
+      : Promise.resolve({ data: null }),
 
     // Återanvänder getTopScorers (samma funktion som chatten och lagprofilen
     // använder) istället för en egen fråga här — en tidigare version
@@ -112,26 +104,19 @@ export default async function Home() {
     // med flest mål EN enskild säsong någonsin, inte lagets faktiska
     // toppmålskytt i senaste säsongen). getTopScorers gör samma "senaste
     // säsong"-filtrering korrekt i JS, se lib/football/tools.ts.
-    try {
-      const result = await getTopScorers(supabase, { team: favoriteTeam.name, limit: 1 });
-      const top = result.scorers[0];
-      topScorer = top ? { name: top.name, goals: top.goals, season: result.season ?? null } : null;
-    } catch {
-      topScorer = null;
-    }
-  }
+    favoriteTeam
+      ? getCachedTopScorer(favoriteTeam.name).catch(() => null)
+      : Promise.resolve(null),
 
-  // Hela ligan, inte bara favoritlaget — samma scope som live-pipeline.ts
-  // (scripts/import/live-pipeline.ts) faktiskt fyller fixture_live_snapshots
-  // för. Ett fel här (t.ex. tabellen inte migrerad än på en ny miljö) ska
-  // aldrig krascha startsidan — visas bara som "inga matcher pågår".
-  let liveMatches: Awaited<ReturnType<typeof getLiveMatches>>["matches"] = [];
-  try {
-    const result = await getLiveMatches(supabase);
-    liveMatches = result.matches;
-  } catch {
-    liveMatches = [];
-  }
+    // Hela ligan, inte bara favoritlaget — samma scope som live-pipeline.ts
+    // (scripts/import/live-pipeline.ts) faktiskt fyller fixture_live_snapshots
+    // för. Live-data cachas ALDRIG: den är hela poängen med att vara färsk.
+    getLiveMatches(supabase)
+      .then((r) => r.matches)
+      .catch(() => [] as Awaited<ReturnType<typeof getLiveMatches>>["matches"]),
+  ]);
+
+  const latestFixture: LatestFixture | null = fixtureResult.data?.[0] ?? null;
 
   return (
     <div className="relative mx-auto max-w-5xl px-6 py-8 sm:px-10 sm:py-12">
@@ -381,7 +366,7 @@ export default async function Home() {
             👤
           </span>
           <span className="text-[#c3c2b7]">
-            {strings.auth.loggedInAs}: <strong className="font-semibold text-white">{profile.email ?? user.email}</strong>
+            {strings.auth.loggedInAs}: <strong className="font-semibold text-white">{profile.email}</strong>
           </span>
           {profile.role === "admin" && (
             <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#898781]">

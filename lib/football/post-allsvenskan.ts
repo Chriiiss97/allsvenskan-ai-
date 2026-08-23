@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import { hasPlayedSeason } from "./active-player";
 import { displayPlayerName } from "./player-name";
 import { normalizeTeamName } from "./team-name-normalize";
@@ -193,18 +194,12 @@ interface StintRow {
  * dokumenterad i [[verify-tool-bugs-via-live-path]]. Sidnumrerad hämtning
  * (samma mönster som sportmonks-import-match-facts.ts m.fl.) istället för
  * en enda `.select()`.
+ *
+ * PRESTANDA (2026-08-23) — sidorna hämtas numera PARALLELLT via
+ * lib/supabase/paginate.ts. Den lokala loopen väntade in 43 round-trips i
+ * rad (uppmätt: 2,6s bara på köandet). Samma rader, samma ordning, samma
+ * skydd mot den tysta 1000-radersgränsen — bara utan väntetiden.
  */
-async function fetchAllRows<T>(query: { range: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }> }): Promise<T[]> {
-  const rows: T[] = [];
-  const PAGE = 1000;
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await query.range(from, from + PAGE - 1);
-    if (error) throw error;
-    rows.push(...(data ?? []));
-    if (!data || data.length < PAGE) break;
-  }
-  return rows;
-}
 
 interface TransferEventRow {
   player_id: number;
@@ -232,30 +227,40 @@ const EARLIEST_PLAUSIBLE_TRANSFER_YEAR = 1990;
 
 export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<PostAllsvenskanPlayer[]> {
   const [domesticRows, stintRows, playerRows, transferRows, allsvenskaTeamsResult] = await Promise.all([
-    fetchAllRows<DomesticRow>(
-      supabase.from("statistics").select("player_id, appearances, team:team_id(name, logo_url), season:season_id(year)").returns<DomesticRow[]>()
+    fetchAllRows<DomesticRow>((from, to) =>
+      supabase
+        .from("statistics")
+        .select("player_id, appearances, team:team_id(name, logo_url), season:season_id(year)")
+        .range(from, to)
+        .returns<DomesticRow[]>()
     ),
-    fetchAllRows<StintRow>(
+    fetchAllRows<StintRow>((from, to) =>
       supabase
         .from("player_career_stint")
         .select(
           "player_id, team_name, team_logo_url, team_external_id, league_country, league_name, league_external_id, season_year, appearances, minutes_played, goals, assists, rating"
         )
+        .range(from, to)
         .returns<StintRow[]>()
     ),
-    fetchAllRows(
+    fetchAllRows((from, to) =>
       supabase
         .from("player")
         .select(
           "id, full_name, first_name, last_name, photo_url, position, latest_transfer_team_name, latest_transfer_team_external_id, latest_transfer_team_logo_url"
         )
+        .range(from, to)
     ),
     // Fas 19c (2026-08-23, VERIFIERAT verkligt fall: T. Sana/Ajax) — hela
     // transferhistoriken. Se `allsvenskanDeparturesByPlayer` nedan för varför
     // den behövs: `statistics` täcker bara 2016+, så en avgång dessförinnan
     // syns ENBART här.
-    fetchAllRows<TransferEventRow>(
-      supabase.from("player_transfer_event").select("player_id, transfer_date, from_team_name, to_team_name").returns<TransferEventRow[]>()
+    fetchAllRows<TransferEventRow>((from, to) =>
+      supabase
+        .from("player_transfer_event")
+        .select("player_id, transfer_date, from_team_name, to_team_name")
+        .range(from, to)
+        .returns<TransferEventRow[]>()
     ),
     // Alla 33 Allsvenska klubbars external_id — grunden för att avgöra om
     // spelarens SENASTE kända övergång gick TILLBAKA till Allsvenskan.
@@ -821,8 +826,8 @@ function trophySeasonYears(season: string): { startYear: number | null; endYear:
  * Allsvenskan" (samma pool som resten av sidan — se `players`-parametern).
  */
 export async function getMostDecoratedAbroad(supabase: Supabase, players: PostAllsvenskanPlayer[], limit = 10): Promise<DecoratedAbroadEntry[]> {
-  const rows = await fetchAllRows<TrophyRow>(
-    supabase.from("player_trophy").select("player_id, league_name, country, season, place").returns<TrophyRow[]>()
+  const rows = await fetchAllRows<TrophyRow>((from, to) =>
+    supabase.from("player_trophy").select("player_id, league_name, country, season, place").range(from, to).returns<TrophyRow[]>()
   );
 
   const playerById = new Map(players.map((p) => [p.playerId, p]));

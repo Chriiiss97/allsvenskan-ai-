@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser, getCurrentProfile } from "@/lib/auth/session";
 import { PremiumGate } from "@/components/scout/PremiumGate";
 import { hasScoutAccess } from "@/lib/auth/premium";
 
@@ -34,13 +34,10 @@ const SCOUT_NAV = [
  * PremiumGate, inte hela sidan dold.
  */
 export default async function ScoutLayout({ children }: { children: ReactNode }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const { data: profile } = await supabase.from("profiles").select("role, scout_access").eq("id", user.id).single();
+  const profile = await getCurrentProfile();
   const hasAccess = hasScoutAccess(profile);
 
   return (

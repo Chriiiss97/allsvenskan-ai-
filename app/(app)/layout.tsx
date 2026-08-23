@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser, getCurrentProfile } from "@/lib/auth/session";
 import { Sidebar } from "@/components/nav/Sidebar";
 
 /**
@@ -15,13 +15,10 @@ import { Sidebar } from "@/components/nav/Sidebar";
  * kännas som en egen produkt, inte ännu en flik i den här Sidebar:n.
  */
 export default async function AppLayout({ children }: { children: ReactNode }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  const profile = await getCurrentProfile();
   const isAdmin = profile?.role === "admin";
 
   return (
