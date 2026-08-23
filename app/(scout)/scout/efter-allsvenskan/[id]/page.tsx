@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getPlayersWhoLeftAllsvenskan, getAbroadTrophies } from "@/lib/football/post-allsvenskan";
 import { computePostAllsvenskanSuccess } from "@/lib/football/post-allsvenskan-success";
 import { getCareerJourney } from "@/lib/football/career-journey";
-import { translateNationality } from "@/lib/i18n/sv";
+import { translateClubCountry } from "@/lib/i18n/sv";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
 import { CareerJourneySection } from "@/components/scout/player-card/CareerJourneySection";
 import { colors } from "@/lib/design/tokens";
@@ -24,6 +24,18 @@ import { colors } from "@/lib/design/tokens";
  * status­banner + hela karriärresan (CareerJourneySection, samma
  * komponent som /spelare/[id], redan verifierad mot lån/permanenta
  * övergångar) visar istället VAD SOM FAKTISKT HÄNT, inte bara ett nuläge.
+ *
+ * Fas 19b (2026-08-23, användarkrav "förbättra design och tydlighet") —
+ * designgenomgång, ingen datalogik ändrad:
+ *   1. SIFFERFORMAT. Minuter visades råa ("17431") både i totalrutorna och
+ *      i klubbnedbrytningen, trots användarens uttryckliga önskemål om
+ *      mellanslag som tusentalsavgränsare. Nu "17 431" (sv-SE) överallt.
+ *   2. TOTALRUTORNA. Fyra rutor + EN spännande betygsruta gav en sned,
+ *      tvåradig layout. Nu fem likvärdiga rutor på en rad (desktop).
+ *   3. HEADERN. "Nuvarande klubb" och "Lämnade …" låg som två likadana
+ *      textrader; nu är nuläget primärt och historiken sekundär.
+ *   4. KLUBBNEDBRYTNINGEN. Radernas siffror trängdes ihop på mobil — nu
+ *      ett eget raster som bryter snyggt istället för att radbrytas mitt i.
  */
 const STATUS_META = {
   back_in_allsvenskan: { icon: "🟢", label: "Tillbaka i Allsvenskan" },
@@ -38,6 +50,9 @@ const STATUS_COLOR: Record<keyof typeof STATUS_META, string> = {
   abroad: colors.accent.football,
   unknown: colors.text.faint,
 };
+
+/** Tusentalsavgränsare med mellanslag, enligt användarens uttryckliga önskemål ("17 431", inte "17431"). */
+const nf = (n: number) => n.toLocaleString("sv-SE");
 
 export default async function PostAllsvenskanPlayerPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -60,6 +75,16 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
   const success = ranked.find((e) => e.player.playerId === playerId) ?? null;
 
   const statusMeta = STATUS_META[player.status];
+  const statusColor = STATUS_COLOR[player.status];
+  const isBackHome = player.status === "back_in_allsvenskan" || player.status === "back_in_sweden";
+
+  const totals: { label: string; value: string; accent?: boolean }[] = [
+    { label: "Mål", value: nf(player.goals) },
+    { label: "Assist", value: nf(player.assists) },
+    { label: "Matcher", value: nf(player.appearances) },
+    { label: "Minuter", value: nf(player.minutesPlayed) },
+    ...(player.avgRating !== null ? [{ label: "Snittbetyg", value: String(player.avgRating), accent: true }] : []),
+  ];
 
   return (
     <div>
@@ -70,65 +95,66 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
         ← Efter Allsvenskan
       </Link>
 
-      <div className="mt-4 flex flex-wrap items-center gap-4 rounded-xl border border-white/10 bg-[#1a1a19] p-5">
-        <PlayerAvatar name={player.playerName} size={64} photoUrl={player.photoUrl} />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-semibold tracking-tight text-white">{player.playerName}</h1>
-            <span
-              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold"
-              style={{
-                backgroundColor: `${STATUS_COLOR[player.status]}1f`,
-                color: STATUS_COLOR[player.status],
-              }}
-            >
-              {statusMeta.icon} {statusMeta.label}
-            </span>
+      {/* Header — nuläget primärt, historiken sekundär (fas 19b). */}
+      <div className="mt-4 rounded-xl border border-white/10 bg-[#1a1a19] p-5">
+        <div className="flex flex-wrap items-start gap-4">
+          <PlayerAvatar name={player.playerName} size={64} photoUrl={player.photoUrl} />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-semibold tracking-tight text-white">{player.playerName}</h1>
+              <span
+                className="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold"
+                style={{ backgroundColor: `${statusColor}1f`, color: statusColor }}
+              >
+                {statusMeta.icon} {statusMeta.label}
+              </span>
+            </div>
+            <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[#c3c2b7]">
+              {player.currentClubLogoUrl && (
+                // eslint-disable-next-line @next/next/no-img-element -- extern lagtröjbild
+                <img src={player.currentClubLogoUrl} alt="" className="h-5 w-5 object-contain" />
+              )}
+              <span>
+                <span className="text-[#7d7c76]">{isBackHome ? "Spelar nu i" : "Senast dokumenterad klubb:"}</span>{" "}
+                <span className="font-semibold text-white">{player.currentClubName}</span>
+                {translateClubCountry(player.currentClubCountry) && ` · ${translateClubCountry(player.currentClubCountry)}`}
+              </span>
+            </p>
           </div>
-          <p className="mt-1 flex items-center gap-2 text-sm text-[#c3c2b7]">
-            {player.currentClubLogoUrl && (
-              // eslint-disable-next-line @next/next/no-img-element -- extern lagtröjbild
-              <img src={player.currentClubLogoUrl} alt="" className="h-4 w-4 object-contain" />
-            )}
-            Nuvarande klubb: {player.currentClubName}
-            {player.currentClubCountry && ` (${translateNationality(player.currentClubCountry) ?? player.currentClubCountry})`}
-          </p>
-          <p className="mt-1 text-xs text-[#898781]">
-            Lämnade {player.previousTeamName} ({player.leftYear}) — spelade senast dokumenterat för {player.mostRecentForeignClubName}
-            {player.mostRecentForeignClubCountry && ` (${translateNationality(player.mostRecentForeignClubCountry) ?? player.mostRecentForeignClubCountry})`}
-          </p>
+          <Link
+            href={`/spelare/${player.playerId}`}
+            className="shrink-0 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[#898781] transition-colors hover:border-white/20 hover:text-white"
+          >
+            Allsvensk profil →
+          </Link>
         </div>
-        <Link
-          href={`/spelare/${player.playerId}`}
-          className="shrink-0 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[#898781] transition-colors hover:text-white"
-        >
-          Allsvensk profil →
-        </Link>
+
+        {/* Avgångsraden — den historiska ankarpunkten för allt nedanför. */}
+        <p className="mt-4 border-t border-white/5 pt-3 text-xs leading-relaxed text-[#898781]">
+          Lämnade <span className="font-medium text-[#c3c2b7]">{player.previousTeamName}</span> {player.leftYear} → spelade senast dokumenterat för{" "}
+          <span className="font-medium text-[#c3c2b7]">{player.mostRecentForeignClubName}</span>
+          {translateClubCountry(player.mostRecentForeignClubCountry) && ` (${translateClubCountry(player.mostRecentForeignClubCountry)})`}
+          {player.departureCount > 1 && ` · har lämnat Allsvenskan ${player.departureCount} gånger`}
+        </p>
       </div>
 
       {/* Total — hela perioden EFTER Allsvenskan, aldrig Allsvensk statistik. */}
-      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {[
-          ["⚽ Mål", player.goals],
-          ["🎯 Assist", player.assists],
-          ["👕 Matcher", player.appearances],
-          ["⏱️ Minuter", player.minutesPlayed],
-        ].map(([label, value]) => (
-          <div key={label as string} className="rounded-xl border border-white/10 bg-[#1a1a19] p-4 text-center">
-            <p className="text-3xl font-semibold tabular-nums text-white">{value}</p>
-            <p className="mt-1 text-[11px] uppercase tracking-wide text-[#898781]">{label as string}</p>
-          </div>
-        ))}
-        {player.avgRating !== null && (
-          <div className="col-span-2 rounded-xl border border-[#d9a526]/25 bg-[#d9a526]/[0.06] p-4 text-center sm:col-span-4">
-            <p className="text-2xl font-semibold tabular-nums text-[#d9a526]">⭐ {player.avgRating}</p>
-            <p className="mt-1 text-[11px] uppercase tracking-wide text-[#898781]">Snittbetyg efter Allsvenskan</p>
-          </div>
-        )}
+      <div className="mt-4">
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+          {totals.map((t) => (
+            <div
+              key={t.label}
+              className={`rounded-xl border p-4 text-center ${t.accent ? "border-[#d9a526]/25 bg-[#d9a526]/[0.06]" : "border-white/10 bg-[#1a1a19]"}`}
+            >
+              <p className={`text-2xl font-semibold tabular-nums ${t.accent ? "text-[#d9a526]" : "text-white"}`}>{t.value}</p>
+              <p className="mt-1 text-[11px] uppercase tracking-wide text-[#898781]">{t.label}</p>
+            </div>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] text-[#5f5e59]">
+          Total för hela perioden efter att {player.playerName} lämnade Allsvenskan — Allsvensk statistik räknas aldrig med.
+        </p>
       </div>
-      <p className="mt-2 text-[11px] text-[#5f5e59]">
-        Total för hela perioden efter att {player.playerName} lämnade Allsvenskan — Allsvensk statistik räknas aldrig med.
-      </p>
 
       {/*
         Fas 18l (2026-08-23, användarkrav) — listsidans "🏆 Mest dekorerad
@@ -141,7 +167,7 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
         getAbroadTrophies i lib/football/post-allsvenskan.ts.
       */}
       {trophies.total > 0 && (
-        <div className="mt-8 rounded-xl border border-white/10 border-l-2 border-l-[#d9a526] bg-[#141418] p-5">
+        <section className="mt-8 rounded-xl border border-white/10 border-l-2 border-l-[#d9a526] bg-[#141418] p-5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#d9a526]">🏆 Titlar efter Allsvenskan</p>
             <p className="text-xs text-[#898781]">
@@ -154,7 +180,7 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
             {trophies.byCountry.map((g) => (
               <div key={g.country ?? "okant"}>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-[#7d7c76]">
-                  {(g.country ? (translateNationality(g.country) ?? g.country) : "Okänt land")} · {g.count} {g.count === 1 ? "titel" : "titlar"}
+                  {translateClubCountry(g.country) ?? "Internationell tävling"} · {g.count} {g.count === 1 ? "titel" : "titlar"}
                 </p>
                 <ol className="mt-1.5">
                   {g.trophies.map((t, i) => (
@@ -191,14 +217,14 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
             ))}
           </div>
 
-          <p className="mt-4 text-[10px] leading-relaxed text-[#5f5e59]">
+          <p className="mt-4 border-t border-white/5 pt-3 text-[10px] leading-relaxed text-[#5f5e59]">
             Bara vunna titlar (place: Winner) utanför Sverige — svenska titlar räknas aldrig som &quot;efter Allsvenskan&quot;. Trofédatan
             (api-football /trophies) innehåller ingen klubbkoppling, så klubben är härledd ur {player.playerName}s importerade karriärdata: samma
             land och samma säsong som titeln, och bara när exakt en klubb matchar.
             {trophies.byCountry.some((g) => g.trophies.some((t) => t.clubMatch === "country")) &&
               " † = härledd enbart på land (spelaren har bara en dokumenterad klubb där, men inte just den säsongen)."}
           </p>
-        </div>
+        </section>
       )}
 
       {/*
@@ -209,11 +235,11 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
         aldrig, bara placeringen och vad varje del faktiskt mätte.
       */}
       {success && (
-        <div className="mt-8 rounded-xl border border-white/10 border-l-2 border-l-[#d9a526] bg-[#141418] p-5">
+        <section className="mt-8 rounded-xl border border-white/10 border-l-2 border-l-[#d9a526] bg-[#141418] p-5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#d9a526]">🏆 Mest lyckad efter Allsvenskan</p>
             <p className="text-xs text-[#898781]">
-              Placering <span className="font-semibold tabular-nums text-white">#{success.rank}</span> av {ranked.length} rankade
+              Placering <span className="font-semibold tabular-nums text-white">#{success.rank}</span> av {nf(ranked.length)} rankade
             </p>
           </div>
 
@@ -230,7 +256,7 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
             </ul>
           )}
 
-          <div className="mt-4 space-y-2.5 border-t border-white/5 pt-4">
+          <div className="mt-4 space-y-3 border-t border-white/5 pt-4">
             {success.components.map((c) => (
               <div key={c.key}>
                 <div className="flex items-baseline justify-between gap-3 text-xs">
@@ -239,7 +265,7 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
                   </span>
                   <span className="shrink-0 tabular-nums text-[#898781]">{Math.round(c.score)}/100</span>
                 </div>
-                <div className="mt-1 h-1 overflow-hidden rounded-full bg-white/5">
+                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/5">
                   <div className="h-full rounded-full bg-[#d9a526]/70" style={{ width: `${Math.max(1, Math.min(100, c.score))}%` }} />
                 </div>
                 <p className="mt-1 text-[11px] leading-relaxed text-[#7d7c76]">{c.detail}</p>
@@ -248,12 +274,12 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
           </div>
 
           {success.coverage < 1 && (
-            <p className="mt-3 text-[10px] leading-relaxed text-[#5f5e59]">
+            <p className="mt-3 border-t border-white/5 pt-3 text-[10px] leading-relaxed text-[#5f5e59]">
               {Math.round(success.coverage * 100)} % av modellens vikt täcks av verklig data för {player.playerName} — resterande komponenters vikt
               har fördelats ut på de som finns, aldrig räknats som noll.
             </p>
           )}
-        </div>
+        </section>
       )}
 
       {/* Hela karriärresan — samma komponent som /spelare/[id], visar lån/
@@ -263,55 +289,50 @@ export default async function PostAllsvenskanPlayerPage({ params }: { params: Pr
       </div>
 
       {/* Per klubb (bara Efter Allsvenskan-perioden — se filhuvudet) */}
-      <div className="mt-8">
-        <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-[#898781]">
-          <span aria-hidden>🌍</span> Fördelning per klubb — Efter Allsvenskan
+      <section className="mt-8">
+        <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-[#898781]">
+          <span aria-hidden>🌍</span> Fördelning per klubb
         </p>
+        <p className="mb-3 text-xs text-[#5f5e59]">Var {player.playerName}s siffror ovan kommer ifrån — bara klubbar efter Allsvenskan.</p>
         <div className="space-y-2">
           {player.byClub.map((c) => (
-            <div key={c.teamName} className="flex flex-wrap items-center gap-3 rounded-xl border border-white/5 p-4 sm:flex-nowrap">
-              {c.teamLogoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element -- extern lagtröjbild
-                <img src={c.teamLogoUrl} alt="" className="h-8 w-8 shrink-0 object-contain" />
-              ) : (
-                <div className="h-8 w-8 shrink-0 rounded-full bg-white/5" aria-hidden />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-white">{c.teamName}</p>
-                {c.country && <p className="text-xs text-[#898781]">{translateNationality(c.country) ?? c.country}</p>}
-              </div>
-              <div className="flex shrink-0 flex-wrap justify-end gap-x-4 gap-y-1 text-right text-xs tabular-nums">
-                <div>
-                  <p className="font-semibold text-white">{c.goals}</p>
-                  <p className="text-[10px] uppercase text-[#7d7c76]">Mål</p>
-                </div>
-                <div>
-                  <p className="font-semibold text-white">{c.assists}</p>
-                  <p className="text-[10px] uppercase text-[#7d7c76]">Assist</p>
-                </div>
-                <div>
-                  <p className="font-semibold text-white">{c.minutesPlayed}</p>
-                  <p className="text-[10px] uppercase text-[#7d7c76]">Min</p>
-                </div>
-                <div>
-                  <p className="font-semibold text-white">{c.appearances}</p>
-                  <p className="text-[10px] uppercase text-[#7d7c76]">Matcher</p>
-                </div>
-                {c.avgRating !== null && (
-                  <div>
-                    <p className="font-semibold text-[#d9a526]">{c.avgRating}</p>
-                    <p className="text-[10px] uppercase text-[#7d7c76]">Betyg</p>
-                  </div>
+            <div key={c.teamName} className="rounded-xl border border-white/5 bg-[#141418]/40 p-4">
+              <div className="flex items-center gap-3">
+                {c.teamLogoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- extern lagtröjbild
+                  <img src={c.teamLogoUrl} alt="" className="h-8 w-8 shrink-0 object-contain" />
+                ) : (
+                  <div className="h-8 w-8 shrink-0 rounded-full bg-white/5" aria-hidden />
                 )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-white">{c.teamName}</p>
+                  {translateClubCountry(c.country) && <p className="text-xs text-[#7d7c76]">{translateClubCountry(c.country)}</p>}
+                </div>
+              </div>
+              {/* Fas 19b — eget raster istället för en flex-rad som radbröt
+                  mitt i sifferkolumnerna på mobil. */}
+              <div className="mt-3 grid grid-cols-4 gap-2 border-t border-white/5 pt-3 sm:grid-cols-5">
+                {[
+                  { label: "Mål", value: nf(c.goals), accent: false },
+                  { label: "Assist", value: nf(c.assists), accent: false },
+                  { label: "Matcher", value: nf(c.appearances), accent: false },
+                  { label: "Minuter", value: nf(c.minutesPlayed), accent: false },
+                  ...(c.avgRating !== null ? [{ label: "Betyg", value: String(c.avgRating), accent: true }] : []),
+                ].map((s) => (
+                  <div key={s.label} className="text-center">
+                    <p className={`text-sm font-semibold tabular-nums ${s.accent ? "text-[#d9a526]" : "text-white"}`}>{s.value}</p>
+                    <p className="mt-0.5 text-[10px] uppercase tracking-wide text-[#7d7c76]">{s.label}</p>
+                  </div>
+                ))}
               </div>
             </div>
           ))}
         </div>
-      </div>
+      </section>
 
-      <p className="mt-6 text-[10px] text-[#5f5e59]">
-        Bygger på dokumenterad matchstatistik per klubb/säsong (api-football) — kan vara ofullständig för äldre eller mindre
-        väldokumenterade perioder.
+      <p className="mt-6 text-[10px] leading-relaxed text-[#5f5e59]">
+        Bygger på dokumenterad matchstatistik per klubb/säsong (api-football) — kan vara ofullständig för äldre eller mindre väldokumenterade
+        perioder.
       </p>
     </div>
   );

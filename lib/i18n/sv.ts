@@ -311,3 +311,25 @@ export function translateNationality(nationality: string | null): string | null 
   if (!nationality) return null;
   return NATIONALITY_LABELS[nationality] ?? nationality;
 }
+
+/**
+ * Fas 19b (2026-08-23, hittat i verifieringen av Efter Allsvenskan-
+ * designen) — api-football sätter `country` till "World" (och ibland
+ * "Europe"/"International") på KONTINENTALA tävlingar, inte bara på
+ * nationella ligor. Det gjorde att en klubb kunde presenteras som
+ * "FC Copenhagen · World": ett engelskt ord (bryter mot den hårda
+ * svensk-only-regeln i PROJEKT_BRIEF) som dessutom inte betyder något för
+ * läsaren — klubben ligger inte i "Världen", raden kom bara från en
+ * Europaspelspost.
+ *
+ * Använd den här när värdet ska läsas som "klubbens LAND". Den returnerar
+ * null för pseudo-länderna, så anropande UI kan utelämna etiketten helt
+ * istället för att visa något missvisande. `translateNationality` ovan är
+ * kvar oförändrad för spelarens egen nationalitet, där problemet inte finns.
+ */
+const NON_COUNTRY_LABELS = new Set(["World", "Europe", "International"]);
+
+export function translateClubCountry(country: string | null): string | null {
+  if (!country || NON_COUNTRY_LABELS.has(country.trim())) return null;
+  return translateNationality(country);
+}
