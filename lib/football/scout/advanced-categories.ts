@@ -9,8 +9,7 @@ import type { AdvancedPlayerSeasonAggregate } from "./advanced-rating-aggregates
  * extractMetricValue()/buildRatingCategories() inte stödjer
  * lowerIsBetter-riktning per mått — att lägga till det där hade rört en
  * fil som matar OVR-formeln. Denna fil importeras ALDRIG av
- * metric-registry.ts/categories.ts/position-rating-config.ts/
- * refresh-ratings.ts.
+ * OVR-motorn i lib/ovr/.
  */
 
 function per90(value: number, minutes: number): number | null {

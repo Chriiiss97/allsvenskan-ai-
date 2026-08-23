@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getPlayerProfile, FootballDataError } from "@/lib/football/tools";
-import { PlayerRating } from "@/components/data/PlayerRating";
+import { PlayerOvrCard } from "@/components/ovr/PlayerOvrCard";
 import { calculateAge, ageAtSeason } from "@/lib/football/age";
 import { translatePosition } from "@/lib/i18n/sv";
 import { addToShortlist, removeFromShortlist } from "../../shortlist/actions";
@@ -74,7 +74,7 @@ export default async function ScoutPlayerProfilePage({
     // (lib/auth/session.ts), så det här är inte ett andra nätverksanrop.
     getCurrentUser(),
   ]);
-  const { rating, mainArchetypeLabel, standingsLabel } = fastData;
+  const { rating, ratingDisplay, ratingBreakdown, mainArchetypeLabel, standingsLabel } = fastData;
   const user = authResult;
 
   // Shortlist — beror på `user` ovan, så den kan inte vara med i samma våg;
@@ -92,7 +92,7 @@ export default async function ScoutPlayerProfilePage({
   const returnTo = `/scout/spelare/${id}${profile.season ? `?season=${profile.season}` : ""}`;
 
   // --- Snapshot (positionsanpassad, se plans/humble-giggling-biscuit.md §4) ---
-  const ovrValue = rating?.rating.available ? rating.rating.ovr : null;
+  const ovrValue = rating?.ovr ?? null;
   // Fas 15-fixning (2026-08-22): Player Rating/GoalkeeperRatings EGNA
   // confidence — INTE dna?.confidence (alltid null för målvakter, eftersom
   // ingen DNA-profil finns för dem) och INTE regressionens confidence (ett
@@ -100,22 +100,24 @@ export default async function ScoutPlayerProfilePage({
   // fall som avslöjade buggen: E. Berisha (målvakt) fick OVR 99 på bara 1
   // match/90 minuter 2026, men ingen varning visades. Se
   // PlayerCardHeader.tsx för samma fix på själva OVR-badgen.
-  const ratingConfidenceTier = rating?.rating.available ? (rating.rating.confidence?.tier ?? null) : null;
-  const ratingOwnMinutes = rating?.rating.available ? (rating.rating.confidence?.ownMinutes ?? null) : null;
+  const ratingConfidenceTier = rating?.confidenceTier ?? null;
+  const ratingOwnMinutes = rating ? rating.minutesPlayed + rating.externalMinutes : null;
   const snapshotRows: SnapshotRow[] = [];
-  if (ovrValue !== null) snapshotRows.push({ label: "OVR", value: String(ovrValue) });
+  if (ovrValue !== null) snapshotRows.push({ label: "OVR", value: ovrValue.toFixed(0) });
   if (age !== null) snapshotRows.push({ label: "Ålder", value: String(age) });
   snapshotRows.push({ label: "Matcher", value: String(profile.stats.appearances) });
   snapshotRows.push({ label: "Minuter", value: String(profile.stats.minutesPlayed) });
 
-  if (isGoalkeeper && rating?.kind === "goalkeeper" && rating.rating.available) {
-    const gk = rating.rating;
-    const savePct = gk.metrics.find((m) => m.key === "savePct")?.playerValue;
-    const gcPer90 = gk.metrics.find((m) => m.key === "goalsConcededPer90")?.playerValue;
-    const csPct = gk.metrics.find((m) => m.key === "cleanSheetPct")?.playerValue;
-    if (savePct !== undefined) snapshotRows.push({ label: "Räddningsprocent", value: `${savePct}%` });
-    if (gcPer90 !== undefined) snapshotRows.push({ label: "Insläppta/90", value: String(gcPer90) });
-    if (csPct !== undefined) snapshotRows.push({ label: "Clean sheet", value: `${csPct}%` });
+  if (isGoalkeeper && rating?.positionGroup === "GK") {
+    // Råvärdena ligger i betygets nedbrytning — samma tal motorn räknade på,
+    // inte en egen omräkning här.
+    const raw = (key: string) => ratingBreakdown?.metrics.find((m) => m.metric === key)?.rawValue ?? null;
+    const savePct = raw("save_pct");
+    const gcPer90 = raw("goals_conceded_per90");
+    const csRate = raw("clean_sheet_rate");
+    if (savePct !== null) snapshotRows.push({ label: "Räddningsprocent", value: `${(savePct * 100).toFixed(1)}%` });
+    if (gcPer90 !== null) snapshotRows.push({ label: "Insläppta/90", value: gcPer90.toFixed(2) });
+    if (csRate !== null) snapshotRows.push({ label: "Hållna nollor", value: `${(csRate * 100).toFixed(0)}%` });
   } else if (!isGoalkeeper) {
     snapshotRows.push({ label: "Mål", value: String(profile.stats.goals) });
     snapshotRows.push({ label: "Assist", value: String(profile.stats.assists) });
@@ -169,11 +171,12 @@ export default async function ScoutPlayerProfilePage({
         standingsLabel={standingsLabel}
       />
 
-      {/* Performance — Player Rating-nedbrytningen (positionsanpassad redan
-          via computeRatingForPlayer/PlayerRating.tsx: målvakt får sin egen
-          3-måttsmodell, utespelare shooting/passing/dribbling/defending).
+      {/* Betyget med full nedbrytning. Positionsanpassat redan i motorn: sex
+          positionsgrupper med egna vikttabeller, egna peers och egna delbetyg.
           Del av den SNABBA datan (redan hämtad ovan), renderas direkt. */}
-      {rating && profile.season && <PlayerRating data={rating} season={profile.season} />}
+      {rating && ratingDisplay && (
+        <PlayerOvrCard rating={rating} display={ratingDisplay} breakdown={ratingBreakdown} />
+      )}
 
       {/* Allt tungt (DNA/Advancerad DNA/Development/Scout Intelligence/
           matchlogg/karriär/percentiler/Scout Insight) — streamas in när

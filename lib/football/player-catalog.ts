@@ -2,9 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { hasPlayedSeason } from "./active-player";
 import { calculateAge } from "./age";
-import { computeSeasonOvrMap } from "./rating/compute-rating";
-import { getRatingTrendComparison, getStoredSeasonRatings, getCareerConsistencyMap, type RatingTrendEntry } from "./rating/rating-store";
-import { computePlayerArchetypes, type MatchedArchetype } from "./rating/archetypes";
+import { getSeasonOvrMap, getSeasonRatings, getCareerConsistencyMap, getOvrTrend, type OvrTrendEntry } from "@/lib/ovr/store";
+import { archetypesForRating, type MatchedArchetype } from "@/lib/ovr/archetypes";
 import { displayPlayerName } from "./player-name";
 import { matchesSearchTokens, tokenizeSearchQuery } from "./player-search";
 
@@ -49,13 +48,13 @@ export interface PlayerListParams {
   goalsMin?: number;
   assistsMin?: number;
   minutesMin?: number;
-  /** Player Rating OVR (0–99) — filtreras i JS, se computeSeasonOvrMap. Spelare utan rating (t.ex. otillräckligt underlag) exkluderas av ett satt min/max, precis som Player Rating-kortet självt skulle visa "Ej tillgängligt" för dem. */
+  /** OVR (48–91, intern allsvensk skala) — filtreras i JS. Spelare utan betyg exkluderas av ett satt min/max, precis som kortet självt visar "ej tillgängligt" för dem. */
   ratingMin?: number;
   ratingMax?: number;
   /**
    * Scout (2026-08-21): säsong att jämföra OVR mot, för att filtrera/sortera
    * på UTVECKLING (samma persisterade facit som Topplistans trend-läge, se
-   * rating-store.ts:s getRatingTrendComparison — inget nytt system). Om
+   * lib/ovr/store.ts:s getOvrTrend — inget nytt system). Om
    * satt beräknas `ovrDelta` per spelare; annars är fältet alltid null och
    * ovrDeltaMin/Max ignoreras helt (ingen kostnad om ingen frågar efter det).
    */
@@ -63,7 +62,7 @@ export interface PlayerListParams {
   ovrDeltaMin?: number;
   ovrDeltaMax?: number;
   /**
-   * Scout Engine Fas 4 (2026-08-21) — arketyp-filter (se rating/archetypes.ts).
+   * Scout Engine Fas 4 (2026-08-21) — arketyp-filter (se lib/ovr/archetypes.ts).
    * Matchar en spelare som har MINST EN av de angivna arketyperna (OR, inte
    * AND — samma "hitta kandidater", inte "kräv allt samtidigt"-princip som
    * resten av Scout:s filter). Läser samma persisterade lager som Fas 2/3,
@@ -72,8 +71,8 @@ export interface PlayerListParams {
   archetypeKeys?: string[];
   /**
    * Scout Engine Fas 5 (2026-08-21) — "konsekvent bra" (se
-   * rating-store.ts:s getCareerConsistencyMap). Läser HELA
-   * player_season_rating (alla säsonger), INTE bara den valda — bara
+   * lib/ovr/store.ts:s getCareerConsistencyMap). Läser HELA
+   * player_ratings (alla säsonger), INTE bara den valda — bara
    * hämtat om något av dessa två faktiskt är satt (ingen kostnad annars).
    */
   consistencyMinSeasons?: number;
@@ -105,7 +104,7 @@ export interface PlayerListItem {
   appearances: number;
   minutesPlayed: number;
   goalsPer90: number | null;
-  /** Player Rating OVR (0–99) — null om otillräckligt underlag den här säsongen, se lib/football/rating/compute-rating.ts. */
+  /** OVR (48–91) — null om spelaren saknar betyg den säsongen. Se lib/ovr/config.ts för skalan. */
   rating: number | null;
   /** rating minus OVR i params.compareSeason — null om compareSeason inte angavs ELLER spelaren saknar giltig OVR i någon av de två säsongerna. */
   ovrDelta: number | null;
@@ -129,14 +128,17 @@ function per90(value: number, minutes: number): number | null {
 async function resolveTrendComparison(
   supabase: Supabase,
   params: Pick<PlayerListParams, "season" | "compareSeason">
-): Promise<RatingTrendEntry[] | null> {
+): Promise<OvrTrendEntry[] | null> {
   if (!params.compareSeason) return null;
   const [{ data: seasonA }, { data: seasonB }] = await Promise.all([
     supabase.from("season").select("id").eq("year", params.compareSeason).maybeSingle(),
     supabase.from("season").select("id").eq("year", params.season).maybeSingle(),
   ]);
   if (!seasonA || !seasonB) return null;
-  return getRatingTrendComparison(supabase, { seasonIdA: seasonA.id, seasonIdB: seasonB.id });
+  // minMinutes 0: Scout har egna minutfilter i UI:t, och ett dolt golv här
+  // hade tyst tagit bort spelare ur ovrDelta-filtret utan att användaren såg
+  // varför. Topplistan sätter sitt eget golv, se lib/ovr/leaderboard.ts.
+  return getOvrTrend(supabase, { seasonIdA: seasonA.id, seasonIdB: seasonB.id, minMinutes: 0 });
 }
 
 export async function listPlayers(supabase: Supabase, params: PlayerListParams): Promise<PlayerListResult> {
@@ -153,26 +155,23 @@ export async function listPlayers(supabase: Supabase, params: PlayerListParams):
   if (params.goalsMin !== undefined) query = query.gt("goals", params.goalsMin - 1);
 
   // Parallellt med statistics-frågan ovan — oberoende datakällor
-  // (fixture_player_stats via computeSeasonOvrMap/getRatingTrendComparison),
-  // ingen anledning att vänta på den ena innan den andra startar.
+  // (player_ratings via lib/ovr/store), ingen anledning att vänta på den ena
+  // innan den andra startar. Betygen är färdigberäknade; inget räknas om här.
   // Även när man bara SORTERAR på "konsekvent bra" utan att sätta ett
   // minsta-antal-filter — annars tävlar alla om 0 och sorteringen blir
   // meningslös. Filtret och sorteringen ska alltid vara i synk.
   const wantsConsistency = params.consistencyMinSeasons !== undefined || params.consistencyOvrThreshold !== undefined || params.sort === "consistency";
   const [{ data, error }, ovrMap, trendEntries, storedRatings, consistencyMap] = await Promise.all([
     query.returns<StatRow[]>(),
-    computeSeasonOvrMap(supabase, { season: params.season }),
+    getSeasonOvrMap(supabase, seasonRow.id),
     resolveTrendComparison(supabase, params),
-    getStoredSeasonRatings(supabase, seasonRow.id),
+    getSeasonRatings(supabase, seasonRow.id),
     wantsConsistency ? getCareerConsistencyMap(supabase, params.consistencyOvrThreshold ?? 70) : Promise.resolve(null),
   ]);
   if (error) throw error;
   const deltaByPlayer = new Map(trendEntries?.map((e) => [e.playerId, e.delta]) ?? []);
   const archetypesByPlayer = new Map<number, MatchedArchetype[]>(
-    (storedRatings ?? []).map((r) => [
-      r.playerId,
-      computePlayerArchetypes({ positionGroup: r.positionGroup, categoryScores: r.categoryScores, metricValues: r.metricValues }, r.confidenceTier),
-    ])
+    (storedRatings ?? []).map((r) => [r.playerId, archetypesForRating(r)])
   );
 
   // En spelare kan ha flera rader samma säsong (t.ex. olika league_id för

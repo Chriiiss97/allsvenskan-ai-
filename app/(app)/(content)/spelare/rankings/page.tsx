@@ -4,31 +4,29 @@ import { SectionTabs } from "@/components/data/SectionTabs";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
 import { getAvailableSeasons, listTeams } from "@/lib/football/catalog";
 import {
-  getRatingLeaderboard,
-  getRatingTrendLeaderboard,
-  type RatingLeaderboardParams,
-  type RatingTrendLeaderboardEntry,
-} from "@/lib/football/rating/leaderboard";
-import { ovrColor, deltaColor } from "@/lib/football/rating/ovr-color";
-import { translatePosition } from "@/lib/i18n/sv";
+  getOvrLeaderboard,
+  getOvrTrendLeaderboard,
+  type OvrLeaderboardParams,
+  type OvrTrendLeaderboardEntry,
+} from "@/lib/ovr/leaderboard";
+import { ovrColor, deltaColor } from "@/lib/ovr/color";
 
-// Samma motivering som /data/players: computeSeasonOvrMap/getRatingTrendLeaderboard
-// läser i första hand det persisterade player_season_rating-facit (se
-// rating-store.ts) — en enda indexerad fråga, inte en omräkning. Den här
-// cachen skyddar dessutom mot fallback-fallet (facit inte backfillat än).
+// OVR v2 läser färdiga betyg ur player_ratings — en indexerad fråga, ingen
+// omräkning. Cachen finns kvar eftersom sidan ändå slår mot flera tabeller
+// (lag, säsonger) och betygen bara ändras när batchen körts om.
 export const revalidate = 3600;
 
-const POSITION_GROUPS: NonNullable<RatingLeaderboardParams["positionGroup"]>[] = [
-  "goalkeeper",
-  "defender",
-  "midfielder",
-  "attacker",
-];
+// Sex positionsgrupper i stället för fyra. Ytterbackar och offensiva
+// mittfältare har egna vikttabeller i OVR v2 och rankas mot sina egna peers —
+// en ytterback jämförs inte längre mot mittbackar. Se lib/ovr/config.ts.
+const POSITION_GROUPS: NonNullable<OvrLeaderboardParams["positionGroup"]>[] = ["GK", "CB", "FB", "CM", "AM", "ST"];
 const POSITION_GROUP_LABELS: Record<string, string> = {
-  goalkeeper: "Målvakter",
-  defender: "Försvarare",
-  midfielder: "Mittfältare",
-  attacker: "Anfallare",
+  GK: "Målvakter",
+  CB: "Mittbackar",
+  FB: "Ytterbackar",
+  CM: "Centrala mittfältare",
+  AM: "Offensiva mittfältare",
+  ST: "Anfallare",
 };
 
 /**
@@ -36,8 +34,8 @@ const POSITION_GROUP_LABELS: Record<string, string> = {
  * försämrad säsong-mot-säsong). Två lägen på SAMMA sida eftersom de svarar
  * på besläktade frågor ("vem är bäst just nu" / "vem är på väg upp eller
  * ner") och delar samma filter — inte två separata sidor. Båda byggda på
- * exakt samma persisterade facit (player_season_rating, se
- * lib/football/rating/rating-store.ts) som profilsidans Utveckling-sektion
+ * exakt samma persisterade betyg (player_ratings, se
+ * lib/ovr/store.ts) som profilsidans Utveckling-sektion
  * — inget dubblerat beräkningssystem.
  *
  * Rangordning: DEFAULT filtrerad på MIN_PEER_MINUTES (450 min) — annars
@@ -78,7 +76,7 @@ export default async function PlayerRankingsPage({
   const teamById = new Map(teams.map((t) => [t.id, t]));
 
   const positionGroup = POSITION_GROUPS.includes(sp.position as never)
-    ? (sp.position as RatingLeaderboardParams["positionGroup"])
+    ? (sp.position as OvrLeaderboardParams["positionGroup"])
     : undefined;
   const teamId = sp.team ? teamByExternalId.get(Number(sp.team))?.id : undefined;
   const includeLowSample = sp.all === "1";
@@ -87,12 +85,12 @@ export default async function PlayerRankingsPage({
 
   const entries =
     mode === "ovr" && seasonYear
-      ? await getRatingLeaderboard(supabase, { season: seasonYear, positionGroup, teamId, ageMin, ageMax, includeLowSample })
+      ? await getOvrLeaderboard(supabase, { season: seasonYear, positionGroup, teamId, ageMin, ageMax, includeLowSample })
       : [];
 
-  let trendEntries: RatingTrendLeaderboardEntry[] | null = null;
+  let trendEntries: OvrTrendLeaderboardEntry[] | null = null;
   if (mode === "trend" && seasonYear && compareYear) {
-    trendEntries = await getRatingTrendLeaderboard(supabase, {
+    trendEntries = await getOvrTrendLeaderboard(supabase, {
       seasonYearA: compareYear,
       seasonYearB: seasonYear,
       positionGroup,
@@ -263,7 +261,7 @@ export default async function PlayerRankingsPage({
       {mode === "ovr" && (
         <div className="mt-4 space-y-1.5">
           {entries.map((e, i) => {
-            const team = teamById.get(e.teamId);
+            const team = e.teamId === null ? undefined : teamById.get(e.teamId);
             const color = ovrColor(e.ovr);
             return (
               <Link
@@ -276,17 +274,20 @@ export default async function PlayerRankingsPage({
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">
                     {e.fullName}
-                    {e.belowMinutesFloor && (
-                      <span className="ml-1.5 rounded bg-[#e66767]/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[#e66767]">
+                    {e.display.needsCaveat && (
+                      <span
+                        className="ml-1.5 rounded bg-[#e66767]/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[#e66767]"
+                        title={e.display.caveat ?? "Begränsat underlag den här säsongen"}
+                      >
                         Begränsat underlag
                       </span>
                     )}
                   </p>
                   <p className="mt-0.5 truncate text-xs text-[#898781]">
                     {team?.name ?? "—"}
-                    {e.position && ` · ${translatePosition(e.position)}`}
+                    {` · ${POSITION_GROUP_LABELS[e.positionGroup]}`}
                     {e.age !== null && ` · ${e.age} år`}
-                    {` · ${e.ownMinutes} min`}
+                    {` · ${e.display.badge}`}
                   </p>
                 </div>
                 <div className="shrink-0 rounded-lg px-2.5 py-1.5 text-center" style={{ backgroundColor: `${color}1a` }}>
@@ -312,7 +313,7 @@ export default async function PlayerRankingsPage({
             <p className="mt-8 text-center text-sm text-[#898781]">Ingen spelare hade OVR i båda säsongerna med de här filtren.</p>
           ) : (
             trendEntries.map((e, i) => {
-              const team = teamById.get(e.teamId);
+              const team = e.teamId === null ? undefined : teamById.get(e.teamId);
               const dColor = deltaColor(e.delta);
               return (
                 <Link
@@ -333,7 +334,7 @@ export default async function PlayerRankingsPage({
                     </p>
                     <p className="mt-0.5 truncate text-xs text-[#898781]">
                       {team?.name ?? "—"}
-                      {e.position && ` · ${translatePosition(e.position)}`}
+                      {` · ${POSITION_GROUP_LABELS[e.positionGroup]}`}
                       {e.age !== null && ` · ${e.age} år`}
                     </p>
                   </div>

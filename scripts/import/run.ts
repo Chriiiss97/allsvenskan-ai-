@@ -16,7 +16,7 @@ import { runLiveTick } from "./live-pipeline";
 import { finalizeMatches } from "./finalize-match";
 import { seedTeamFacts } from "./seed-team-facts";
 import { seedLeagueFacts } from "./seed-league-facts";
-import { refreshAllSeasonRatings } from "./refresh-ratings";
+import { refreshAllOvr, refreshCurrentSeasonOvr, seedLeagueCoefficients } from "./refresh-ovr";
 import { importSportmonksTypes } from "./import-sportmonks-types";
 import { mapSportmonksTeams } from "./sportmonks-map-teams";
 import { mapSportmonksFixtures } from "./sportmonks-map-fixtures";
@@ -45,6 +45,17 @@ const STEPS: Record<string, () => Promise<void>> = {
   coaches: importCoaches,
   standings: importStandings,
   "fix-team-names": fixTeamNameDiacritics,
+  // OVR v2 — den enda ratingmotorn. Se lib/ovr/. Ingen API-Football-koppling
+  // (räknar bara om redan importerad fixture_player_stats), kostar 0 av
+  // dagskvoten. Efter en körning håller finalize-cronen aktuell säsong fräsch.
+  ovr: refreshAllOvr,
+  "ovr-current": async () => {
+    await refreshCurrentSeasonOvr();
+  },
+  "ovr-leagues": async () => {
+    const n = await seedLeagueCoefficients();
+    console.log(`${n} ligakoefficienter seedade.`);
+  },
   "pre-match": runPreMatchPipeline,
   // Fas 20: runLiveTick returnerar numera en lägesbeskrivning (så cron-
   // routen kan pacea sin loop). CLI:t bryr sig bara om att den kördes.
@@ -55,13 +66,10 @@ const STEPS: Record<string, () => Promise<void>> = {
     );
   },
   finalize: finalizeMatches,
-  // Engångs-backfill av ALLA säsongers player_season_rating (se migration
+  // Engångs-backfill av ALLA säsongers player_ratings (se migration
   // 20260821120000). Ingen API-Football-koppling (räknar bara om redan
   // importerad fixture_player_stats), kostar 0 av dagskvoten. Efter denna
   // körning håller finalize-cronen den aktuella säsongen fräsch automatiskt.
-  ratings: async () => {
-    await refreshAllSeasonRatings();
-  },
   // ingen API-Football-koppling, kostar inget av dagskvoten
   facts: async () => {
     await seedTeamFacts();

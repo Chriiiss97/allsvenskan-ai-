@@ -7,7 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "import": "tsx scripts/import/run.ts"
+    "import": "tsx scripts/import/run.ts",
+    "test:ovr": "tsx --test lib/ovr/*.test.ts",
+    "ovr:sanity": "tsx scripts/ovr-sanity.ts",
+    "ovr:leagues": "tsx scripts/ovr-check-league-coefficients.ts",
+    "ovr:history": "tsx scripts/ovr-history-audit.ts",
+    "ovr:registry": "tsx scripts/generate-league-registry.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.119.0",

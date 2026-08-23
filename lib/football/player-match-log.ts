@@ -41,7 +41,7 @@ export interface PlayerMatchLogEntry {
   tacklesTotal: number | null;
   saves: number | null;
   goalsConceded: number | null;
-  /** Etablerad branschkonvention (samma som goalkeeper-rating.ts): 0 insläppta OCH minst 60 spelade minuter. null om vi saknar underlag för att avgöra. */
+  /** Etablerad branschkonvention: 0 insläppta OCH minst 60 spelade minuter. null om vi saknar underlag för att avgöra. Se även lib/ovr/metrics.ts:CLEAN_SHEET_MIN_MINUTES, som använder 45 för hållna nollor i betyget. */
   cleanSheet: boolean | null;
 }
 

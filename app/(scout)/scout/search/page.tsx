@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getCachedSeasons, getCachedTeams, getCachedScoutSearch } from "@/lib/football/cached-reads";
-import { SEARCHABLE_METRICS, type ScoutSearchCriterion } from "@/lib/football/rating/scout-search";
+import { SEARCHABLE_METRICS, type ScoutSearchCriterion } from "@/lib/football/scout/scout-search";
 import { translatePosition } from "@/lib/i18n/sv";
 import type { PositionGroupKey } from "@/lib/football/position-group";
 
@@ -8,7 +8,7 @@ import type { PositionGroupKey } from "@/lib/football/position-group";
  * Fas 14.4 (plans/humble-giggling-biscuit.md) — Scout Search. Riktig
  * kriterie-sökning: position + ålder + valfritt antal mått-trösklar (både
  * råvärde OCH percentil, t.ex. "xG/90 ≥ 0.20" respektive "Bollåtervinningar
- * ≥ 80:e percentilen") — se lib/football/rating/scout-search.ts för hela
+ * ≥ 80:e percentilen") — se lib/football/scout/scout-search.ts för hela
  * motorn och varför den bygger på redan existerande, tidigare oanvänd
  * Fas 11-kod.
  */

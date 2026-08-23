@@ -1,0 +1,47 @@
+-- ============================================================================
+-- Avveckling av den gamla ratingmotorn (2026-08-23)
+-- ============================================================================
+-- player_season_rating var cachelagret för OVR v1 (migration 20260821120000).
+-- OVR v2 (player_ratings, 20260823130000) är sedan den här punkten den enda
+-- ratingmotorn i applikationen, och v1 finns inte längre kvar i koden:
+--
+--   raderade filer   lib/football/rating/compute-rating.ts
+--                    lib/football/rating/goalkeeper-rating.ts
+--                    lib/football/rating/rating-store.ts
+--                    lib/football/rating/stored-rating-view.ts
+--                    lib/football/rating/leaderboard.ts
+--                    lib/football/rating/rating-trend.ts
+--                    lib/football/rating/archetypes.ts
+--                    lib/football/rating/categories.ts
+--                    lib/football/rating/metric-registry.ts
+--                    lib/football/rating/position-rating-config.ts
+--                    lib/football/rating/ovr-color.ts
+--                    lib/football/rating/ovr-proposal.ts
+--                    components/data/PlayerRating.tsx
+--                    scripts/import/refresh-ratings.ts
+--
+-- Katalogen lib/football/rating/ heter numera lib/football/scout/ och innehåller
+-- bara statistikaggregering (rating-aggregates) och Sportmonks-baserad
+-- Scout-analys. Ingen av dem beräknar OVR.
+--
+-- ----------------------------------------------------------------------------
+-- VARFÖR DET ÄR SÄKERT ATT DROPPA
+-- ----------------------------------------------------------------------------
+-- Tabellen var ett CACHELAGER för en beräkning, aldrig en primärkälla. Allt den
+-- innehöll gick att räkna fram igen ur fixture_player_stats, och player_ratings
+-- är redan backfillad för exakt samma elva säsonger (2016–2026, 4 659 rader).
+-- Ingen historik går förlorad.
+--
+-- Verifierat före körning: noll kodreferenser till tabellen kvar i app/,
+-- components/, lib/ och scripts/, och `npx tsc --noEmit` går igenom rent.
+--
+-- ----------------------------------------------------------------------------
+-- ÅTERSTÄLLNING
+-- ----------------------------------------------------------------------------
+-- Det finns med flit ingen väg tillbaka till v1 i applikationen. Rollback under
+-- en deploy sker via Git/Vercel till föregående version, inte genom att hålla
+-- två ratingsystem vid liv parallellt. Skulle tabellen behövas igen är
+-- migrationen 20260821120000 kvar i repot och kan köras om — men då skapas en
+-- tom tabell, eftersom skrivvägen till den inte längre existerar.
+
+drop table if exists public.player_season_rating;

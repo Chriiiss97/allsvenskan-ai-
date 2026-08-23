@@ -3,8 +3,8 @@ import type { PlayerSeasonAggregate } from "./rating-aggregates";
 
 /**
  * Scout Engine (2026-08-21) — mått som beräknas och SPARAS för Scout men
- * som INTE är en del av Player Ratings OVR-formel (lib/football/rating/
- * metric-registry.ts + position-rating-config.ts). Medvetet en separat fil:
+ * som INTE är en del av Player Ratings OVR-formel (lib/football/scout/
+ * OVR-motorn i lib/ovr/). Medvetet en separat fil:
  * att lägga till ett mått här ändrar aldrig en redan skeppad OVR-siffra,
  * till skillnad från att lägga till det i en OVR-kategori.
  *

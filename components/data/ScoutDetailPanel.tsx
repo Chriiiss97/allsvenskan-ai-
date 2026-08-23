@@ -1,15 +1,15 @@
 import Link from "next/link";
 import { PlayerAvatar } from "./PlayerAvatar";
-import { PlayerRating } from "./PlayerRating";
+import { PlayerOvrCard } from "@/components/ovr/PlayerOvrCard";
 import { PlayerDNA } from "./PlayerDNA";
 import { PlayerRatingHistory } from "./PlayerRatingHistory";
-import { ovrColor } from "@/lib/football/rating/ovr-color";
+import { ovrColor } from "@/lib/ovr/color";
 import { translatePosition, translateNationality } from "@/lib/i18n/sv";
-import type { AnyPlayerRating } from "@/lib/football/rating/compute-rating";
+import type { OvrDisplayHint, PlayerOvr } from "@/lib/ovr/store";
 import type { PlayerDNA as PlayerDNAData } from "@/lib/football/player-dna";
-import type { SeasonRatingPoint } from "@/lib/football/rating/rating-store";
-import type { RatingTrendSummary } from "@/lib/football/rating/rating-trend";
-import type { MatchedArchetype } from "@/lib/football/rating/archetypes";
+import type { OvrHistoryPoint } from "@/lib/ovr/store";
+import type { OvrTrendSummary } from "@/lib/ovr/trend";
+import type { MatchedArchetype } from "@/lib/ovr/archetypes";
 
 export interface ScoutDetailPlayer {
   id: number;
@@ -41,10 +41,10 @@ export interface ScoutMatchInfo {
  */
 export function ScoutDetailPanel({
   player,
-  season,
   closeHref,
   fullProfileHref,
   rating,
+  ratingDisplay,
   dna,
   ratingHistory,
   ratingTrend,
@@ -53,13 +53,13 @@ export function ScoutDetailPanel({
   unavailableReason,
 }: {
   player: ScoutDetailPlayer;
-  season: number | null;
   closeHref: string;
   fullProfileHref: string;
-  rating: AnyPlayerRating | null;
+  rating: PlayerOvr | null;
+  ratingDisplay: OvrDisplayHint | null;
   dna: PlayerDNAData | null;
-  ratingHistory: SeasonRatingPoint[];
-  ratingTrend: RatingTrendSummary | null;
+  ratingHistory: OvrHistoryPoint[];
+  ratingTrend: OvrTrendSummary | null;
   archetypes: MatchedArchetype[];
   scoutMatch: ScoutMatchInfo | null;
   unavailableReason: string | null;
@@ -120,7 +120,9 @@ export function ScoutDetailPanel({
         <p className="mt-4 text-sm text-[#898781]">{unavailableReason}</p>
       ) : (
         <div className="mt-4 space-y-4">
-          {rating && season !== null && <PlayerRating data={rating} season={season} compact />}
+          {rating && ratingDisplay && (
+            <PlayerOvrCard rating={rating} display={ratingDisplay} archetypes={archetypes} compact />
+          )}
           {dna && <PlayerDNA dna={dna} compact />}
           <PlayerRatingHistory history={ratingHistory} trend={ratingTrend ?? { peakSeasonYear: null, peakOvr: null, trend: null, trendDescription: null, formDescription: null }} />
         </div>

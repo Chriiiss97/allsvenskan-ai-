@@ -1,9 +1,9 @@
 /**
  * Fas 8 — dokumenterad måttregistry för det AVANCERADE (Sportmonks-källade)
- * lagret. Egen fil, ALDRIG importerad av lib/football/rating/metric-registry.ts
+ * lagret. Egen fil, ALDRIG importerad av lib/football/scout/metric-registry.ts
  * — samma medvetna separation som redan etablerad för scout-metrics.ts.
  * Ingen Sportmonks-källa refereras i OVR-formeln (metric-registry.ts/
- * categories.ts/position-rating-config.ts) förrän ett uttryckligt beslut
+ * lib/ovr/config.ts) förrän ett uttryckligt beslut
  * tas i en senare fas (planens Fas 13).
  *
  * Scopad till 2024–2026 — Sportmonks täcker inte Allsvenskan tidigare år.

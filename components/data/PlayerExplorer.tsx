@@ -10,7 +10,7 @@ import {
   type ExplorerFilters,
   type ExplorerSortKey,
 } from "@/lib/football/player-explorer-params";
-import { computeScoutMatch } from "@/lib/football/rating/scout-match";
+import { computeScoutMatch } from "@/lib/football/scout/scout-match";
 import { translatePosition } from "@/lib/i18n/sv";
 
 /**
@@ -32,7 +32,7 @@ import { translatePosition } from "@/lib/i18n/sv";
  * VAD SOM ÄNDÅ ÄR SERVERSTYRT (och därför navigerar): säsong,
  * jämförelsesäsong och "konsekvent bra". De tre kräver data som inte finns
  * i den skickade mängden (en annan säsongs ratings, respektive HELA
- * player_season_rating-tabellen) och hämtas bara när någon faktiskt ber om
+ * player_ratings-tabellen) och hämtas bara när någon faktiskt ber om
  * dem — samma "ingen kostnad om ingen frågar"-princip som player-catalog.ts
  * redan följer. De visar en tydlig laddningsindikator istället för att låtsas
  * vara direkta.

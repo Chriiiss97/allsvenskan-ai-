@@ -3,19 +3,19 @@ import { unstable_cache } from "next/cache";
 import type { Database } from "@/lib/supabase/database.types";
 import { computePlayerDNA, type PlayerDNA } from "./player-dna";
 import { computeAdvancedPlayerDNA, type AdvancedPlayerDNA } from "./advanced-dna";
-import { computeAdvancedDevelopment, type AdvancedDevelopmentSummary } from "./rating/advanced-development";
-import { computeRatingForPlayer, type AnyPlayerRating } from "./rating/compute-rating";
-import { getPlayerRatingHistory, getStoredSeasonRatings, type SeasonRatingPoint, type StoredSeasonRating } from "./rating/rating-store";
+import { computeAdvancedDevelopment, type AdvancedDevelopmentSummary } from "./scout/advanced-development";
+import { archetypesForRating } from "@/lib/ovr/archetypes";
+import { displayHint, getPlayerOvr, getPlayerOvrHistory, getOvrBreakdown, type OvrBreakdown, type OvrDisplayHint, type OvrHistoryPoint, type PlayerOvr } from "@/lib/ovr/store";
 import { getCareerTimeline, getForeignCareerStints, type CareerTimelineEntry, type ForeignCareerStint } from "./career-timeline";
 import { getPlayerTrophies, type PlayerTrophy } from "./player-trophies";
 import { getCareerJourney, type CareerJourney } from "./career-journey";
-import { computeRegressionToMean, type RegressionPrediction } from "./rating/scout-intelligence-regression";
+import { computeRegressionToMean, type RegressionPrediction } from "./scout/scout-intelligence-regression";
 import { listTeamsWithSeasonSummary, type TeamOverviewRow } from "./catalog";
 import { getPlayerLineupRoleProfile, type PlayerLineupRoleProfile } from "./lineup-role";
-import { computeAgeAdjustedZScores, type ZScoreResult } from "./rating/scout-intelligence-zscore";
-import { computeConsistencyCoefficients, type ConsistencyResult } from "./rating/scout-intelligence-consistency";
+import { computeAgeAdjustedZScores, type ZScoreResult } from "./scout/scout-intelligence-zscore";
+import { computeConsistencyCoefficients, type ConsistencyResult } from "./scout/scout-intelligence-consistency";
 import { getPlayerMatchLog, type PlayerMatchLog } from "./player-match-log";
-import { aggregatePlayerCardExtraMetrics, type PlayerCardExtraMetrics } from "./rating/player-card-extra-metrics";
+import { aggregatePlayerCardExtraMetrics, type PlayerCardExtraMetrics } from "./scout/player-card-extra-metrics";
 
 /**
  * ============================================================================
@@ -67,8 +67,10 @@ export interface PlayerCardAnalysis {
   dna: PlayerDNA | null;
   advancedDna: AdvancedPlayerDNA | null;
   advancedDevelopment: AdvancedDevelopmentSummary;
-  rating: AnyPlayerRating | null;
-  ratingHistory: SeasonRatingPoint[];
+  rating: PlayerOvr | null;
+  ratingDisplay: OvrDisplayHint | null;
+  ratingBreakdown: OvrBreakdown | null;
+  ratingHistory: OvrHistoryPoint[];
   careerTimeline: CareerTimelineEntry[];
   foreignCareerStints: ForeignCareerStint[];
   trophies: PlayerTrophy[];
@@ -78,7 +80,7 @@ export interface PlayerCardAnalysis {
   lineupRole: PlayerLineupRoleProfile | null;
   zScoresResult: ZScoreResult | null;
   consistencyResult: ConsistencyResult | null;
-  storedRatings: StoredSeasonRating[] | null;
+  archetypeLabels: string[];
   matchLog: PlayerMatchLog;
   extraMetrics: PlayerCardExtraMetrics | null;
   seasonId: number | null;
@@ -113,15 +115,15 @@ async function computePlayerCardAnalysis(
     lineupRole,
     zScoresMap,
     consistenciesMap,
-    storedRatings,
+    ratingBreakdown,
     matchLog,
     extraMetricsMap,
   ] = await Promise.all([
     season ? computePlayerDNA(supabase, { playerId, season }) : Promise.resolve(null),
     isSportmonksSeason ? computeAdvancedPlayerDNA(supabase, { playerId, season: season! }) : Promise.resolve(null),
     computeAdvancedDevelopment(supabase, { playerId }),
-    season ? computeRatingForPlayer(supabase, { playerId, position, season }) : Promise.resolve(null),
-    getPlayerRatingHistory(supabase, playerId),
+    seasonId ? getPlayerOvr(supabase, { playerId, seasonId }) : Promise.resolve(null),
+    getPlayerOvrHistory(supabase, playerId),
     getCareerTimeline(supabase, { playerId }),
     getForeignCareerStints(supabase, { playerId }),
     getPlayerTrophies(supabase, { playerId }),
@@ -131,7 +133,7 @@ async function computePlayerCardAnalysis(
     seasonId ? getPlayerLineupRoleProfile(supabase, { playerId, seasonId }) : Promise.resolve(null),
     seasonId && season ? computeAgeAdjustedZScores(supabase, { seasonId, seasonYear: season }) : Promise.resolve(null),
     seasonId ? computeConsistencyCoefficients(supabase, { seasonId }) : Promise.resolve(null),
-    seasonId ? getStoredSeasonRatings(supabase, seasonId) : Promise.resolve(null),
+    seasonId ? getOvrBreakdown(supabase, { playerId, seasonId }) : Promise.resolve(null),
     seasonId
       ? getPlayerMatchLog(supabase, { playerId, seasonId, position })
       : Promise.resolve({ available: false, isGoalkeeper, entries: [] }),
@@ -160,7 +162,9 @@ async function computePlayerCardAnalysis(
     lineupRole,
     zScoresResult: zScoresMap?.get(playerId) ?? null,
     consistencyResult: consistenciesMap?.get(playerId) ?? null,
-    storedRatings,
+    ratingDisplay: rating ? displayHint(rating) : null,
+    ratingBreakdown,
+    archetypeLabels: rating ? archetypesForRating(rating).map((a) => a.label) : [],
     matchLog,
     extraMetrics: extraMetricsMap?.get(playerId) ?? null,
     seasonId,
@@ -232,16 +236,16 @@ export async function getCachedPlayerCardAnalysis(
  *   computeAgeAdjustedZScores  ~1,4s
  *   aggregatePlayerCardExtraMetrics ~1,0s
  *   computePlayerDNA           ~0,7s
- *   computeRatingForPlayer     ~0,8s
+ *   getPlayerOvr               ~0,05s  ← numera BILLIG (v1 tog ~0,8s)
  *   computeConsistencyCoefficients ~0,6s
  *   computeRegressionToMean    ~0,2s
- *   getStoredSeasonRatings     ~0,05s  ← BILLIG
+ *   getOvrBreakdown            ~0,05s  ← BILLIG
  *   listTeamsWithSeasonSummary ~0,11s  ← BILLIG
- *   getPlayerRatingHistory/getCareerTimeline/getPlayerLineupRoleProfile/
+ *   getPlayerOvrHistory/getCareerTimeline/getPlayerLineupRoleProfile/
  *   getPlayerMatchLog          alla <0,1s ← BILLIGA
  *
- * Header/Snapshot/Context behöver bara OVR (computeRatingForPlayer),
- * huvudarketyp (getStoredSeasonRatings) och tabellplacering
+ * Header/Snapshot/Context behöver bara OVR (getPlayerOvr),
+ * huvudarketyp (archetypesForRating) och tabellplacering
  * (listTeamsWithSeasonSummary) — alla BILLIGA. De tunga modulerna
  * (DNA/Advancerad DNA/Development/Z-score/konsistens/extra-mått) behövs
  * bara längre ner på sidan (Identity/Performance-extra/Percentiler/Scout
@@ -258,7 +262,9 @@ export async function getCachedPlayerCardAnalysis(
  * tunga delen, så en redan varm cache gör HELA sidan snabb ändå.
  */
 export interface FastPlayerCardData {
-  rating: AnyPlayerRating | null;
+  rating: PlayerOvr | null;
+  ratingDisplay: OvrDisplayHint | null;
+  ratingBreakdown: OvrBreakdown | null;
   mainArchetypeLabel: string | null;
   standingsLabel: string | null;
 }
@@ -275,25 +281,17 @@ async function computeFastPlayerCardData(
   const seasonRow = season ? await supabase.from("season").select("id").eq("year", season).maybeSingle() : null;
   const seasonId = seasonRow?.data?.id ?? null;
 
-  const [rating, storedRatings, standingsTeams] = await Promise.all([
-    season ? computeRatingForPlayer(supabase, { playerId, position, season }) : Promise.resolve(null),
-    seasonId ? getStoredSeasonRatings(supabase, seasonId) : Promise.resolve(null),
+  // EN indexerad fråga mot player_ratings ger både betyget och arketyperna —
+  // den gamla vägen räknade om hela ligasäsongen för att få fram samma tal.
+  const [rating, ratingBreakdown, standingsTeams] = await Promise.all([
+    seasonId ? getPlayerOvr(supabase, { playerId, seasonId }) : Promise.resolve(null),
+    seasonId ? getOvrBreakdown(supabase, { playerId, seasonId }) : Promise.resolve(null),
     season && teamId ? listTeamsWithSeasonSummary(supabase, { season }) : Promise.resolve(null),
   ]);
 
-  let mainArchetypeLabel: string | null = null;
-  const ownStoredRating = storedRatings?.find((r) => r.playerId === playerId);
-  if (ownStoredRating) {
-    // Egen import här (inte i toppen av filen) hade gett en cirkelimport-
-    // risk mot rating/archetypes.ts — inget problem, samma modul importeras
-    // redan indirekt, men skrivs explicit ut för tydlighet.
-    const { computePlayerArchetypes } = await import("./rating/archetypes");
-    const archetypes = computePlayerArchetypes(
-      { positionGroup: ownStoredRating.positionGroup, categoryScores: ownStoredRating.categoryScores, metricValues: ownStoredRating.metricValues },
-      ownStoredRating.confidenceTier
-    );
-    mainArchetypeLabel = archetypes[0]?.label ?? null;
-  }
+  // Positionsspecifika arketyper sorteras först av archetypesForRating, så
+  // den första etiketten är också den mest informativa.
+  const mainArchetypeLabel = rating ? (archetypesForRating(rating)[0]?.label ?? null) : null;
 
   let standingsLabel: string | null = null;
   if (standingsTeams && teamId && teamName) {
@@ -303,7 +301,7 @@ async function computeFastPlayerCardData(
     }
   }
 
-  return { rating, mainArchetypeLabel, standingsLabel };
+  return { rating, ratingDisplay: rating ? displayHint(rating) : null, ratingBreakdown, mainArchetypeLabel, standingsLabel };
 }
 
 const fastMemoryCache = new Map<string, { data: FastPlayerCardData; expiresAt: number }>();

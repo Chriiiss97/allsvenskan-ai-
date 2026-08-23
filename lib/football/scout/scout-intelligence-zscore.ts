@@ -16,8 +16,8 @@ type Supabase = SupabaseClient<Database>;
  * instruktion) — INTE en del av Fas 14-redesignen och INTE en ändring av
  * OVR/Player Rating. Samma filnivå-separationsprincip som
  * advanced-scout-metrics.ts: compute-on-read, ALDRIG persisterat till
- * player_season_rating, ALDRIG importerad av metric-registry.ts/
- * categories.ts/position-rating-config.ts/refresh-ratings.ts.
+ * player_ratings, ALDRIG importerad av OVR-motorn i lib/ovr/
+ * OVR-motorn i lib/ovr/.
  *
  * FORMEL (härledd från användarens spec, exakt som angivet):
  *   Z_age = (X_i − μ(Position, Åldersgrupp)) / σ(Position, Åldersgrupp)

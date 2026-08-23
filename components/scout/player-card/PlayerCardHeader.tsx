@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
 import { translatePosition, translateNationality } from "@/lib/i18n/sv";
-import { ovrColor } from "@/lib/football/rating/ovr-color";
+import { ovrColor } from "@/lib/ovr/color";
 import type { ConfidenceTier } from "@/lib/football/confidence";
 import { colors } from "@/lib/design/tokens";
 
@@ -58,7 +58,7 @@ export function PlayerCardHeader({
    * sheet på ett enda extremfall), men Snapshot/Context visade INGEN
    * varning eftersom de läste dna?.confidence (alltid null för målvakter)
    * istället för själva ratingens confidence. OVR-TALET ändras inte här
-   * (skulle kräva att röra goalkeeper-rating.ts/compute-rating.ts, som är
+   * (skulle kräva att röra OVR-motorn i lib/ovr/, som är
    * skyddade filer) — men badgen byter till samma "låg"-färg som resten av
    * appens confidence-indikatorer använder, istället för en missvisande
    * grön "elit"-färg, så en 1-matchs-99:a aldrig SER trovärdig ut.

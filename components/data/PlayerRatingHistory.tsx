@@ -1,10 +1,10 @@
 "use client";
 
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Dot } from "recharts";
-import type { SeasonRatingPoint } from "@/lib/football/rating/rating-store";
-import type { RatingTrendSummary } from "@/lib/football/rating/rating-trend";
-import { ovrColor } from "@/lib/football/rating/ovr-color";
-import type { ConfidenceTier } from "@/lib/football/confidence";
+import type { OvrHistoryPoint } from "@/lib/ovr/store";
+import type { OvrTrendSummary } from "@/lib/ovr/trend";
+import { ovrColor } from "@/lib/ovr/color";
+import type { ConfidenceTier } from "@/lib/ovr/config";
 
 const CONFIDENCE_LABEL: Record<ConfidenceTier, string> = {
   hög: "Säkert",
@@ -17,7 +17,7 @@ const CONFIDENCE_COLOR: Record<ConfidenceTier, string> = {
   låg: "#e66767",
 };
 
-/** Punkter med "låg" konfidens ritas ihåliga (bara kant, ingen fyllning) — samma "visa alltid, flagga aldrig dölj"-princip som resten av Player Rating. */
+/** Punkter med "låg" konfidens ritas ihåliga (bara kant, ingen fyllning) — samma "visa alltid, dölj aldrig, flagga alltid"-princip som resten av OVR v2. */
 function TrendDot(props: { cx?: number; cy?: number; payload?: { confidenceTier: ConfidenceTier | null } }) {
   const { cx, cy, payload } = props;
   if (cx === undefined || cy === undefined || !payload) return null;
@@ -36,13 +36,15 @@ function TrendDot(props: { cx?: number; cy?: number; payload?: { confidenceTier:
 }
 
 /**
- * Player Rating — utvecklingssektion på spelarprofilen. Läser
- * player_season_rating-facit direkt (inget live-beräknat här, se
- * rating-store.ts) — bara OVR + konfidens per säsong, ingen kategori/
- * mått-nedbrytning (den finns bara för DEN VALDA säsongen i PlayerRating-
- * kortet ovanför). Komplement till, aldrig ersättning för, nuvarande status.
+ * OVR v2 — utvecklingssektionen på spelarprofilen. Läser player_ratings direkt
+ * (lib/ovr/store.ts); ingenting beräknas här och det finns ingen
+ * live-beräkningsväg som reserv.
+ *
+ * Bara OVR, konfidens och speltid per säsong — måttnedbrytningen finns bara för
+ * DEN VALDA säsongen i kortet ovanför. Komplement till, aldrig ersättning för,
+ * nuvarande status.
  */
-export function PlayerRatingHistory({ history, trend }: { history: SeasonRatingPoint[]; trend: RatingTrendSummary }) {
+export function PlayerRatingHistory({ history, trend }: { history: OvrHistoryPoint[]; trend: OvrTrendSummary }) {
   const chartData = history
     .filter((h) => h.ovr !== null)
     .map((h) => ({ year: String(h.seasonYear), ovr: h.ovr as number, confidenceTier: h.confidenceTier }));
@@ -84,7 +86,8 @@ export function PlayerRatingHistory({ history, trend }: { history: SeasonRatingP
             <LineChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
               <CartesianGrid stroke="#2c2c2a" vertical={false} />
               <XAxis dataKey="year" tick={{ fill: "#898781", fontSize: 11 }} axisLine={{ stroke: "#2c2c2a" }} tickLine={false} />
-              <YAxis domain={[0, 99]} tick={{ fill: "#898781", fontSize: 11 }} axisLine={false} tickLine={false} width={28} />
+              {/* Skalans faktiska spann (se lib/ovr/config.ts) — 0–99 tryckte ihop hela kurvan i mitten och gjorde verkliga rörelser osynliga. */}
+              <YAxis domain={[45, 92]} tick={{ fill: "#898781", fontSize: 11 }} axisLine={false} tickLine={false} width={28} />
               <Line
                 type="monotone"
                 dataKey="ovr"
@@ -111,7 +114,9 @@ export function PlayerRatingHistory({ history, trend }: { history: SeasonRatingP
                   {CONFIDENCE_LABEL[h.confidenceTier]}
                 </span>
               )}
-              <span className="text-[#5f5e59]">{h.ownMinutes} min</span>
+              <span className="text-[#5f5e59]" title={h.externalMinutes > 0 ? `${h.minutesPlayed} min i Allsvenskan + ${h.externalMinutes} min utanför, nivåjusterade` : undefined}>
+                {h.minutesPlayed + h.externalMinutes} min{h.externalMinutes > 0 ? "*" : ""}
+              </span>
               <span className="w-8 text-right font-semibold" style={{ color: h.ovr !== null ? ovrColor(h.ovr) : "#5f5e59" }}>
                 {h.ovr ?? "—"}
               </span>

@@ -9,6 +9,9 @@
 
 export type UserRole = "user" | "admin";
 
+/** OVR v2:s sex positionsgrupper. Se lib/ovr/config.ts. */
+export type OvrPositionGroup = "GK" | "CB" | "FB" | "CM" | "AM" | "ST";
+
 export interface Database {
   public: {
     Tables: {
@@ -735,29 +738,81 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["feature_flag"]["Row"]>;
         Relationships: [];
       };
-      player_season_rating: {
+      // --- OVR v2 (20260823130000_ovr_v2.sql) ---
+      // player_ratings är den ENDA källan till OVR. Gamla player_season_rating
+      // är droppad (migration 20260823150000).
+      // Se lib/ovr/config.ts. Skalan är INTERN ALLSVENSK, inte FIFA-jämförbar.
+      league_coefficients: {
+        Row: {
+          league_external_id: number;
+          league_name: string;
+          country: string | null;
+          coefficient: number;
+          /** Startvärdena är kvalificerade gissningar. false tills någon faktiskt mätt övergångsutfall. */
+          calibrated: boolean;
+          /** true för cupturneringar som blandar divisioner — utesluts helt ur prior. */
+          excluded: boolean;
+          note: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["league_coefficients"]["Row"]> & {
+          league_external_id: number;
+          league_name: string;
+          coefficient: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["league_coefficients"]["Row"]>;
+        Relationships: [];
+      };
+      player_ratings: {
         Row: {
           id: number;
           player_id: number;
           season_id: number;
-          position_group: "goalkeeper" | "defender" | "midfielder" | "attacker";
+          season_year: number;
+          club_id: number | null;
+          position_group: OvrPositionGroup;
+          secondary_position_group: OvrPositionGroup | null;
+          /** Andel av startminuterna i primärgruppen. 0 = ingen start i fönstret, player.position fick avgöra. */
+          position_confidence: number;
           ovr: number | null;
-          confidence_tier: "hög" | "medel" | "låg" | null;
-          own_minutes: number;
-          computed_at: string;
-          /** shooting/passing/dribbling/defending — bara utespelare, null för målvakter. Se position-rating-config.ts. */
-          category_scores: Record<string, number> | null;
-          /** Per mått: {value, percentile}. Täcker både OVR-mått och fristående Scout-mått (t.ex. dribblesPastPer90) — se lib/football/rating/scout-metrics.ts. */
-          metric_values: Record<string, { value: number; percentile: number; peerAverage: number }> | null;
-          /** Antal peers confidence-bedömningen byggde på. Se lib/football/rating/rating-store.ts:s snabba läsväg. */
-          peer_count: number | null;
+          /** Enbart innevarande säsong, utan shrinkage. */
+          current_season_rating: number | null;
+          /** Enbart historiken — vad vi trodde innan säsongen. */
+          historical_rating: number | null;
+          /** Ren åldersprojektion mot 27 år, inte en scoutbedömning. */
+          potential: number | null;
+          /** -10..+10, senaste matcherna i nuvarande klubb. Blandas ALDRIG in i ovr. */
+          form: number;
+          confidence: number;
+          confidence_tier: "låg" | "medel" | "hög" | null;
+          /** Andel av betyget som kommer från historik i stället för innevarande säsong. */
+          prior_weight: number;
+          minutes_played: number;
+          /** Minuter samma säsong utanför Allsvenskan som räknats in i underlaget. */
+          external_minutes: number;
+          /** Känd speltid som inte kunnat värderas (cup, träningsmatch, liga utan verifierad koefficient). */
+          unrated_minutes: number;
+          subscore_finishing: number | null;
+          subscore_passing: number | null;
+          subscore_dribbling: number | null;
+          subscore_defending: number | null;
+          subscore_duels: number | null;
+          /** null för utespelare. */
+          subscore_goalkeeping: number | null;
+          /** Vilka säsonger/ligor som bidrog till prior, plus percentilnedbrytning per mått. */
+          historical_evidence: unknown;
+          config_version: string;
+          calculated_at: string;
         };
-        Insert: Partial<Database["public"]["Tables"]["player_season_rating"]["Row"]> & {
+        Insert: Partial<Database["public"]["Tables"]["player_ratings"]["Row"]> & {
           player_id: number;
           season_id: number;
-          position_group: "goalkeeper" | "defender" | "midfielder" | "attacker";
+          season_year: number;
+          position_group: OvrPositionGroup;
+          config_version: string;
         };
-        Update: Partial<Database["public"]["Tables"]["player_season_rating"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["player_ratings"]["Row"]>;
         Relationships: [];
       };
       // --- Sportmonks-integration (Fas 0, 20260821150000_sportmonks_foundation.sql) ---

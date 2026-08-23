@@ -9,8 +9,8 @@ import type { AdvancedPlayerSeasonAggregate } from "./advanced-rating-aggregates
  * alls (bekräftat: tom diff efter denna fas).
  *
  * VIKTIGT: till skillnad från scout-metrics.ts:s SCOUT_ONLY_METRICS (som
- * skrivs in i player_season_rating via refresh-ratings.ts) PERSISTERAS
- * dessa mått ALDRIG. refresh-ratings.ts står på listan över filer som
+ * skrivs in i player_ratings via refresh-ovr.ts) PERSISTERAS
+ * dessa mått ALDRIG. refresh-ovr.ts står på listan över filer som
  * aldrig får referera en Sportmonks-källa förrän Fas 13 är explicit
  * godkänd — dessa mått beräknas därför COMPUTE-ON-READ (samma princip som
  * advanced-dna.ts/advanced-archetypes.ts), inte batch-förberäknat.

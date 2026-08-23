@@ -36,7 +36,7 @@ import { getPositionGroup, type PositionGroupKey } from "./position-group";
  * En spelare utan betyg får inte 0 i kvalitet — komponentens vikt fördelas
  * proportionellt ut på de komponenter som FINNS. Målvakter bedöms aldrig på
  * mål+assist (produktionskomponenten utgår helt för dem, samma princip som
- * goalkeeper-rating.ts). `coverage` säger hur stor andel av vikten som
+ * lib/ovr/compute.ts). `coverage` säger hur stor andel av vikten som
  * täcks av verklig data — under MIN_COVERAGE rankas spelaren inte alls.
  *
  * ── Presentation ─────────────────────────────────────────────────────────

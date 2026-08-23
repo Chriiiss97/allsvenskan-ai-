@@ -1,6 +1,6 @@
 "use client";
 
-import type { AdvancedDevelopmentSummary } from "@/lib/football/rating/advanced-development";
+import type { AdvancedDevelopmentSummary } from "@/lib/football/scout/advanced-development";
 
 /**
  * Fas 12 — "varför", inte bara siffra. Komplement till PlayerRatingHistory

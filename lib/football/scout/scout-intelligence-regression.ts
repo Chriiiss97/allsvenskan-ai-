@@ -9,8 +9,8 @@ type Supabase = SupabaseClient<Database>;
  * Scout Intelligence #3 — Regression mot medelvärdet (RTM)
  * ============================================================================
  * Egen Scout Intelligence-fas (2026-08-22), inte Fas 14, inte OVR. Läser
- * ENBART det redan persisterade OVR-facit (player_season_rating, skrivet
- * av refresh-ratings.ts) — skriver ALDRIG dit, ändrar ALDRIG OVR-formeln.
+ * ENBART det redan persisterade OVR-facit (player_ratings, skrivet
+ * av refresh-ovr.ts) — skriver ALDRIG dit, ändrar ALDRIG OVR-formeln.
  *
  * FORMEL (härledd från användarens spec):
  *   Ŷ_nästa = Ȳ_karriär + r · (Y_nuvarande − Ȳ_karriär)
@@ -21,7 +21,7 @@ type Supabase = SupabaseClient<Database>;
  * r (REGRESSIONSKOEFFICIENTEN) ÄR INTE en gissning eller ett importerat
  * literaturvärde — den beräknas EMPIRISKT, live, från VARJE riktigt
  * (spelare, säsong t → säsong t+1)-par som finns i vår egen
- * player_season_rating-historik (Pearson-korrelation mellan OVR år t och
+ * player_ratings-historik (Pearson-korrelation mellan OVR år t och
  * OVR år t+1). VERIFIERAT vid byggtillfället: 2454 riktiga sådana par
  * (2016–2026), r ≈ 0.371 — ett r betydligt under 1 bekräftar att
  * regression mot medelvärdet FAKTISKT förekommer i den här ligans data
@@ -76,7 +76,7 @@ export interface RegressionToMeanBatch {
 interface RatingRow {
   player_id: number;
   ovr: number | null;
-  season: { year: number } | null;
+  season_year: number;
 }
 
 /**
@@ -92,7 +92,7 @@ export async function computeRegressionToMean(
   // nedan, och en extra filter-overload på den här embedded-select-formen
   // fick Supabase-js:s typinferens att kollapsa till `never`.)
   //
-  // Sidnumrerad — player_season_rating har ~4 700+ rader med ovr != null
+  // Sidnumrerad — player_ratings har ~4 700+ rader med ovr != null
   // över 2016–2026, långt över Supabases 1000-radstak. FÅNGAD UNDER
   // VERIFIERING: en första, opaginerad version tystade ner till bara 1000
   // rader, vilket halverade det empiriska r:et (0.371 → 0.237 i ett
@@ -103,8 +103,9 @@ export async function computeRegressionToMean(
   const PAGE = 1000;
   for (let from = 0; ; from += PAGE) {
     const { data: page, error } = await supabase
-      .from("player_season_rating")
-      .select("player_id, ovr, season:season_id(year)")
+      .from("player_ratings")
+      // season_year finns direkt på raden i player_ratings — ingen join behövs.
+      .select("player_id, ovr, season_year")
       .range(from, from + PAGE - 1)
       .returns<RatingRow[]>();
     if (error) throw error;
@@ -114,8 +115,9 @@ export async function computeRegressionToMean(
 
   const byPlayerYear = new Map<string, number>();
   for (const r of data ?? []) {
-    if (!r.season || r.ovr === null) continue;
-    byPlayerYear.set(`${r.player_id}_${r.season.year}`, r.ovr);
+    if (r.ovr === null) continue;
+    // ovr är numeric i databasen och kommer tillbaka som sträng via PostgREST.
+    byPlayerYear.set(`${r.player_id}_${r.season_year}`, Number(r.ovr));
   }
 
   // 1) Empiriskt r — Pearson-korrelation över ALLA riktiga (år t, år t+1)-par i hela datasetet (inte scopat till currentSeasonYear).

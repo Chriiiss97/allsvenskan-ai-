@@ -1,8 +1,8 @@
-import type { PlayerCardExtraMetrics } from "@/lib/football/rating/player-card-extra-metrics";
+import type { PlayerCardExtraMetrics } from "@/lib/football/scout/player-card-extra-metrics";
 
 /**
  * Fas 15 (Complete Scout Player Card) — de idag oanvända Sportmonks-fälten
- * (se lib/football/rating/player-card-extra-metrics.ts). Rå säsongsvolym,
+ * (se lib/football/scout/player-card-extra-metrics.ts). Rå säsongsvolym,
  * INGA percentiler ännu (litet, overifierat underlag för en peer-jämförelse
  * på just de här fälten) — bara ärliga säsongstal, döljer sig helt om
  * spelaren saknar täckning.

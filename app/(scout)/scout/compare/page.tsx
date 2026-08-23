@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { displayPlayerName } from "@/lib/football/player-name";
 import { comparePlayers, getTeamComparison, FootballDataError } from "@/lib/football/tools";
 import { computePlayerDNA } from "@/lib/football/player-dna";
-import { computeRatingForPlayer } from "@/lib/football/rating/compute-rating";
+import { displayHint, getPlayerOvr, positionGroupLabel, type PlayerOvr } from "@/lib/ovr/store";
 import { EntityCompareControls } from "@/components/data/EntityCompareControls";
 import type { EntityOption } from "@/components/data/EntityPicker";
 import { CompareStatGroup, type CompareStat } from "@/components/data/CompareStatRows";
@@ -16,7 +16,7 @@ import { RecordBar } from "@/components/data/RecordBar";
 import { getAvailableSeasons, listTeams } from "@/lib/football/catalog";
 import { translatePosition } from "@/lib/i18n/sv";
 import { ageAtSeason } from "@/lib/football/age";
-import { ovrColor } from "@/lib/football/rating/ovr-color";
+import { ovrColor } from "@/lib/ovr/color";
 import { colors } from "@/lib/design/tokens";
 
 /**
@@ -166,6 +166,18 @@ function SeasonPills({
 
 // ---------------------------------------------------------------------------
 
+/** Säsongsår -> season_id -> betyg. En indexerad fråga, ingen beräkning. */
+async function resolveOvr(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  playerId: number,
+  seasonYear: number | null
+): Promise<PlayerOvr | null> {
+  if (!seasonYear) return null;
+  const { data } = await supabase.from("season").select("id").eq("year", seasonYear).maybeSingle();
+  if (!data) return null;
+  return getPlayerOvr(supabase, { playerId, seasonId: data.id });
+}
+
 export default async function ScoutComparePage({
   searchParams,
 }: {
@@ -249,8 +261,8 @@ async function PlayerCompareSection({
   let insights: string[] = [];
   let dnaA: Awaited<ReturnType<typeof computePlayerDNA>> | null = null;
   let dnaB: Awaited<ReturnType<typeof computePlayerDNA>> | null = null;
-  let ratingA: Awaited<ReturnType<typeof computeRatingForPlayer>> | null = null;
-  let ratingB: Awaited<ReturnType<typeof computeRatingForPlayer>> | null = null;
+  let ratingA: PlayerOvr | null = null;
+  let ratingB: PlayerOvr | null = null;
 
   if (idA && idB) {
     try {
@@ -258,12 +270,12 @@ async function PlayerCompareSection({
       [dnaA, dnaB, ratingA, ratingB] = await Promise.all([
         comparison.playerA.season ? computePlayerDNA(supabase, { playerId: comparison.playerA.player.id, season: comparison.playerA.season }) : Promise.resolve(null),
         comparison.playerB.season ? computePlayerDNA(supabase, { playerId: comparison.playerB.player.id, season: comparison.playerB.season }) : Promise.resolve(null),
-        comparison.playerA.season ? computeRatingForPlayer(supabase, { playerId: comparison.playerA.player.id, position: comparison.playerA.player.position, season: comparison.playerA.season }) : Promise.resolve(null),
-        comparison.playerB.season ? computeRatingForPlayer(supabase, { playerId: comparison.playerB.player.id, position: comparison.playerB.player.position, season: comparison.playerB.season }) : Promise.resolve(null),
+        resolveOvr(supabase, comparison.playerA.player.id, comparison.playerA.season),
+        resolveOvr(supabase, comparison.playerB.player.id, comparison.playerB.season),
       ]);
       insights = buildPlayerInsights(
-        { name: comparison.playerA.player.name, stats: comparison.playerA.stats, ovr: ratingA?.rating.ovr ?? null },
-        { name: comparison.playerB.player.name, stats: comparison.playerB.stats, ovr: ratingB?.rating.ovr ?? null }
+        { name: comparison.playerA.player.name, stats: comparison.playerA.stats, ovr: ratingA?.ovr ?? null },
+        { name: comparison.playerB.player.name, stats: comparison.playerB.stats, ovr: ratingB?.ovr ?? null }
       );
     } catch (err) {
       error = err instanceof FootballDataError ? err.message : "Kunde inte jämföra spelarna.";
@@ -320,11 +332,13 @@ function PlayerHeroSide({
   side: "a" | "b";
   player: Awaited<ReturnType<typeof comparePlayers>>["playerA"]["player"];
   season: number | null;
-  rating: Awaited<ReturnType<typeof computeRatingForPlayer>> | null;
+  rating: PlayerOvr | null;
   dna: Awaited<ReturnType<typeof computePlayerDNA>> | null;
 }) {
-  const ovr = rating?.rating.available ? rating.rating.ovr : null;
-  const confidence = rating?.rating.confidence ?? null;
+  const ovr = rating?.ovr ?? null;
+  // OVR v2 bär konfidensen på betyget självt — displayHint formulerar den
+  // likadant här som i topplistan och på Scout-kortet.
+  const ratingHint = rating ? displayHint(rating) : null;
   const age = season ? ageAtSeason(player.birthDate, season) : null;
   const sub = [translatePosition(player.position), age !== null ? `${age} år` : null, player.displayTeamName]
     .filter(Boolean)
@@ -357,8 +371,8 @@ function PlayerHeroSide({
         ) : undefined
       }
       note={
-        confidence
-          ? `Bland Allsvenskans ${confidence.peerLabel} · ${confidence.peerCount} jämförda · ${confidence.ownMinutes} egna minuter`
+        ratingHint && rating
+          ? `Bland Allsvenskans ${positionGroupLabel(rating.positionGroup)} · ${ratingHint.badge}`
           : undefined
       }
     />
@@ -374,8 +388,8 @@ function PlayerCompareBody({
   insights,
 }: {
   comparison: NonNullable<Awaited<ReturnType<typeof comparePlayers>>>;
-  ratingA: Awaited<ReturnType<typeof computeRatingForPlayer>> | null;
-  ratingB: Awaited<ReturnType<typeof computeRatingForPlayer>> | null;
+  ratingA: PlayerOvr | null;
+  ratingB: PlayerOvr | null;
   dnaA: Awaited<ReturnType<typeof computePlayerDNA>> | null;
   dnaB: Awaited<ReturnType<typeof computePlayerDNA>> | null;
   insights: string[];

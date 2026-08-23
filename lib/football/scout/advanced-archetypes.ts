@@ -8,7 +8,7 @@ import type { AdvancedDNACategoryKey, AdvancedDNACategory } from "../advanced-dn
  * en spelare kan matcha flera samtidigt), men EGEN fil och EGEN källa:
  * konsumerar Fas 9:s redan beräknade `AdvancedPlayerDNA.categories`
  * (compute-on-read, precis som scout-match.ts) — INGENTING skrivs någonsin
- * till `player_season_rating`. archetypes.ts (10 st, Rating-baserade)
+ * till `player_ratings`. lib/ovr/archetypes.ts (20 st, OVR-baserade)
  * rörs inte alls — bekräftat via tom diff efter denna fas.
  *
  * Kräver minst "medel" konfidens, samma tröskel som archetypes.ts redan

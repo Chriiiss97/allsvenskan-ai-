@@ -13,9 +13,9 @@ export function percentile(value: number, peerValues: number[]): number {
 }
 
 /**
- * Scout Engine (2026-08-21): flyttad hit från lib/football/rating/goalkeeper-rating.ts,
+ * Scout Engine (2026-08-21): flyttad hit från den numera raderade OVR v1-motorn,
  * som redan hade den här exakta formeln för "insläppta mål/90" (lägre är
- * bättre). Delad nu med lib/football/rating/scout-metrics.ts:s "dribblad
+ * bättre). Delad nu med lib/football/scout/scout-metrics.ts:s "dribblad
  * förbi/90" (samma sorts mått — lägre är bättre) så båda räknar likadant.
  *
  * Percentil för ett mått där LÄGRE värde är bättre — andelen peers med

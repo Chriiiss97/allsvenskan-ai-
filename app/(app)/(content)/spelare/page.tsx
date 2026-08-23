@@ -5,9 +5,9 @@ import { colors } from "@/lib/design/tokens";
 import { getCachedSeasons, getCachedTeams, getCachedPlayerList } from "@/lib/football/cached-reads";
 import { type PlayerListParams } from "@/lib/football/player-catalog";
 import { parseExplorerFilters } from "@/lib/football/player-explorer-params";
-import { ARCHETYPES } from "@/lib/football/rating/archetypes";
+import { ARCHETYPES } from "@/lib/ovr/archetypes";
 
-// Player Rating-batchberäkningen (computeSeasonOvrMap) kostar två
+// OVR läses färdigberäknat ur player_ratings (lib/ovr/store.ts) och kostar
 // paginerade fixture_player_stats-läsningar av hela säsongen — samma
 // etablerade mönster som league/facts-routen använder för att hålla den
 // kostnaden borta från varje enskild sidladdning.

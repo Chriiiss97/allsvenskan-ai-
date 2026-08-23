@@ -52,7 +52,7 @@ interface FixturePlayerStatsRow {
   duels_won: number | null;
   dribbles_attempts: number | null;
   dribbles_success: number | null;
-  /** Scout Engine (2026-08-21): fristående mått, INTE en del av OVR (se lib/football/rating/scout-metrics.ts) — hur ofta spelaren blir dribblad förbi. */
+  /** Scout Engine (2026-08-21): fristående mått, INTE en del av OVR (se lib/football/scout/scout-metrics.ts) — hur ofta spelaren blir dribblad förbi. */
   dribbles_past: number | null;
   fouls_drawn: number | null;
   fouls_committed: number | null;

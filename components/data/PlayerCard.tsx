@@ -2,7 +2,7 @@ import Link from "next/link";
 import { PlayerAvatar } from "./PlayerAvatar";
 import { translatePosition } from "@/lib/i18n/sv";
 import { getTeamAccent } from "@/lib/data/team-colors";
-import { ovrColor, deltaColor } from "@/lib/football/rating/ovr-color";
+import { ovrColor, deltaColor } from "@/lib/ovr/color";
 
 export interface PlayerCardStat {
   goals: number;
@@ -32,7 +32,7 @@ export interface PlayerCardData {
   ovrDelta?: number | null;
   /** Scout Engine Fas 4 — regelbaserade spelartyper (t.ex. "Målskytt"). Odefinierad/tom döljer raden helt. */
   archetypes?: { label: string; definition: string }[];
-  /** Scout Engine Fas 6 — hur väl spelaren matchar de aktiva Scout-kriterierna, transparent (se lib/football/rating/scout-match.ts). Odefinierad/null döljer badgen helt (t.ex. inga filter aktiva). */
+  /** Scout Engine Fas 6 — hur väl spelaren matchar de aktiva Scout-kriterierna, transparent (se lib/football/scout/scout-match.ts). Odefinierad/null döljer badgen helt (t.ex. inga filter aktiva). */
   scoutMatch?: { percent: number; criteria: { label: string; strong: boolean }[] } | null;
 }
 

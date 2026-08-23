@@ -1,6 +1,6 @@
 import type { getPlayerProfile } from "@/lib/football/tools";
 import { getCachedPlayerCardAnalysis } from "@/lib/football/player-card-data";
-import { buildRatingTrendSummary } from "@/lib/football/rating/rating-trend";
+import { buildOvrTrendSummary } from "@/lib/ovr/trend";
 import { PlayerRatingHistory } from "@/components/data/PlayerRatingHistory";
 import { AdvancedDevelopment } from "@/components/data/AdvancedDevelopment";
 import { PlayerRadarChart } from "@/components/data/PlayerRadarChart";
@@ -59,7 +59,7 @@ export async function PlayerCardHeavySections({
     extraMetrics,
   } = analysis;
 
-  const ratingTrend = buildRatingTrendSummary(ratingHistory);
+  const ratingTrend = buildOvrTrendSummary(ratingHistory);
 
   const scoutInsightItems: ScoutInsightItem[] = [
     ...(dna?.insights.map((i) => ({ type: i.type, text: i.text, source: "DNA" as const })) ?? []),

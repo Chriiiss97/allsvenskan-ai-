@@ -6,7 +6,7 @@ import { tierFromThresholds, worseTier, type ConfidenceTier } from "./confidence
 import {
   aggregateAdvancedPlayerStatsAcrossSeasons,
   type AdvancedPlayerSeasonAggregate,
-} from "./rating/advanced-rating-aggregates";
+} from "./scout/advanced-rating-aggregates";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -133,7 +133,7 @@ function mean(values: number[]): number {
   return Math.round(((values.reduce((a, b) => a + b, 0) / values.length) + Number.EPSILON) * 10) / 10;
 }
 
-/** Samma nyckelmängd som lib/football/rating/advanced-categories.ts, men för DNA:s fem kategorier — egen extraktion, inte återanvänd, eftersom mätuppsättningen och avsikten (stil, inte prestation) skiljer sig. */
+/** Samma nyckelmängd som lib/football/scout/advanced-categories.ts, men för DNA:s fem kategorier — egen extraktion, inte återanvänd, eftersom mätuppsättningen och avsikten (stil, inte prestation) skiljer sig. */
 function extractValue(agg: AdvancedPlayerSeasonAggregate, key: string): number | null {
   switch (key) {
     case "xgPer90":

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getPlayerProfile, FootballDataError } from "@/lib/football/tools";
-import { computeRatingForPlayer } from "@/lib/football/rating/compute-rating";
+import { displayHint, getPlayerOvr } from "@/lib/ovr/store";
 import { getPlayerLineupRoleProfile } from "@/lib/football/lineup-role";
 import { getPlayerMatchLog } from "@/lib/football/player-match-log";
 import { getCareerTimeline, getForeignCareerStints } from "@/lib/football/career-timeline";
@@ -20,7 +20,7 @@ import { PlayerTrophiesSection } from "@/components/scout/player-card/PlayerTrop
 import { MatchLogSection } from "@/components/scout/player-card/MatchLogSection";
 import { BackButton } from "@/components/nav/BackButton";
 import { translatePosition, translateNationality } from "@/lib/i18n/sv";
-import { ovrColor } from "@/lib/football/rating/ovr-color";
+import { ovrColor } from "@/lib/ovr/color";
 
 /**
  * Fas 18c (2026-08-22) — FULL ombyggnad av den fria spelarprofilen, efter
@@ -78,9 +78,7 @@ export default async function PlayerProfilePage({
   const seasonId = seasonRow?.id ?? null;
 
   const [rating, lineupRole, matchLog, careerTimeline, foreignCareerStints, careerJourney, trophies] = await Promise.all([
-    profile.season
-      ? computeRatingForPlayer(supabase, { playerId: profile.player.id, position: profile.player.position, season: profile.season })
-      : Promise.resolve(null),
+    seasonId ? getPlayerOvr(supabase, { playerId: profile.player.id, seasonId }) : Promise.resolve(null),
     seasonId ? getPlayerLineupRoleProfile(supabase, { playerId: profile.player.id, seasonId }) : Promise.resolve(null),
     seasonId
       ? getPlayerMatchLog(supabase, { playerId: profile.player.id, seasonId, position: profile.player.position })
@@ -157,13 +155,14 @@ export default async function PlayerProfilePage({
                 🏁 Pensionerad
               </span>
             )}
-            {rating?.rating.available && rating.rating.ovr !== null && (
+            {rating?.ovr !== null && rating !== null && (
               <span
                 className="rounded-full px-2.5 py-0.5 text-sm font-bold tabular-nums"
-                style={{ backgroundColor: `${ovrColor(rating.rating.ovr)}26`, color: ovrColor(rating.rating.ovr) }}
-                title="Player Rating — statistisk 0–99. Full uppdelning i Scout."
+                style={{ backgroundColor: `${ovrColor(rating.ovr)}26`, color: ovrColor(rating.ovr) }}
+                title={`OVR ${rating.ovr} — intern allsvensk skala 48–91, inte jämförbar med FIFA. ${displayHint(rating).badge}. Full nedbrytning i Scout.`}
               >
-                {rating.rating.ovr}
+                {rating.ovr.toFixed(0)}
+                {displayHint(rating).needsCaveat && <span className="ml-0.5 align-super text-[9px] opacity-70">*</span>}
               </span>
             )}
           </div>

@@ -7,19 +7,17 @@ import { colors } from "@/lib/design/tokens";
 import { getCachedSeasons, getCachedTeams, getCachedPlayerList } from "@/lib/football/cached-reads";
 import { listPlayers, type PlayerListParams } from "@/lib/football/player-catalog";
 import { parseExplorerFilters, type ExplorerFilters } from "@/lib/football/player-explorer-params";
-import { ARCHETYPES, computePlayerArchetypes } from "@/lib/football/rating/archetypes";
-import { computeScoutMatch, type ScoutMatchCriteria } from "@/lib/football/rating/scout-match";
+import { ARCHETYPES, archetypesForRating, type MatchedArchetype } from "@/lib/ovr/archetypes";
+import { computeScoutMatch, type ScoutMatchCriteria } from "@/lib/football/scout/scout-match";
 import { getPlayerProfile, FootballDataError } from "@/lib/football/tools";
-import { computeRatingForPlayer } from "@/lib/football/rating/compute-rating";
-import { getStoredPlayerRatingView } from "@/lib/football/rating/stored-rating-view";
 import { computePlayerDNA } from "@/lib/football/player-dna";
-import { getPlayerRatingHistory, getStoredSeasonRatings } from "@/lib/football/rating/rating-store";
-import { buildRatingTrendSummary } from "@/lib/football/rating/rating-trend";
+import { displayHint, getPlayerOvr, getPlayerOvrHistory, type OvrDisplayHint, type PlayerOvr } from "@/lib/ovr/store";
+import { buildOvrTrendSummary } from "@/lib/ovr/trend";
 import { calculateAge } from "@/lib/football/age";
 
 // Samma motivering som /spelare/rankings: listPlayers kör
-// computeSeasonOvrMap/getRatingTrendComparison, båda i första hand lästa ur
-// det persisterade player_season_rating-facit (se rating-store.ts) — snabbt,
+// getSeasonOvrMap/getOvrTrend, båda lästa direkt ur
+// de persisterade betygen i player_ratings (se lib/ovr/store.ts) — snabbt,
 // men fortfarande värt sidnivåcache.
 export const revalidate = 3600;
 
@@ -129,19 +127,20 @@ export default async function ScoutPage({
   });
 
   // Scout Engine Fas 7 — detaljpanelen. Byggd på EXAKT samma funktioner som
-  // den fulla profilsidan (getPlayerProfile/computeRatingForPlayer/
-  // computePlayerDNA/getPlayerRatingHistory) — inget parallellt datalager,
+  // den fulla profilsidan (getPlayerProfile/getPlayerOvr/
+  // computePlayerDNA/getPlayerOvrHistory) — inget parallellt datalager,
   // bara ett annat ställe att visa dem. Arketyper/matchning återanvänds
   // direkt från result.items (spelaren klickades ju precis FRÅN den listan)
   // istället för att räknas om.
   const selectedPlayerId = typeof sp.selected === "string" && /^\d+$/.test(sp.selected) ? Number(sp.selected) : undefined;
   let selectedDetail: {
     player: { id: number; name: string; photoUrl: string | null; position: string | null; teamName: string | null; teamExternalId: number | null; age: number | null; nationality: string | null };
-    rating: Awaited<ReturnType<typeof computeRatingForPlayer>> | null;
+    rating: PlayerOvr | null;
+    ratingDisplay: OvrDisplayHint | null;
     dna: Awaited<ReturnType<typeof computePlayerDNA>> | null;
-    ratingHistory: Awaited<ReturnType<typeof getPlayerRatingHistory>>;
-    ratingTrend: ReturnType<typeof buildRatingTrendSummary> | null;
-    archetypes: ReturnType<typeof computePlayerArchetypes>;
+    ratingHistory: Awaited<ReturnType<typeof getPlayerOvrHistory>>;
+    ratingTrend: ReturnType<typeof buildOvrTrendSummary> | null;
+    archetypes: MatchedArchetype[];
     scoutMatch: ReturnType<typeof computeScoutMatch>;
     unavailableReason: string | null;
   } | null = null;
@@ -158,33 +157,25 @@ export default async function ScoutPage({
         ? (await supabase.from("season").select("id").eq("year", profile.season).maybeSingle()).data?.id ?? null
         : null;
 
-      const [ratingFast, dna, ratingHistory] = await Promise.all([
-        profile.season && seasonId
-          ? getStoredPlayerRatingView(supabase, { playerId: profile.player.id, seasonId, position: profile.player.position })
-          : Promise.resolve(null),
+      const [rating, dna, ratingHistory] = await Promise.all([
+        seasonId ? getPlayerOvr(supabase, { playerId: profile.player.id, seasonId }) : Promise.resolve(null),
         profile.season ? computePlayerDNA(supabase, { playerId: profile.player.id, season: profile.season }) : Promise.resolve(null),
-        getPlayerRatingHistory(supabase, profile.player.id),
+        getPlayerOvrHistory(supabase, profile.player.id),
       ]);
-      // Snabb, sparad läsväg i första hand (en indexerad fråga, se
-      // stored-rating-view.ts) — faller bara tillbaka på den dyra levande
-      // beräkningen (full ligasäsongs fixture_player_stats-paginering) om
-      // facit saknas för just den här spelaren/säsongen, t.ex. innan
-      // `npm run import ratings` körts. Aldrig en tyst felaktig siffra.
-      const rating =
-        ratingFast ??
-        (profile.season
-          ? await computeRatingForPlayer(supabase, { playerId: profile.player.id, position: profile.player.position, season: profile.season })
-          : null);
+      // EN indexerad fråga mot player_ratings. Det finns med flit ingen
+      // live-beräkning som reserv: saknas raden visar panelen "ej tillgängligt"
+      // i stället för ett tal som räknats fram på ett annat sätt än alla andra.
 
       // Arketyper: återanvänd redan om spelaren fanns i den aktuella
       // resultatlistan (vanliga fallet — man klickar ju därifrån). Annars
       // (t.ex. en delad länk) räknas de fram separat, samma väg som
       // player-catalog.ts redan gör, ingen ny logik.
-      let archetypes = listItem?.archetypes ?? [];
+      let archetypes: MatchedArchetype[] = listItem?.archetypes ?? [];
       if (!listItem && seasonId) {
-        const stored = await getStoredSeasonRatings(supabase, seasonId);
-        const own = stored?.find((r) => r.playerId === selectedPlayerId);
-        if (own) archetypes = computePlayerArchetypes({ positionGroup: own.positionGroup, categoryScores: own.categoryScores, metricValues: own.metricValues }, own.confidenceTier);
+        // Delad länk direkt till en spelare som inte finns i den aktuella
+        // resultatlistan — hämta hans betyg och härled arketyperna därifrån.
+        // En rad, inte hela säsongen.
+        if (rating) archetypes = archetypesForRating(rating);
       }
       selectedDetail = {
         player: {
@@ -198,9 +189,10 @@ export default async function ScoutPage({
           nationality: profile.player.nationality,
         },
         rating,
+        ratingDisplay: rating ? displayHint(rating) : null,
         dna,
         ratingHistory,
-        ratingTrend: buildRatingTrendSummary(ratingHistory),
+        ratingTrend: buildOvrTrendSummary(ratingHistory),
         archetypes,
         scoutMatch: listItem
           ? computeScoutMatch(
@@ -270,10 +262,10 @@ export default async function ScoutPage({
             selectedDetail ? (
               <ScoutDetailPanel
                 player={selectedDetail.player}
-                season={seasonYear ?? null}
                 closeHref={closeHref()}
                 fullProfileHref={`/scout/spelare/${selectedDetail.player.id}${seasonYear ? `?season=${seasonYear}` : ""}`}
                 rating={selectedDetail.rating}
+                ratingDisplay={selectedDetail.ratingDisplay}
                 dna={selectedDetail.dna}
                 ratingHistory={selectedDetail.ratingHistory}
                 ratingTrend={selectedDetail.ratingTrend}

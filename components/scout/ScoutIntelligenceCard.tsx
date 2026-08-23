@@ -1,11 +1,11 @@
-import type { ZScoreResult, AgeBracket } from "@/lib/football/rating/scout-intelligence-zscore";
-import type { ConsistencyResult } from "@/lib/football/rating/scout-intelligence-consistency";
-import type { RegressionPrediction } from "@/lib/football/rating/scout-intelligence-regression";
+import type { ZScoreResult, AgeBracket } from "@/lib/football/scout/scout-intelligence-zscore";
+import type { ConsistencyResult } from "@/lib/football/scout/scout-intelligence-consistency";
+import type { RegressionPrediction } from "@/lib/football/scout/scout-intelligence-regression";
 
 /**
  * Scout Intelligence — egen, separat kortsamling (INTE Player Rating/DNA,
  * som förblir helt orörda). Tre kompletterande mått, se respektive
- * lib/football/rating/scout-intelligence-*.ts-fils huvud för exakt formel,
+ * lib/football/scout/scout-intelligence-*.ts-fils huvud för exakt formel,
  * peer-pool, minimiunderlag och tolkning. Döljer varje delkort helt om
  * måttet inte är tillgängligt för spelaren — aldrig en tom platshållare.
  */

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAuthorizedCronRequest } from "@/lib/cron/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { finalizeMatches } from "@/scripts/import/finalize-match";
-import { refreshRatingsForSeason } from "@/scripts/import/refresh-ratings";
+import { refreshOvr } from "@/scripts/import/refresh-ovr";
 import { importStandings } from "@/scripts/import/import-standings";
 import { logRateLimitSnapshot } from "@/lib/cron/rate-limit-snapshot";
 import { getAvailableSeasons } from "@/lib/football/catalog";
@@ -28,18 +28,18 @@ export async function GET(request: NextRequest) {
     const supabase = createAdminClient();
     await finalizeMatches(supabase);
 
-    // player_season_rating (2026-08-21): historiska säsonger ändras aldrig
-    // efter att de är facitställda, så bara DEN AKTUELLA säsongen behöver
-    // uppdateras här — resten backfillas en gång manuellt (npm run import
-    // ratings). Fail-open: en misslyckad ratingfräschning ska inte få
-    // finalize-avstämningen (redan klar ovan) att rapporteras som ett fel.
+    // OVR v2 (player_ratings): historiska säsonger ändras aldrig efter att de
+    // räknats, så bara DEN AKTUELLA säsongen behöver uppdateras här — resten
+    // backfillas en gång manuellt med `npm run import ovr`. Fail-open: en
+    // misslyckad omräkning ska inte få finalize-avstämningen (redan klar ovan)
+    // att rapporteras som ett fel.
     const [currentSeason] = await getAvailableSeasons(supabase);
     try {
       if (currentSeason) {
-        await refreshRatingsForSeason(supabase, { seasonId: currentSeason.id, seasonYear: currentSeason.year });
+        await refreshOvr(supabase, { seasonYears: [currentSeason.year], log: () => {} });
       }
     } catch (ratingErr) {
-      console.error("[cron/finalize] ratingfräschning misslyckades (fail-open):", ratingErr);
+      console.error("[cron/finalize] OVR-omräkning misslyckades (fail-open):", ratingErr);
     }
 
     // standings (Fas 14.0): tabellen importerades tidigare bara manuellt —

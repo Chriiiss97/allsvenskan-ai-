@@ -5,7 +5,7 @@ import { getIncomingTransfers, type IncomingSigning } from "./incoming-transfers
 import { getAvailableSeasons, listTeams, listTeamsWithSeasonSummary, type SeasonOption, type TeamOption, type TeamOverviewRow } from "./catalog";
 import { getStandingsView, type StandingsFilter, type StandingsViewRow } from "./standings-views";
 import { listPlayers, type PlayerListParams, type PlayerListResult } from "./player-catalog";
-import { searchScoutPlayers, type ScoutSearchParams, type ScoutSearchResultRow } from "./rating/scout-search";
+import { searchScoutPlayers, type ScoutSearchParams, type ScoutSearchResultRow } from "./scout/scout-search";
 import { getTopScorers } from "./tools";
 
 /**
@@ -108,7 +108,7 @@ export const getCachedStandingsView = cachedRead(
 
 /**
  * Spelarlistan för /spelare och /scout/spelare. Bakom den ligger
- * computeSeasonOvrMap, som paginerar hela säsongens fixture_player_stats
+ * den gamla OVR-motorn, som paginerade hela säsongens fixture_player_stats
  * (80 240 rader i tabellen) — den dyraste läsningen efter Efter Allsvenskan.
  *
  * Sidorna skickar med flit INGA filterparametrar (de filtrerar i webbläsaren,

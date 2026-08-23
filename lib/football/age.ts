@@ -11,7 +11,7 @@ export function calculateAge(birthDate: string | null): number | null {
 }
 
 /**
- * Fas 17 (2026-08-22) — flyttad hit från lib/football/rating/scout-
+ * Fas 17 (2026-08-22) — flyttad hit från lib/football/scout/scout-
  * intelligence-zscore.ts (fanns bara lokalt där) efter användarfeedback:
  * en spelares ålder på en spelarprofil ska stämma med SÄSONGEN man tittar
  * på, inte dagens datum — annars visas t.ex. en spelares 2019-säsong med
