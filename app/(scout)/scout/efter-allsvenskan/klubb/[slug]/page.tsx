@@ -74,9 +74,9 @@ export default async function ForeignClubPage({ params }: { params: Promise<{ sl
 
       <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         {[
+          { label: "Matcher", value: nf(club.totalAppearances) },
           { label: "Mål", value: nf(club.totalGoals) },
           { label: "Assist", value: nf(club.totalAssists) },
-          { label: "Matcher", value: nf(club.totalAppearances) },
           { label: "Minuter", value: nf(club.totalMinutes) },
         ].map((t) => (
           <div key={t.label} className="rounded-xl border border-white/10 bg-[#1a1a19] p-4 text-center">
@@ -114,9 +114,9 @@ export default async function ForeignClubPage({ params }: { params: Promise<{ sl
               </div>
               <div className="hidden shrink-0 items-center gap-1 sm:flex">
                 {[
+                  { label: "Matcher", value: nf(atClub.appearances) },
                   { label: "Mål", value: nf(atClub.goals) },
                   { label: "Assist", value: nf(atClub.assists) },
-                  { label: "Matcher", value: nf(atClub.appearances) },
                   { label: "Minuter", value: nf(atClub.minutesPlayed) },
                 ].map((s) => (
                   <div key={s.label} className="w-[4.25rem] py-1.5 text-center">
@@ -124,11 +124,11 @@ export default async function ForeignClubPage({ params }: { params: Promise<{ sl
                     <p className="text-[10px] uppercase tracking-wide text-[#7d7c76]">{s.label}</p>
                   </div>
                 ))}
-                <div className="w-[3.5rem] text-center">
+                <div className="w-[5.25rem] text-center">
                   {atClub.avgRating !== null ? (
                     <>
                       <p className="text-sm font-semibold tabular-nums text-[#d9a526]">{atClub.avgRating}</p>
-                      <p className="text-[10px] uppercase tracking-wide text-[#7d7c76]">Betyg</p>
+                      <p className="text-[10px] uppercase tracking-wide text-[#7d7c76]">Snittbetyg</p>
                     </>
                   ) : (
                     <p className="text-xs text-[#3d3c39]">—</p>
@@ -137,12 +137,12 @@ export default async function ForeignClubPage({ params }: { params: Promise<{ sl
               </div>
               <div className="flex shrink-0 items-center gap-3 text-right sm:hidden">
                 <div>
-                  <p className="text-sm font-semibold tabular-nums text-white">{nf(atClub.goals)}</p>
-                  <p className="text-[10px] uppercase text-[#7d7c76]">Mål</p>
+                  <p className="text-sm font-semibold tabular-nums text-white">{nf(atClub.appearances)}</p>
+                  <p className="text-[10px] uppercase text-[#7d7c76]">Matcher</p>
                 </div>
                 <div>
-                  <p className="text-sm font-semibold tabular-nums text-[#c3c2b7]">{nf(atClub.appearances)}</p>
-                  <p className="text-[10px] uppercase text-[#7d7c76]">M</p>
+                  <p className="text-sm font-semibold tabular-nums text-[#c3c2b7]">{nf(atClub.goals)}</p>
+                  <p className="text-[10px] uppercase text-[#7d7c76]">Mål</p>
                 </div>
               </div>
             </Link>
