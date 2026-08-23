@@ -146,6 +146,17 @@ export default async function PlayerProfilePage({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl font-semibold tracking-tight">{profile.player.name}</h1>
+            {/* Fas 22c — har karriären tagit slut? Se lib/football/player-activity.ts
+                för de tre spärrarna; statusen är "unknown" (ingen etikett) så fort
+                underlaget är för tunt. */}
+            {profile.player.activity.status === "retired" && (
+              <span
+                className="rounded-full bg-[#d9a526]/15 px-2.5 py-0.5 text-xs font-semibold text-[#d9a526]"
+                title={`Ingen registrerad säsong sedan ${profile.player.activity.lastActiveYear}.`}
+              >
+                🏁 Pensionerad
+              </span>
+            )}
             {rating?.rating.available && rating.rating.ovr !== null && (
               <span
                 className="rounded-full px-2.5 py-0.5 text-sm font-bold tabular-nums"

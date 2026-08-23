@@ -35,7 +35,7 @@ import { getTopScorers } from "./tools";
  * navigering till sidan, inklusive Sidebar:ns prefetch.
  */
 export const getCachedPostAllsvenskanPlayers = cachedRead(
-  "post-allsvenskan-players-v2",
+  "post-allsvenskan-players-v3",
   async (): Promise<PostAllsvenskanPlayer[]> => getPlayersWhoLeftAllsvenskan(createAnonClient()),
   { tags: ["post-allsvenskan"] }
 );
@@ -47,7 +47,7 @@ export const getCachedPostAllsvenskanPlayers = cachedRead(
  * Allsvenskan, identisk för alla besökare mellan importkörningar.
  */
 export const getCachedIncomingTransfers = cachedRead(
-  "incoming-transfers-v2",
+  "incoming-transfers-v3",
   async (): Promise<IncomingSigning[]> => getIncomingTransfers(createAnonClient()),
   { tags: ["post-allsvenskan", "players"] }
 );
@@ -60,7 +60,7 @@ export const getCachedIncomingTransfers = cachedRead(
  * eftersom sidan efterfrågar båda samtidigt.
  */
 export const getCachedMostDecoratedAbroad = cachedRead(
-  "post-allsvenskan-decorated-v2",
+  "post-allsvenskan-decorated-v3",
   async (): Promise<DecoratedAbroadEntry[]> => {
     const supabase = createAnonClient();
     const players = await getCachedPostAllsvenskanPlayers();

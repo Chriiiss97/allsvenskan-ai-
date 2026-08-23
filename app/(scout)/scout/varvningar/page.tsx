@@ -472,6 +472,12 @@ export default async function IncomingTransfersPage({
                 {MAX_ARRIVAL_DELAY_SEASONS} år senare.
               </li>
               <li>
+                <span className="font-semibold text-white">Pensionerad.</span> Varken api-football eller Sportmonks har någon pensionsflagga —
+                märkningen bygger därför på frånvaro, och kräver tre saker samtidigt: ingen registrerad säsong i api-football (som ser alla
+                ligor, inte bara de vi importerar) på två hela säsonger, och att spelaren fyllt 30. Räcker underlaget inte till står det
+                ingenting alls.
+              </li>
+              <li>
                 <span className="font-semibold text-white">Takt-mått.</span> Poäng/90 och snittbetyg kräver minst {nf(MIN_MINUTES_FOR_RATE)}{" "}
                 spelade minuter respektive minst en betygsatt säsong. Saknas underlag visas &quot;—&quot;, aldrig en nolla.
               </li>
@@ -559,6 +565,13 @@ export default async function IncomingTransfersPage({
                         ) : (
                           <span className="shrink-0 rounded-full bg-[#0ca30c]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#0ca30c]">
                             ✨ Ny i Allsvenskan
+                          </span>
+                        )}
+                        {/* Fas 22c — "Pensionerad" står först: har karriären tagit
+                            slut är det den viktigaste upplysningen om spelaren. */}
+                        {s.activity.status === "retired" && (
+                          <span className="shrink-0 rounded-full bg-[#d9a526]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#d9a526]">
+                            🏁 Pensionerad
                           </span>
                         )}
                         {s.fromLeagueTier === 1 && (

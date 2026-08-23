@@ -19,6 +19,7 @@ import { colors } from "@/lib/design/tokens";
  */
 export function PlayerCardHeader({
   name,
+  retiredSince,
   photoUrl,
   teamExternalId,
   teamName,
@@ -38,6 +39,8 @@ export function PlayerCardHeader({
   freeProfileHref,
 }: {
   name: string;
+  /** Fas 22c — sista året spelaren var registrerad, satt bara när karriären bedöms avslutad (player-activity.ts). */
+  retiredSince?: number | null;
   photoUrl: string | null;
   teamExternalId: number | null | undefined;
   teamName: string | null;
@@ -78,6 +81,14 @@ export function PlayerCardHeader({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="text-2xl font-bold tracking-tight text-white">{name}</h1>
+            {retiredSince != null && (
+              <span
+                className="rounded-full bg-[#d9a526]/15 px-2.5 py-1 text-xs font-semibold text-[#d9a526]"
+                title={`Ingen registrerad säsong sedan ${retiredSince}.`}
+              >
+                🏁 Pensionerad
+              </span>
+            )}
             {ovr !== null && (
               <span
                 className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-base font-bold tabular-nums"

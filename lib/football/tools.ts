@@ -6,6 +6,7 @@ import { hasPlayedSeason } from "./active-player";
 import { getPositionGroup, selectPeers, type PeerGroupSummary } from "./position-group";
 import { computeEventsComplete } from "./match-completeness";
 import { displayPlayerName } from "./player-name";
+import { getPlayerActivity } from "./player-activity";
 import { IN_PLAY_STATUSES, isInPlayStatus, matchPhase } from "./live-status";
 
 type Supabase = SupabaseClient<Database>;
@@ -445,6 +446,7 @@ export async function getLiveMatches(supabase: Supabase) {
 // ---------------------------------------------------------------------------
 interface PlayerBioRow {
   id: number;
+  external_id: number | null;
   full_name: string;
   first_name: string | null;
   last_name: string | null;
@@ -530,7 +532,7 @@ export async function getPlayerProfile(supabase: Supabase, params: PlayerProfile
   const { data: bio, error: bioError } = await supabase
     .from("player")
     .select(
-      "id, full_name, first_name, last_name, position, birth_date, nationality, photo_url, " +
+      "id, external_id, full_name, first_name, last_name, position, birth_date, nationality, photo_url, " +
         "current_team:current_team_id(id, name, logo_url, external_id)"
     )
     .eq("id", resolved.id)
@@ -570,6 +572,10 @@ export async function getPlayerProfile(supabase: Supabase, params: PlayerProfile
   if (statsError) throw new FootballDataError(statsError.message);
 
   const rows = allStats ?? [];
+  // Nyaste importerade säsongen = "nu" (samma disciplin som i
+  // post-allsvenskan.ts: räkna det ur datan, inte ur systemklockan).
+  const { data: latestSeasonRow } = await supabase.from("season").select("year").order("year", { ascending: false }).limit(1).maybeSingle();
+  const latestSeasonYear = (latestSeasonRow as { year: number } | null)?.year ?? null;
   if (rows.length === 0) {
     throw new FootballDataError(`Ingen statistik hittad för ${playerName}.`);
   }
@@ -652,6 +658,24 @@ export async function getPlayerProfile(supabase: Supabase, params: PlayerProfile
       nationality: bio.nationality,
       photoUrl: bio.photo_url,
       team: bio.current_team,
+      /**
+       * Fas 22c (2026-08-23, användarkrav) — har spelaren avslutat karriären?
+       * "Nu" är den nyaste importerade säsongen, och underlaget är spelarens
+       * senaste allsvenska säsong med spel plus senaste klubbytet. Att
+       * spelarens utländska säsonger inte finns med här spelar ingen roll:
+       * getPlayerActivity väger alltid in api-footballs registreringshistorik
+       * (som ser ALLA ligor) och tar det senaste av källorna — se
+       * player-activity.ts.
+       */
+      activity: getPlayerActivity(
+        {
+          externalId: bio.external_id,
+          lastPlayedSeason: rows.reduce((max, r) => ((r.appearances ?? 0) > 0 && (r.season?.year ?? 0) > max ? r.season!.year : max), 0) || null,
+          lastTransferYear: latestTransfer?.latest_transfer_date ? Number(latestTransfer.latest_transfer_date.slice(0, 4)) : null,
+          birthDate: bio.birth_date,
+        },
+        latestSeasonYear ?? new Date().getFullYear()
+      ),
       // Fas 17b — "har spelaren redan lämnat?" Sant bara om senaste kända
       // klubbytet (api-football /transfers, se import-player-career.ts) gick
       // till en ANNAN klubb än den vi har registrerad som current_team_id —

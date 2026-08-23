@@ -7,6 +7,7 @@ import { normalizeTeamName } from "./team-name-normalize";
 import { getLeagueTier, NON_COMPETITIVE_LEAGUE_IDS } from "./league-tier";
 import { getLeagueStrength, type LeagueStrength } from "./post-allsvenskan-level";
 import { countryKey } from "@/lib/i18n/sv";
+import { getPlayerActivity, type PlayerActivity } from "./player-activity";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -56,6 +57,14 @@ export interface PostAllsvenskanPlayer {
    * nivå under Allsvenskan.
    */
   status: "back_in_allsvenskan" | "back_in_sweden" | "abroad" | "unknown";
+  /**
+   * Fas 22c (2026-08-23, användarkrav) — har spelaren slutat? `status` ovan
+   * säger bara VAR den senaste övergången ledde, och blev därför direkt
+   * missvisande för den som lagt av: Pontus Wernbloom stod som "Tillbaka i
+   * Allsvenskan" (IFK Göteborg 2020) fast han avslutade karriären 2021.
+   * Se player-activity.ts för de tre spärrarna bakom "retired".
+   */
+  activity: PlayerActivity;
   /** Spelarens VERKLIGA nuvarande klubb (Allsvensk om status=back_in_allsvenskan). */
   currentClubName: string;
   currentClubLogoUrl: string | null;
@@ -247,7 +256,7 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
       supabase
         .from("player")
         .select(
-          "id, full_name, first_name, last_name, photo_url, position, latest_transfer_team_name, latest_transfer_team_external_id, latest_transfer_team_logo_url"
+          "id, external_id, full_name, first_name, last_name, photo_url, position, birth_date, latest_transfer_team_name, latest_transfer_team_external_id, latest_transfer_team_logo_url"
         )
         .range(from, to)
     ),
@@ -271,6 +280,27 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
 
   const playerById = new Map(playerRows.map((p) => [p.id, p]));
   const allsvenskaTeamByExternalId = new Map((allsvenskaTeamsResult.data ?? []).map((t) => [t.external_id as number, t]));
+
+  /**
+   * Fas 22c — underlaget för "har spelaren slutat?" (se player-activity.ts).
+   * Senaste ALLSVENSKA säsongen med spelade matcher, senaste övergångsåret,
+   * och vilken säsong som är den nyaste vi överhuvudtaget har data för
+   * (dvs. "nu" — räknat ur datan istället för systemklockan, som redan
+   * ställt till det en gång i det här projektet).
+   */
+  const lastPlayedDomestic = new Map<number, number>();
+  let currentSeason = 0;
+  for (const row of domesticRows) {
+    const year = row.season?.year ?? 0;
+    if (year > currentSeason) currentSeason = year;
+    if (row.appearances > 0 && year > (lastPlayedDomestic.get(row.player_id) ?? 0)) lastPlayedDomestic.set(row.player_id, year);
+  }
+  const lastTransferYearByPlayer = new Map<number, number>();
+  for (const row of transferRows) {
+    const year = Number(row.transfer_date.slice(0, 4));
+    if (!Number.isFinite(year) || year < EARLIEST_PLAUSIBLE_TRANSFER_YEAR) continue;
+    if (year > (lastTransferYearByPlayer.get(row.player_id) ?? 0)) lastTransferYearByPlayer.set(row.player_id, year);
+  }
 
   // Fas 18h (2026-08-23) — ALLA svenska klubb-external_id vi någonsin sett i
   // importerad karriärdata (Superettan/Ettan/lägre), inte bara de 33
@@ -401,6 +431,9 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
     // ingen egen nivå) — men om spelaren KVALIFICERAR SIG via minst en
     // tier 1/2-säsong räknas all dokumenterad statistik (även cuper) med,
     // se filhuvudet där.
+    // Senaste UTLÄNDSKA säsongen med spelade matcher — andra halvan av
+    // aktivitetsunderlaget (den allsvenska halvan ligger i lastPlayedDomestic).
+    const lastPlayedAbroad = stints.reduce((max, s) => ((s.appearances ?? 0) > 0 && s.season_year > max ? s.season_year : max), 0);
     const hasQualifyingTier = stints.some((s) => getLeagueTier(s.league_external_id) !== null);
     if (!hasQualifyingTier) continue;
 
@@ -643,6 +676,15 @@ export async function getPlayersWhoLeftAllsvenskan(supabase: Supabase): Promise<
       previousTeamLogoUrl: lastDomestic.teamLogoUrl,
       leftYear: lastDomestic.year,
       status,
+      activity: getPlayerActivity(
+        {
+          externalId: player.external_id ?? null,
+          lastPlayedSeason: Math.max(lastPlayedDomestic.get(playerId) ?? 0, lastPlayedAbroad) || null,
+          lastTransferYear: lastTransferYearByPlayer.get(playerId) ?? null,
+          birthDate: player.birth_date ?? null,
+        },
+        currentSeason
+      ),
       currentClubName,
       currentClubLogoUrl,
       currentClubCountry,
@@ -752,8 +794,11 @@ export function computePostAllsvenskanInsights(players: PostAllsvenskanPlayer[])
   for (const p of players) yearCounts.set(p.leftYear, (yearCounts.get(p.leftYear) ?? 0) + 1);
   const exportsByYear = [...yearCounts.entries()].map(([year, count]) => ({ year, count })).sort((a, b) => a.year - b.year);
 
-  // "Återvändarprocent" — andel med status===back_in_allsvenskan just nu.
-  const returned = players.filter((p) => p.status === "back_in_allsvenskan").length;
+  // "Återvändarprocent" — andel som spelar i Allsvenskan just NU. Fas 22c:
+  // spelare som avslutat karriären räknas inte längre in. Rubriken lovar
+  // "spelar i Allsvenskan igen just nu", och Pontus Wernbloom (senaste
+  // övergång: IFK Göteborg 2020, slutade 2021) uppfyllde det inte.
+  const returned = players.filter((p) => p.status === "back_in_allsvenskan" && p.activity.status !== "retired").length;
   const returnRate: ReturnRateStats = {
     returned,
     total: players.length,

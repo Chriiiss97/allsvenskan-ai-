@@ -99,6 +99,16 @@ const PAGE_SIZE = 60;
 /** Tusentalsavgränsare med mellanslag, enligt användarens uttryckliga önskemål ("280 878", inte "280878"). */
 const nf = (n: number) => n.toLocaleString("sv-SE");
 
+/**
+ * Fas 22c (2026-08-23, användarkrav) — "Pensionerad" går FÖRE platsetiketten.
+ * Statusraderna nedan svarar på VAR den senaste övergången ledde, vilket blir
+ * direkt fel för den som lagt av: Pontus Wernbloom stod som "Tillbaka i
+ * Allsvenskan" (IFK Göteborg 2020) trots att han slutade 2021. Se
+ * lib/football/player-activity.ts för hur "retired" avgörs — och varför den
+ * hellre tiger än gissar.
+ */
+const RETIRED_BADGE = { label: "🏁 Pensionerad", className: "bg-[#d9a526]/15 text-[#d9a526]" };
+
 const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   back_in_allsvenskan: { label: "🟢 Tillbaka i Allsvenskan", className: "bg-[#0ca30c]/15 text-[#0ca30c]" },
   back_in_sweden: { label: "🇸🇪 Tillbaka i Sverige", className: "bg-white/10 text-[#c3c2b7]" },
@@ -724,7 +734,7 @@ export default async function PostAllsvenskanPage({
               <div className="space-y-1.5">
                 {visible.map((p) => {
                   const success = successByPlayerId.get(p.playerId);
-                  const badge = STATUS_BADGE[p.status];
+                  const badge = p.activity.status === "retired" ? RETIRED_BADGE : STATUS_BADGE[p.status];
                   return (
                     <Link
                       key={p.playerId}
@@ -768,8 +778,15 @@ export default async function PostAllsvenskanPage({
                           (p.status === "back_in_allsvenskan" || p.status === "back_in_sweden")
                             ? " · "
                             : null}
-                          {p.status === "back_in_allsvenskan" && `Idag: ${p.currentClubName}`}
-                          {p.status === "back_in_sweden" && `Idag: ${p.currentClubName} (Sverige, lägre nivå)`}
+                          {/* "Idag: X" gäller bara den som fortfarande spelar — för
+                              den som lagt av visas sista aktiva året istället. */}
+                          {p.activity.status === "retired"
+                            ? `Sist aktiv ${p.activity.lastActiveYear}`
+                            : p.status === "back_in_allsvenskan"
+                              ? `Idag: ${p.currentClubName}`
+                              : p.status === "back_in_sweden"
+                                ? `Idag: ${p.currentClubName} (Sverige, lägre nivå)`
+                                : null}
                         </p>
                       </div>
 

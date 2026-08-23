@@ -129,6 +129,7 @@ export default async function ScoutPlayerProfilePage({
 
       <PlayerCardHeader
         name={profile.player.name}
+        retiredSince={profile.player.activity.status === "retired" ? profile.player.activity.lastActiveYear : null}
         photoUrl={profile.player.photoUrl}
         teamExternalId={profile.player.team?.external_id}
         teamName={profile.player.displayTeamName}

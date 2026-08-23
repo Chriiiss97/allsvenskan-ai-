@@ -5,6 +5,7 @@ import { displayPlayerName } from "./player-name";
 import { getLeagueTier, NON_COMPETITIVE_LEAGUE_IDS } from "./league-tier";
 import { getLeagueStrength, type LeagueStrength } from "./post-allsvenskan-level";
 import { getClubCountry } from "./club-country";
+import { getPlayerActivity, type PlayerActivity } from "./player-activity";
 import { countryKey } from "@/lib/i18n/sv";
 
 type Supabase = SupabaseClient<Database>;
@@ -141,6 +142,8 @@ export interface IncomingSigning {
   seasonsAtClub: number;
   /** Hade spelaren allsvenskt spel redan innan övergången? */
   isReturnee: boolean;
+  /** Spelar spelaren fortfarande, eller har karriären tagit slut? Se player-activity.ts. */
+  activity: PlayerActivity;
 
   appearances: number;
   minutesPlayed: number;
@@ -186,11 +189,13 @@ interface StatRow {
 
 interface PlayerRow {
   id: number;
+  external_id: number | null;
   full_name: string;
   first_name: string | null;
   last_name: string | null;
   photo_url: string | null;
   position: string | null;
+  birth_date: string | null;
 }
 
 interface TeamRow {
@@ -231,7 +236,11 @@ export async function getIncomingTransfers(supabase: Supabase): Promise<Incoming
         .returns<StatRow[]>()
     ),
     fetchAllRows<PlayerRow>((from, to) =>
-      supabase.from("player").select("id, full_name, first_name, last_name, photo_url, position").range(from, to).returns<PlayerRow[]>()
+      supabase
+        .from("player")
+        .select("id, external_id, full_name, first_name, last_name, photo_url, position, birth_date")
+        .range(from, to)
+        .returns<PlayerRow[]>()
     ),
     supabase.from("team").select("id, external_id, name, logo_url").not("external_id", "is", null).returns<TeamRow[]>(),
   ]);
@@ -329,6 +338,29 @@ export async function getIncomingTransfers(supabase: Supabase): Promise<Incoming
     );
   }
 
+  /**
+   * Fas 22c — underlag för "har spelaren slutat?" (player-activity.ts).
+   * Senaste säsongen med SPELADE matcher, allsvenskt eller utomlands, samt
+   * senaste övergångsåret. "Nu" räknas ur datan (nyaste importerade säsong)
+   * istället för systemklockan.
+   */
+  const lastPlayedByPlayer = new Map<number, number>();
+  let currentSeason = 0;
+  for (const row of statRows) {
+    const year = row.season?.year ?? 0;
+    if (year > currentSeason) currentSeason = year;
+    if (row.appearances > 0 && year > (lastPlayedByPlayer.get(row.player_id) ?? 0)) lastPlayedByPlayer.set(row.player_id, year);
+  }
+  for (const row of stintRows) {
+    if (row.season_year > (lastPlayedByPlayer.get(row.player_id) ?? 0)) lastPlayedByPlayer.set(row.player_id, row.season_year);
+  }
+  const lastTransferYearByPlayer = new Map<number, number>();
+  for (const row of transferRows) {
+    const year = Number(row.transfer_date.slice(0, 4));
+    if (!Number.isFinite(year) || year < EARLIEST_PLAUSIBLE_TRANSFER_YEAR) continue;
+    if (year > (lastTransferYearByPlayer.get(row.player_id) ?? 0)) lastTransferYearByPlayer.set(row.player_id, year);
+  }
+
   const signings: IncomingSigning[] = [];
   // Samma spelare kan ha flera transferrader till samma klubb (t.ex. en
   // lånerad + en permanent). Den FÖRSTA ankomsten är värvningen.
@@ -406,6 +438,15 @@ export async function getIncomingTransfers(supabase: Supabase): Promise<Incoming
       lastSeason: Math.max(...seasonYears),
       seasonsAtClub: new Set(seasonYears).size,
       isReturnee,
+      activity: getPlayerActivity(
+        {
+          externalId: player?.external_id ?? null,
+          lastPlayedSeason: lastPlayedByPlayer.get(transfer.player_id) ?? null,
+          lastTransferYear: lastTransferYearByPlayer.get(transfer.player_id) ?? null,
+          birthDate: player?.birth_date ?? null,
+        },
+        currentSeason
+      ),
 
       appearances,
       minutesPlayed,
