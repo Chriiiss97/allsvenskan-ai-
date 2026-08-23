@@ -106,6 +106,13 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       ok: true,
+      // Hälsosignal, inte hemlighet: BARA om variabeln är satt, aldrig dess
+      // värde. Finns här för att Sportmonks-anropet annars bara går att testa
+      // när en match faktiskt rullar — en usel återkopplingsslinga för något
+      // så enkelt som en saknad miljövariabel. Exakt det problemet uppstod
+      // 2026-08-23: produktionen pollade i timmar utan matchklocka eftersom
+      // SPORTMONKS_API_TOKEN aldrig satts i Vercel (se DEPLOYMENT.md).
+      sportmonksTokenConfigured: !!process.env.SPORTMONKS_API_TOKEN,
       ticks,
       apiCalls,
       inPlay: last?.inPlay ?? 0,
