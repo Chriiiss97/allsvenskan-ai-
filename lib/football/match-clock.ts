@@ -18,7 +18,7 @@
  * av matchdata, utan en uträkning från en verklig tidsstämpel. Varje ny
  * pollning sätter om ankaret, så avdriften aldrig kan byggas upp.
  *
- * TRE SÄKERHETSSPÄRRAR, eftersom en klocka som räknar fritt är farligare än
+ * FYRA SÄKERHETSSPÄRRAR, eftersom en klocka som räknar fritt är farligare än
  * en som står still:
  *   1. `ticking = false` → klockan står. Halvtid, avbrott, VAR-granskning.
  *      Vi räknar INTE vidare, vi visar periodens namn.
@@ -28,7 +28,21 @@
  *   3. Saknas ankaret helt (migrationen inte körd, eller Sportmonks utan
  *      timer) faller vi tillbaka på API-Footballs heltalsminut — sämre, men
  *      sant.
+ *   4. Ett FÖR GAMMALT ankare räknas inte vidare på. Upptäckt i drift
+ *      2026-08-23: pollningen slutade fylla fixture_period mitt i en match
+ *      (Sportmonks-token saknades i produktionsmiljön), och raden låg kvar
+ *      med ticking=true på minut 14. Utan spärren hade klockan räknat på i
+ *      timmar och landat på "45+" — en siffra som såg levande ut men var
+ *      ren extrapolation. Nu fryses den på senast VERKLIGT avlästa tid.
  */
+
+/**
+ * Hur gammal senaste avläsningen får vara innan vi slutar räkna vidare på
+ * den. Pollningen skriver var 20:e–30:e sekund, så tre minuter är gott om
+ * marginal för en enstaka missad hämtning — men kort nog att en trasig
+ * insamling inte får klockan att springa iväg.
+ */
+const MAX_ANCHOR_AGE_MS = 3 * 60 * 1000;
 
 export interface MatchClockAnchor {
   /** Periodens namn hos Sportmonks: '1st-half', '2nd-half', 'extra-time', … */
@@ -95,6 +109,14 @@ export function computeClock(anchor: MatchClockAnchor | null, now: number): Matc
       minute: anchor.minutes,
       running: false,
     };
+  }
+
+  // Spärr 4: har ingen ny avläsning kommit på länge är matchen inte
+  // nödvändigtvis igång — insamlingen kan ha slutat. Visa senast kända tid
+  // som ett fruset värde i stället för en klocka som gissar vidare.
+  const anchorAgeMs = now - new Date(anchor.readAt).getTime();
+  if (anchorAgeMs > MAX_ANCHOR_AGE_MS) {
+    return { text: formatClock(anchorSeconds), minute: anchor.minutes, running: false };
   }
 
   const elapsedSinceRead = Math.max(0, (now - new Date(anchor.readAt).getTime()) / 1000);
