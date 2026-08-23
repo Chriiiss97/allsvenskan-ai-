@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { getCachedPostAllsvenskanPlayers, getCachedMostDecoratedAbroad } from "@/lib/football/cached-reads";
+import { getCachedPostAllsvenskanPlayers, getCachedMostDecoratedAbroad, getCachedIncomingTransfers } from "@/lib/football/cached-reads";
 import {
   aggregateByPreviousClub,
   computePostAllsvenskanInsights,
@@ -16,6 +16,8 @@ import {
 import { LEVEL_LABEL } from "@/lib/football/post-allsvenskan-level";
 import { translateClubCountry } from "@/lib/i18n/sv";
 import { PlayerAvatar } from "@/components/data/PlayerAvatar";
+import { TransferDirectionTabs } from "@/components/scout/TransferDirectionTabs";
+import { YearBars } from "@/components/scout/YearBars";
 
 /**
  * Fas 18b (2026-08-22) — "Efter Allsvenskan": en egen Scout-flik (inte
@@ -165,15 +167,39 @@ export default async function PostAllsvenskanPage({
   const sort: SortKey = isValidSort(sortParam) ? sortParam : "goals";
   const view: View = vy === "analys" ? "analys" : "spelare";
 
-  const [players, decoratedAbroad] = await Promise.all([
+  const [players, decoratedAbroad, incoming] = await Promise.all([
     getCachedPostAllsvenskanPlayers(),
     getCachedMostDecoratedAbroad(),
+    getCachedIncomingTransfers(),
   ]);
   const clubAggregates = aggregateByPreviousClub(players);
   const insights = computePostAllsvenskanInsights(players);
   const destinationLeagues = aggregateDestinationLeagues(players);
   const destinationClubs = aggregateDestinationClubs(players);
-  const maxExportCount = Math.max(1, ...insights.exportsByYear.map((y) => y.count));
+
+  /**
+   * Fas 22b — export- och importkurvan på samma axel och samma skala.
+   * Importsiffran är en ren årsräkning av de VERIFIERADE värvningarna från
+   * incoming-transfers.ts (samma underlag som /scout/varvningar) — ingen ny
+   * fråga, ingen egen definition här.
+   *
+   * Importunderlaget börjar 2015 medan exporten går tillbaka till 2008, och
+   * det är en datagräns, inte ett faktum om verkligheten: en värvning räknas
+   * först när spelaren FAKTISKT spelat allsvenskt för klubben, och den
+   * matchstatistiken finns importerad från säsongen 2016 (övergångsåret kan
+   * alltså tidigast vara 2015). Åren dessförinnan visas därför som "–", inte
+   * som noll.
+   */
+  const incomingCountByYear = new Map<number, number>();
+  for (const s of incoming) incomingCountByYear.set(s.transferYear, (incomingCountByYear.get(s.transferYear) ?? 0) + 1);
+  const firstIncomingYear = incomingCountByYear.size > 0 ? Math.min(...incomingCountByYear.keys()) : null;
+  const curveYears = [...new Set([...insights.exportsByYear.map((y) => y.year), ...incomingCountByYear.keys()])].sort((a, b) => a - b);
+  const exportRows = curveYears.map((year) => ({ year, count: insights.exportsByYear.find((y) => y.year === year)?.count ?? 0 }));
+  const importRows = curveYears.map((year) => ({
+    year,
+    count: firstIncomingYear !== null && year >= firstIncomingYear ? incomingCountByYear.get(year) ?? 0 : null,
+  }));
+  const maxCurveCount = Math.max(1, ...exportRows.map((r) => r.count), ...importRows.map((r) => r.count ?? 0));
   const { ranked, excludedByThreshold } = computePostAllsvenskanSuccess(players);
   const successByPlayerId = new Map(ranked.map((e) => [e.player.playerId, e]));
   const mostSuccessful = ranked[0] ?? null;
@@ -241,8 +267,11 @@ export default async function PostAllsvenskanPage({
 
   return (
     <div>
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#a78bfa]">Scout Network</p>
-      <h1 className="mt-1 text-3xl font-bold tracking-tight">Efter Allsvenskan</h1>
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#a78bfa]">Scout Network · Värvningar</p>
+      {/* Fas 22 — sidan är numera ena halvan av kategorin "Värvningar"
+          (den andra är /scout/varvningar). Växlaren ligger på båda sidorna. */}
+      <TransferDirectionTabs active="ut" />
+      <h1 className="mt-4 text-3xl font-bold tracking-tight">Efter Allsvenskan</h1>
       <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-[#898781]">
         <span className="font-semibold text-white">{nf(players.length)} spelare</span> med ett bekräftat klubbyte ut ur Allsvenskan till en
         utländsk toppdivision — real data (transfers + matchstatistik), inte en gissning om vilka som &quot;kan ha&quot; lämnat.
@@ -494,31 +523,46 @@ export default async function PostAllsvenskanPage({
             Full bredd (inte i rastret ovan): ett tidsseriediagram behöver
             horisontellt utrymme för att gå att läsa.
           */}
-          {insights.exportsByYear.length > 1 && (
+          {curveYears.length > 1 && (
             <AnalysisCard
               label="📈 Exportkurvan"
               hint="Antal spelare som lämnat Allsvenskan för en utländsk toppdivision, per avgångsår."
               footnote="Innevarande år är ofullständigt — säsongen pågår, och sena övergångar hinner inte med i importerad data."
             >
-              <div className="flex items-end gap-1.5 overflow-x-auto pb-1">
-                {insights.exportsByYear.map((y) => {
-                  const isMax = y.count === maxExportCount;
-                  return (
-                    <div
-                      key={y.year}
-                      className="flex min-w-[28px] flex-1 flex-col items-center justify-end gap-1.5"
-                      title={`${y.year}: ${y.count} spelare`}
-                    >
-                      <span className={`text-[11px] font-semibold tabular-nums ${isMax ? "text-white" : "text-[#898781]"}`}>{y.count}</span>
-                      <div
-                        className={`w-full rounded-t-sm ${isMax ? "bg-[#a78bfa]" : "bg-[#a78bfa]/45"}`}
-                        style={{ height: `${Math.max(8, Math.round((y.count / maxExportCount) * 120))}px` }}
-                      />
-                      <span className="text-[10px] tabular-nums text-[#7d7c76]">{y.year}</span>
-                    </div>
-                  );
-                })}
-              </div>
+              <YearBars rows={exportRows} max={maxCurveCount} tone="violet" unit="spelare" />
+            </AnalysisCard>
+          )}
+
+          {/*
+            Fas 22b (2026-08-23, användarkrav "lägg till en importkurva under
+            export") — samma fråga åt andra hållet: hur många spelare KÖPS IN
+            till Allsvenskan från utlandet, per övergångsår? Datan är exakt de
+            värvningar /scout/varvningar bygger på (incoming-transfers.ts, hela
+            kvalificeringskedjan i den filens huvud) — inte en ny och lösare
+            definition bara för att fylla ett diagram.
+
+            Ligger direkt under exportkurvan och delar dess X-axel och
+            höjdskala, så staplarna faktiskt går att jämföra: 2023 var
+            rekordåret ut (101), 2025 rekordåret in (110).
+          */}
+          {firstIncomingYear !== null && curveYears.length > 1 && (
+            <AnalysisCard
+              label="🛬 Importkurvan"
+              hint="Antal spelare som värvats till Allsvenskan från en utländsk klubb, per övergångsår."
+              footnote={
+                <>
+                  Samma år och samma höjdskala som exportkurvan ovan — staplarna går att jämföra rakt av. Åren före {firstIncomingYear} visas som
+                  &quot;–&quot;: en värvning räknas först när spelaren faktiskt spelat allsvenskt för klubben, och den matchstatistiken finns
+                  importerad från säsongen {firstIncomingYear + 1} — det är en gräns i underlaget, inte ett påstående om att inga spelare värvades
+                  tidigare. Innevarande år är ofullständigt.{" "}
+                  <Link href="/scout/varvningar?vy=analys" className="font-semibold text-[#a78bfa] hover:underline">
+                    Hela värvningsanalysen
+                  </Link>
+                  .
+                </>
+              }
+            >
+              <YearBars rows={importRows} max={maxCurveCount} tone="blue" unit="värvningar" />
             </AnalysisCard>
           )}
 

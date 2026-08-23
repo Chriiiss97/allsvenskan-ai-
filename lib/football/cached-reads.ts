@@ -1,6 +1,7 @@
 import "server-only";
 import { cachedRead, createAnonClient } from "@/lib/cache/server-cache";
 import { getPlayersWhoLeftAllsvenskan, getMostDecoratedAbroad, type PostAllsvenskanPlayer, type DecoratedAbroadEntry } from "./post-allsvenskan";
+import { getIncomingTransfers, type IncomingSigning } from "./incoming-transfers";
 import { getAvailableSeasons, listTeams, listTeamsWithSeasonSummary, type SeasonOption, type TeamOption, type TeamOverviewRow } from "./catalog";
 import { getStandingsView, type StandingsFilter, type StandingsViewRow } from "./standings-views";
 import { listPlayers, type PlayerListParams, type PlayerListResult } from "./player-catalog";
@@ -11,6 +12,15 @@ import { getTopScorers } from "./tools";
  * PRESTANDA (2026-08-23) — cachade ingångar till de tyngsta PUBLIKA
  * läsningarna. Se lib/cache/server-cache.ts för varför cachen har två lager
  * och varför det är säkert att dela resultatet mellan besökare.
+ *
+ * ⚠️ VERSIONSNUMRET I NYCKELN ÄR INTE DEKORATION. Det som ligger i cachen
+ * är det FÄRDIGA svaret, inte rådata — ändrar man hur ett fält räknas ut
+ * fortsätter gamla poster att serveras med det gamla värdet tills de
+ * revalideras. Verkligt fall (2026-08-23): när spelarnamnen gick över till
+ * "Tilltalsnamn Efternamn" stod "Carl Mikael Lustig" kvar i Efter
+ * Allsvenskan-korten trots att koden redan gav "Mikael Lustig". Höj därför
+ * `-vN` på VARJE nyckel vars innehåll ändrar betydelse — det ger en ny
+ * post direkt istället för att vänta ut en revalidering.
  *
  * Reglen för vad som får ligga här: funktionen ska vara REN (samma svar för
  * alla inloggade), bygga sin egen anon-klient, och returnera vanliga
@@ -25,9 +35,21 @@ import { getTopScorers } from "./tools";
  * navigering till sidan, inklusive Sidebar:ns prefetch.
  */
 export const getCachedPostAllsvenskanPlayers = cachedRead(
-  "post-allsvenskan-players-v1",
+  "post-allsvenskan-players-v2",
   async (): Promise<PostAllsvenskanPlayer[]> => getPlayersWhoLeftAllsvenskan(createAnonClient()),
   { tags: ["post-allsvenskan"] }
+);
+
+/**
+ * Fas 22 (2026-08-23) — "Värvningar till Allsvenskan", spegelbilden ovan.
+ * Läser fyra hela tabeller (transferhändelser, karriärstints, allsvensk
+ * statistik, spelare — uppmätt ~670ms) och är, precis som Efter
+ * Allsvenskan, identisk för alla besökare mellan importkörningar.
+ */
+export const getCachedIncomingTransfers = cachedRead(
+  "incoming-transfers-v1",
+  async (): Promise<IncomingSigning[]> => getIncomingTransfers(createAnonClient()),
+  { tags: ["post-allsvenskan", "players"] }
 );
 
 /**
@@ -38,7 +60,7 @@ export const getCachedPostAllsvenskanPlayers = cachedRead(
  * eftersom sidan efterfrågar båda samtidigt.
  */
 export const getCachedMostDecoratedAbroad = cachedRead(
-  "post-allsvenskan-decorated-v1",
+  "post-allsvenskan-decorated-v2",
   async (): Promise<DecoratedAbroadEntry[]> => {
     const supabase = createAnonClient();
     const players = await getCachedPostAllsvenskanPlayers();
@@ -94,7 +116,7 @@ export const getCachedStandingsView = cachedRead(
  * därför i praktiken bara säsongen, och alla besökare delar samma post.
  */
 export const getCachedPlayerList = cachedRead(
-  "player-list-v1",
+  "player-list-v2",
   async (params: PlayerListParams): Promise<PlayerListResult> => listPlayers(createAnonClient(), params),
   { tags: ["players"] }
 );
@@ -106,7 +128,7 @@ export const getCachedPlayerList = cachedRead(
  * getTopScorers-svaret) så att inget onödigt hamnar i cachen.
  */
 export const getCachedTopScorer = cachedRead(
-  "team-top-scorer-v1",
+  "team-top-scorer-v2",
   async (teamName: string): Promise<{ name: string; goals: number; season: number | null } | null> => {
     const result = await getTopScorers(createAnonClient(), { team: teamName, limit: 1 });
     const top = result.scorers[0];
@@ -186,7 +208,7 @@ export const getCachedSeasonFixtures = cachedRead(
  * tom sökning för att kunna visa utgångsläget.
  */
 export const getCachedScoutSearch = cachedRead(
-  "scout-search-v1",
+  "scout-search-v2",
   async (params: ScoutSearchParams): Promise<ScoutSearchResultRow[]> => searchScoutPlayers(createAnonClient(), params),
   { tags: ["players"] }
 );

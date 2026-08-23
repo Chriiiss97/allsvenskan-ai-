@@ -11,7 +11,11 @@ import { hasScoutAccess } from "@/lib/auth/premium";
 const SCOUT_NAV = [
   { href: "/scout/spelare", label: "Spelare" },
   { href: "/scout/lag", label: "Lag" },
-  { href: "/scout/efter-allsvenskan", label: "Efter Allsvenskan" },
+  // Fas 22 (2026-08-23, användarkrav) — de två transferanalyserna delar EN
+  // nav-post: "Värvningar". Riktningen (in i/ut ur Allsvenskan) väljs på
+  // sidan via TransferDirectionTabs, inte i navet — annars konkurrerar två
+  // nästan identiska etiketter om samma plats.
+  { href: "/scout/varvningar", label: "Värvningar" },
   { href: "/scout/search", label: "Sök" },
   { href: "/scout/compare", label: "Jämför" },
   { href: "/scout/shortlist", label: "Bevakningslista" },

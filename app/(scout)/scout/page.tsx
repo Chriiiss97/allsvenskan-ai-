@@ -9,6 +9,9 @@ const CARDS = [
   { href: "/scout/search", emoji: "🎯", title: "Search", desc: "Kriterie-sökning: mått-trösklar och percentiler kombinerat." },
   { href: "/scout/lag", emoji: "🛡️", title: "Lag", desc: "Lag-DNA — spelstil jämfört med ligasnittet." },
   { href: "/scout/compare", emoji: "⚖️", title: "Compare", desc: "Jämför två spelare eller två lag sida vid sida." },
+  // Fas 22 — kategorin "Värvningar" (in i och ut ur Allsvenskan) saknades
+  // helt på hubben; Efter Allsvenskan har aldrig legat här.
+  { href: "/scout/varvningar", emoji: "📥", title: "Värvningar", desc: "Vilka utlandsvärvningar lyckas — och vart spelarna tar vägen efteråt." },
   { href: "/scout/shortlist", emoji: "⭐", title: "Shortlist", desc: "Dina sparade spelare, samlade på ett ställe." },
 ];
 
